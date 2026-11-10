@@ -103,10 +103,12 @@ The core already sees every entry on its way to the view, so it keeps what the v
 There is no project containment root (O6): an agent legitimately reads documents from a downloads folder, and the
 registry stands in for the root.
 
-`how` is `default`, `tab` or `click`. `default` opens the real path in the system's program inside main. `tab`
+`how` is `default`, `tab`, `click` or `folder`. `default` opens the real path in the system's program inside main. `tab`
 answers `{ ok: true, action: 'tab', path }` and the renderer opens its own file view. `click` follows the user's
-`fileClickTarget` with the terminal's Ctrl/Cmd inversion and answers `tab`, `default` or `editor` (O4, below). The
-refusal wording is the module's own; a thrown error goes through `readable-error.js`.
+`fileClickTarget` with the terminal's Ctrl/Cmd inversion and answers `tab`, `default` or `editor` (O4, below).
+`folder` (#837) shows the real path selected in the system's file manager (`shell.showItemInFolder`) and answers
+`{ ok: true, action: 'folder' }`; it passes the same seven checks, so it reveals only a file the open would have
+opened. The refusal wording is the module's own; a thrown error goes through `readable-error.js`.
 
 ## The card
 
@@ -118,11 +120,14 @@ backend and no tool: it reads the element and the image blocks that follow.
   the kind's label ("PDF", "Markdown"). The name and the page label sit beside it.
 - **Label**: `pages <range>` when the element carries one, else `N pages` for a PDF, else the kind name. An image is
   never "1 page".
-- **Open buttons** ("Open in default app", "Open in tab"): only in the conversation view, which passes
+- **Action buttons** ("Open in default app", "Open in tab", "Show in folder", "Copy path"): only in the conversation view, which passes
   `ctx = { sessionId, host, focusFallback }`. `sessionId` is a string or a function; the conversation view passes a
   function (`() => getSession().sessionId`) and the card calls it when it is drawn and at each click, so a re-key
   after the draw is followed. `focusFallback` is the composer's focus. "Open in default app" is `how: 'default'`, "Open in tab" is `how: 'tab'`; neither
-  consults `fileClickTarget`.
+  consults `fileClickTarget`. "Show in folder" is `how: 'folder'` (#837). "Copy path" (#837) puts the path the card
+  was drawn with on the clipboard (`window.api.writeClipboard`) and confirms with a short toast; it reads no file and
+  asks main nothing, so it works for a session that has ended as well. One list (`cardActions`) feeds the card and the
+  viewer's bar.
 - **Card click** (also Enter and Space, the card is a button): with page images it opens the viewer. A Markdown or
   HTML card reads its file then (`document-read`, #764) and opens the viewer with it rendered; Ctrl/Cmd-click asks
   main for `how: 'click'` without inverting, which is what a plain click did before #764. A whole-PDF read does the
@@ -160,9 +165,9 @@ a newer viewer on the host), so the caller can stop its tail. A document and an 
 - Zoom: 25 % to 400 % in 25 % steps, `+`/`-`/`0`, Ctrl+wheel (Cmd on a Mac, the conversation's own test; the wheel stops at the stage so it never nudges
   the app font size); the label button resets to 100 %.
 - Esc, the close button and a click on the empty backdrop close it.
-- **Open actions (#765)**: "Open in default app" and "Open in tab" sit in the bar for every kind, as on the card and
-  only where the card has them (not in the history viewer). Each closes the viewer, then goes through the card's own
-  `document-open` call.
+- **Card actions (#765, #837)**: the card's four actions sit in the bar for every kind, as on the card and only where
+  the card has them (not in the history viewer). Each closes the viewer, then runs the card's own call. "Copy path"
+  carries `keepOpen` and leaves the viewer open, because nothing it does leaves the viewer.
 - **Keys are handled by a listener on the overlay element only, never on `document`.** While the viewer is closed
   no listener exists, so the composer's keys cannot be shadowed by construction. Focus moves into the overlay on
   open, Tab is trapped between its buttons, and focus returns to the element that had it on close. When that
@@ -269,7 +274,8 @@ with Ctrl/Cmd held. A card with pages, and a Markdown, HTML or PDF card on a pla
   while resolving. The agent's own `Read` had reached it already. A path spelled as a network path is refused before
   any stat.
 - **G6.** The registry lives on the running session's state. After the session exits its card's buttons are refused
-  ("This session is not running"), "Open in tab" included, even though the file is still there. Reopening the
+  ("This session is not running"), "Open in tab" and "Show in folder" included, even though the file is still there.
+  "Copy path" still works: it reads nothing. Reopening the
   session reads the conversation back and rebuilds the registry.
 - The element's `range` is data for a label only: digits, dashes and commas, short, never parsed into anything.
 

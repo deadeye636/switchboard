@@ -26,8 +26,9 @@
 // `opts.onClose`, when given, runs once the overlay is gone, whoever closed it (Esc, a newer viewer on the host, an
 // action), so the caller can stop what it was feeding the element with.
 //
-// `opts.actions = [{ label, run }]` (#765) puts the card's open actions in the bar; each closes the viewer and then
-// runs. The card passes them only where it shows its own buttons, so the history viewer has none here either.
+// `opts.actions = [{ label, run, keepOpen }]` (#765) puts the card's actions in the bar; each closes the viewer and
+// then runs, unless it says `keepOpen` (Copy path, #837: nothing leaves the viewer, so it stays). The card passes them
+// only where it shows its own buttons, so the history viewer has none here either.
 //
 // Reads `isMac` (terminal/terminal-manager.js), `htmlWithBase` (shared/preview-kind.js) and `DOMPurify` /
 // `window.marked` (their own tags in index.html) at call time, guarded. `opts.focusFallback`, when given, takes the
@@ -115,7 +116,7 @@ function openDocumentViewer(opts) {
   if (actions.length) {
     const group = document.createElement('span');
     group.className = 'document-viewer-group document-viewer-actions';
-    for (const a of actions) group.appendChild(btn(a.label, a.label, () => { close(); a.run(); }));
+    for (const a of actions) group.appendChild(btn(a.label, a.label, () => { if (!a.keepOpen) close(); a.run(); }));
     bar.appendChild(group);
   }
 

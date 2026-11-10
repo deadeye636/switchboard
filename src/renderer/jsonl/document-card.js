@@ -162,10 +162,11 @@ function watchDocumentThumb(img, getSrc) {
 }
 
 // What the renderer finishes after main answered `openDocument`: 'default' was opened by main itself.
-function finishDocumentOpen(sessionId, res) {
+function finishDocumentOpen(sessionId, res, how) {
   if (!res || res.ok !== true) {
     const msg = res && res.error ? res.error : 'The document could not be opened.';
-    if (typeof showControlMessage === 'function') showControlMessage({ title: 'Cannot open document', message: msg });
+    const title = how === 'folder' ? 'Cannot show in folder' : 'Cannot open document';
+    if (typeof showControlMessage === 'function') showControlMessage({ title, message: msg });
     return;
   }
   if (res.action === 'tab' && res.path && typeof openFileInPanel === 'function') openFileInPanel(sessionId, res.path);
@@ -174,8 +175,22 @@ function finishDocumentOpen(sessionId, res) {
 
 async function requestDocumentOpen(sessionId, path, how, invert) {
   let res = null;
-  try { res = await window.api.openDocument(sessionId, path, how, !!invert); } catch (err) { res = { ok: false, error: String(err && err.message || err) }; }
-  finishDocumentOpen(sessionId, res);
+  // A rejected call carries Electron's wrapping of whatever was thrown; main words its own refusals, so a fixed
+  // sentence stands in for anything that did not come back as an answer.
+  try { res = await window.api.openDocument(sessionId, path, how, !!invert); } catch { res = { ok: false }; }
+  finishDocumentOpen(sessionId, res, how);
+}
+
+// "Copy path" (#837): the path the card was drawn with, as the element carried it. It reads no file, so it asks
+// main nothing; "Show in folder" beside it goes through `openDocument` and its checks.
+async function copyDocumentPath(path) {
+  try {
+    await window.api.writeClipboard(path);
+  } catch {
+    if (typeof showControlMessage === 'function') showControlMessage({ title: 'Cannot copy path', message: 'The path could not be put on the clipboard.' });
+    return;
+  }
+  if (typeof showControlToast === 'function') showControlToast({ message: 'Path copied.', timeoutMs: 1500 });
 }
 
 // The card for a tool result, or null when the result is drawn as it always was: no document element, or
@@ -244,31 +259,35 @@ function renderDocumentCard(resultData, ctx) {
   meta.appendChild(nameEl);
   meta.appendChild(subEl);
 
+  // What a card with a session can do with its file (#755, #837): one list for the card and the viewer's bar.
+  const cardActions = [
+    { label: 'Open in default app', run: () => requestDocumentOpen(sessionIdNow(), doc.path, 'default', false) },
+    { label: 'Open in tab', run: () => requestDocumentOpen(sessionIdNow(), doc.path, 'tab', false) },
+    { label: 'Show in folder', run: () => requestDocumentOpen(sessionIdNow(), doc.path, 'folder', false) },
+    { label: 'Copy path', run: () => copyDocumentPath(doc.path), keepOpen: true },
+  ];
+
   if (canAct) {
     const actions = document.createElement('div');
     actions.className = 'document-card-actions';
-    const mk = (label, how) => {
+    const mk = (label, run) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'new-session-secondary-btn document-card-btn';
       b.textContent = label;
       b.addEventListener('click', (e) => {
         e.stopPropagation();
-        requestDocumentOpen(sessionIdNow(), doc.path, how, false);
+        run();
       });
       return b;
     };
-    actions.appendChild(mk('Open in default app', 'default'));
-    actions.appendChild(mk('Open in tab', 'tab'));
+    for (const a of cardActions) actions.appendChild(mk(a.label, a.run));
     meta.appendChild(actions);
   }
   card.appendChild(meta);
 
-  // The same two actions in the viewer's bar (#765), only where the card shows them.
-  const viewerActions = canAct ? [
-    { label: 'Open in default app', run: () => requestDocumentOpen(sessionIdNow(), doc.path, 'default', false) },
-    { label: 'Open in tab', run: () => requestDocumentOpen(sessionIdNow(), doc.path, 'tab', false) },
-  ] : [];
+  // The same actions in the viewer's bar (#765), only where the card shows them.
+  const viewerActions = canAct ? cardActions : [];
 
   // A document and an agent share the one viewer per host (#787): each open claims its turn, so an agent's
   // transcript still being read gives way to a document opened after it, and the other way round.

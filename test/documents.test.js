@@ -23,12 +23,16 @@ const resultEntry = (...els) => ({ type: 'user', message: { role: 'user', conten
 const docEntry = (p) => resultEntry(documentElement({ path: p, pages: 1 }));
 
 // `settings` and `sensitive` are what main.js hands in; `sessions` maps a session id to its registry.
-function setup({ settings = {}, sensitive = () => false, openResult = '' } = {}) {
+function setup({ settings = {}, sensitive = () => false, openResult = '', revealThrows = null } = {}) {
   const sessions = new Map();
   const opened = [];
+  const revealed = [];
   const logged = [];
   documents.init({
-    shell: { openPath: async (p) => { opened.push(p); return openResult; } },
+    shell: {
+      openPath: async (p) => { opened.push(p); return openResult; },
+      showItemInFolder: (p) => { if (revealThrows) throw revealThrows; revealed.push(p); },
+    },
     isSensitivePath: sensitive,
     registryFor: (id) => sessions.get(id) || null,
     getGlobalSettings: () => settings,
@@ -36,7 +40,7 @@ function setup({ settings = {}, sensitive = () => false, openResult = '' } = {})
   });
   const registry = documents.createRegistry();
   sessions.set(SID, registry);
-  return { registry, sessions, opened, logged };
+  return { registry, sessions, opened, revealed, logged };
 }
 
 test('the registry takes the path of a document element and nothing else', () => {
@@ -223,6 +227,43 @@ test("how 'tab' answers ok for the renderer's own file view and opens nothing", 
   registry.note(docEntry(file));
   assert.deepEqual(await documents.openDocument(SID, file, 'tab'), { ok: true, action: 'tab', path: file });
   assert.deepEqual(opened, []);
+});
+
+// #837: Show in folder reveals only what the open would have opened, through the same checks.
+test("how 'folder' reveals a registered file in the file manager and opens nothing", async (t) => {
+  const dir = tmp(t);
+  const file = path.join(dir, 'a.md');
+  fs.writeFileSync(file, '# a');
+  const { registry, opened, revealed } = setup();
+  assert.equal((await documents.openDocument(SID, file, 'folder')).ok, false, 'an unregistered path is refused');
+  assert.deepEqual(revealed, []);
+  registry.note(docEntry(file));
+  assert.deepEqual(await documents.openDocument(SID, file, 'folder'), { ok: true, action: 'folder' });
+  assert.equal(revealed.length, 1);
+  assert.equal(path.basename(revealed[0]), 'a.md');
+  assert.deepEqual(opened, []);
+});
+
+test("how 'folder' refuses a network path before any stat, and words a thrown reveal", async (t) => {
+  const realStat = fs.promises.stat;
+  let statted = 0;
+  fs.promises.stat = (...a) => { statted++; return realStat(...a); };
+  t.after(() => { fs.promises.stat = realStat; });
+  const net = setup();
+  net.registry.note(docEntry('\\\\host\\share\\a.pdf'));
+  assert.equal((await documents.openDocument(SID, '\\\\host\\share\\a.pdf', 'folder')).ok, false);
+  assert.equal(statted, 0);
+  assert.deepEqual(net.revealed, []);
+
+  const dir = tmp(t);
+  const file = path.join(dir, 'a.pdf');
+  fs.writeFileSync(file, '%PDF-1.4');
+  const err = Object.assign(new Error(`EACCES: ${file}`), { code: 'EACCES' });
+  const { registry } = setup({ revealThrows: err });
+  registry.note(docEntry(file));
+  const res = await documents.openDocument(SID, file, 'folder');
+  assert.equal(res.ok, false);
+  assert.ok(!res.error.includes(dir), 'the error names no path');
 });
 
 test("how 'click' follows fileClickTarget: internal is the tab, Ctrl/Cmd flips it", async (t) => {

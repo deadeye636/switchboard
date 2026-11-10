@@ -128,8 +128,8 @@ chart rather than a row of zeroes.
   PDF page range, an image, a Markdown or an HTML file the agent reads is one card with a first-page
   thumbnail, the name and a page count, not every page in the log. A click opens a viewer over the
   conversation with a pager and zoom, and a Markdown, HTML or whole PDF file opens there rendered; Ctrl/Cmd-click
-  opens it the way your file-click setting says. Two buttons open
-  it in the default app or in a tab. `Documents in the conversation` switches back to inline images. An HTML
+  opens it the way your file-click setting says. Buttons open
+  it in the default app or in a tab, show it in its folder, or copy its path. `Documents in the conversation` switches back to inline images. An HTML
   page or a Markdown document the agent writes into its answer as a code block has a Preview button that opens it
   rendered in the same viewer, HTML with scripts off.
   → [`docs/specs/33-document-preview.md`](docs/specs/33-document-preview.md)

@@ -15,13 +15,15 @@ const flush = () => new Promise((r) => setImmediate(r));
 function setup(settings, { observer = false } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>');
   const w = dom.window;
-  const calls = { open: [], panel: [], editor: [], read: [], msg: [] };
+  const calls = { open: [], panel: [], editor: [], read: [], msg: [], copied: [], toast: [] };
+  let clipboardFails = false;
   let answer = { ok: true, action: 'default' };
   let readAnswer = { ok: true, kind: 'markdown', text: '# Title\n\nbody' };
   w.api = new Proxy({}, { get: (_t, k) => {
     if (k === 'openDocument') return async (...a) => { calls.open.push(a); return answer; };
     if (k === 'readDocument') return async (...a) => { calls.read.push(a); return readAnswer; };
     if (k === 'openInEditor') return (p) => calls.editor.push(p);
+    if (k === 'writeClipboard') return async (t) => { if (clipboardFails) throw new Error('denied'); calls.copied.push(t); };
     return () => {};
   } });
   const observers = [];
@@ -38,10 +40,12 @@ function setup(settings, { observer = false } = {}) {
   vm.runInContext(read('src/shared/partial-args.js'), ctx);
   vm.runInContext(read('src/renderer/session/subagent-live.js'), ctx);
   ctx.__msg = (m) => calls.msg.push(m);
+  ctx.__toast = (m) => calls.toast.push(m && m.message);
   vm.runInContext(`
     function escapeHtml(s) { return String(s); }
     function openFileInPanel(...a) { __panel(...a); }
     function showControlMessage(m) { __msg(m); }
+    function showControlToast(m) { __toast(m); }
   `, ctx);
   ctx.__settings = settings;
   vm.runInContext('var appGlobalSettings = __settings;', ctx);
@@ -56,7 +60,7 @@ function setup(settings, { observer = false } = {}) {
     w.document.body.appendChild(el);
     return el;
   };
-  return { w, draw, calls, observers, setAnswer: (a) => { answer = a; }, setRead: (a) => { readAnswer = a; } };
+  return { w, draw, calls, observers, setAnswer: (a) => { answer = a; }, setRead: (a) => { readAnswer = a; }, failClipboard: () => { clipboardFails = true; } };
 }
 
 const el = (over) => ({ type: 'document', path: '/d/report.pdf', kind: 'pdf', name: 'report.pdf', pages: 2, ...over });
@@ -117,7 +121,8 @@ test('subtitle: range wins, then pages, then the kind', () => {
 
 test('buttons only with actions; the history viewer passes none', () => {
   const h = setup({});
-  assert.equal(h.draw([el(), img()], ACT).querySelectorAll('.document-card-btn').length, 2);
+  const labels = [...h.draw([el(), img()], ACT).querySelectorAll('.document-card-btn')].map(b => b.textContent);
+  assert.deepEqual(labels, ['Open in default app', 'Open in tab', 'Show in folder', 'Copy path']);
   const root = h.draw([el(), img()], undefined);
   assert.ok(root.querySelector('.document-card'));
   assert.equal(root.querySelectorAll('.document-card-btn').length, 0);
@@ -147,6 +152,43 @@ test('open buttons go through openDocument; tab finishes only on the answer', as
   h.setAnswer({ ok: false, error: 'no' });
   tab.click(); await flush();
   assert.equal(h.calls.panel.length, 1);
+});
+
+// #837: Show in folder goes through openDocument (main's checks); Copy path copies the path the card was drawn
+// with and asks main nothing. The viewer keeps both, and stays open for Copy path only.
+test('Show in folder goes through openDocument; Copy path copies the drawn path and confirms', async () => {
+  const h = setup({});
+  const root = h.draw([el({ kind: 'markdown', pages: 0, path: '/d/a.md', name: 'a.md' })], { ...ACT, host: h.w.document.body });
+  const btn = (label) => [...root.querySelectorAll('.document-card-btn')].find(b => b.textContent === label);
+  h.setAnswer({ ok: true, action: 'folder' });
+  btn('Show in folder').click(); await flush();
+  assert.deepEqual(h.calls.open[0], ['s1', '/d/a.md', 'folder', false]);
+  assert.equal(h.calls.msg.length, 0, 'a folder shown needs nothing more');
+  h.setAnswer({ ok: false, error: 'This session did not read that document.' });
+  btn('Show in folder').click(); await flush();
+  assert.equal(h.calls.msg[0].message, 'This session did not read that document.');
+  assert.equal(h.calls.msg[0].title, 'Cannot show in folder');
+
+  btn('Copy path').click(); await flush();
+  assert.deepEqual(h.calls.copied, ['/d/a.md']);
+  assert.deepEqual(h.calls.toast, ['Path copied.']);
+  assert.equal(h.calls.open.length, 2, 'Copy path asks main nothing');
+  assert.equal(h.calls.read.length, 0, 'and opens no viewer');
+
+  h.failClipboard();
+  btn('Copy path').click(); await flush();
+  assert.equal(h.calls.msg[1].title, 'Cannot copy path');
+  assert.equal(h.calls.toast.length, 1);
+
+  // In the viewer: Copy path leaves it open, Show in folder closes it like the open actions.
+  root.querySelector('.document-card').click(); await flush();
+  const vbtn = (label) => [...h.w.document.querySelectorAll('.document-viewer-actions button')].find(b => b.textContent === label);
+  vbtn('Copy path').click(); await flush();
+  assert.ok(h.w.document.querySelector('.document-viewer'), 'Copy path keeps the viewer');
+  h.setAnswer({ ok: true, action: 'folder' });
+  vbtn('Show in folder').click(); await flush();
+  assert.equal(h.w.document.querySelector('.document-viewer'), null);
+  assert.deepEqual(h.calls.open.at(-1), ['s1', '/d/a.md', 'folder', false]);
 });
 
 test('card click: pages open the viewer; a whole pdf is read and drawn there, Ctrl/Cmd keeps the old open (#781)', async () => {
@@ -306,7 +348,7 @@ test('the viewer carries the open actions (#765) for every kind, and none in the
   const pdf = h.draw([el(), img()], { ...ACT, host: h.w.document.body });
   pdf.querySelector('.document-card').click();
   const btns = [...h.w.document.querySelectorAll('.document-viewer-actions button')].map(b => b.textContent);
-  assert.deepEqual(btns, ['Open in default app', 'Open in tab']);
+  assert.deepEqual(btns, ['Open in default app', 'Open in tab', 'Show in folder', 'Copy path']);
   h.setAnswer({ ok: true, action: 'tab', path: '/d/report.pdf' });
   h.w.document.querySelectorAll('.document-viewer-actions button')[1].click(); await flush();
   assert.equal(h.w.document.querySelector('.document-viewer'), null);
@@ -315,7 +357,7 @@ test('the viewer carries the open actions (#765) for every kind, and none in the
 
   const md = h.draw([el({ kind: 'markdown', pages: 0, path: '/d/a.md', name: 'a.md' })], { ...ACT, host: h.w.document.body });
   md.querySelector('.document-card').click(); await flush();
-  assert.equal(h.w.document.querySelectorAll('.document-viewer-actions button').length, 2);
+  assert.equal(h.w.document.querySelectorAll('.document-viewer-actions button').length, 4);
   h.setAnswer({ ok: true, action: 'default' });
   h.w.document.querySelectorAll('.document-viewer-actions button')[0].click(); await flush();
   assert.deepEqual(h.calls.open[1], ['s1', '/d/a.md', 'default', false]);

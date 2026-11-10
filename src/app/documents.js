@@ -27,8 +27,10 @@
  * renderer may open its own file view, 'click' follows the user's `fileClickTarget` setting with the same
  * Ctrl/Cmd inversion a terminal file link has. With `external`, a PDF, an image or an HTML file goes to the
  * default program and Markdown to the configured editor — `externalEditorCommand` means a code editor, and
- * a PDF belongs in a viewer. The answer names the action taken or left to the renderer
- * (`default` | `tab` | `editor`), and carries the path for the two the renderer finishes.
+ * a PDF belongs in a viewer. 'folder' (#837) shows the file selected in the system's file manager
+ * (`shell.showItemInFolder`), through the same checks, so it reveals only what the open would have opened. The
+ * answer names the action taken or left to the renderer (`default` | `tab` | `editor` | `folder`), and carries
+ * the path for the two the renderer finishes.
  *
  * `document-read` (#764) answers the TEXT of a Markdown or HTML document for the card's viewer, through the
  * same checks (`checkDocument`), only when the card is clicked, and only up to `READ_MAX_BYTES`. Since #781 it
@@ -50,7 +52,7 @@ let ctx = null;
 // paths are dropped first (a Set keeps insertion order).
 const REGISTRY_CAP = 500;
 
-const HOWS = ['default', 'tab', 'click'];
+const HOWS = ['default', 'tab', 'click', 'folder'];
 
 // What the viewer reads as text (#764), and how much of it: a document past this is opened in a tab instead,
 // whose editor is built for large files.
@@ -63,7 +65,8 @@ const PDF_READ_MAX_BYTES = 15 * 1024 * 1024;
 
 /**
  * @param {object} context
- * @param {{ openPath: (p: string) => Promise<string> }} context.shell  Electron's `shell`, through ctx
+ * @param {{ openPath: (p: string) => Promise<string>, showItemInFolder: (p: string) => void }} context.shell
+ *   Electron's `shell`, through ctx
  * @param {(p: string) => boolean} context.isSensitivePath  main.js's check, through ctx (it stays there)
  * @param {(sessionId: string) => ({ has: (p: string) => boolean }|null)} context.registryFor
  *   the registry of a running session, or null
@@ -159,9 +162,9 @@ async function checkDocument(sessionId, filePath) {
 /**
  * @param {string} sessionId
  * @param {string} filePath  the path the element carried, exactly as stamped
- * @param {'default'|'tab'|'click'} how
+ * @param {'default'|'tab'|'click'|'folder'} how
  * @param {boolean} [invert]  Ctrl/Cmd held — only read for 'click'
- * @returns {Promise<{ok: true, action: 'default'|'tab'|'editor', path?: string}|{ok: false, error: string}>}
+ * @returns {Promise<{ok: true, action: 'default'|'tab'|'editor'|'folder', path?: string}|{ok: false, error: string}>}
  */
 async function openDocument(sessionId, filePath, how, invert) {
   if (!ctx) return refuse('Documents are not available yet.');
@@ -183,6 +186,16 @@ async function openDocument(sessionId, filePath, how, invert) {
   }
 
   if (action === 'tab' || action === 'editor') return { ok: true, action, path: filePath };
+
+  // `showItemInFolder` answers nothing, so only a throw is a failure to report.
+  if (action === 'folder') {
+    try {
+      ctx.shell.showItemInFolder(real);
+    } catch (err) {
+      return refuse(readableError(err, 'The folder could not be shown.', ctx.log));
+    }
+    return { ok: true, action: 'folder' };
+  }
 
   // `shell.openPath` answers an error STRING, empty on success; a thrown error is worded the same way.
   try {
