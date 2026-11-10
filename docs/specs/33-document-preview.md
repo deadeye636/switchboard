@@ -299,6 +299,10 @@ with Ctrl/Cmd held. A card with pages, and a Markdown, HTML or PDF card on a pla
 - **A link inside an HTML document (#764)** navigates the sandboxed frame. When it leads somewhere the app cannot
   reach, the frame's document no longer forwards Esc, zoom and the Tab trap while it has the focus; the close button
   and the backdrop still close the viewer. Not measured live.
+- **Copy and Preview by keyboard in the conversation view (#838).** Tab from anything in the log goes back to the
+  input (#716), and Shift+Tab in the input switches the permission mode where the backend has modes (#696), so a code
+  block's Copy and Preview cannot be reached by keyboard there; the history viewer reaches them as any page does. The
+  owner chose to record this rather than add a key of its own (2026-11-10).
 - **A card past the registry cap (#766).** `REGISTRY_CAP` (500 paths per session) evicts the oldest path, and a
   card still on screen for an evicted path answers "did not read", which is then untrue. Accepted by design in
   #766; the only place the registry falls behind the view. #766's own premise (an empty registry after a restart)
