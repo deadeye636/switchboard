@@ -39,22 +39,27 @@ test('PowerShell gets the line encoded inside a script that keeps its output pla
 // for a native command's 3. Run for real where PowerShell exists.
 for (const ps of ['powershell.exe', 'pwsh.exe']) {
   test(`${ps}: plain errors and the line's own exit code`, { skip: process.platform !== 'win32' && 'Windows PowerShell editions' }, async (t) => {
-    const ok = await runShellLine({ command: 'Write-Output ok', cwd: os.tmpdir(), shellPath: ps, env: process.env }).done;
+    // The lines are independent, so they run at once. A login shell loads the user's profile, and Windows PowerShell
+    // took 18 s per start on one machine: six in a row ran this file past the suite's cap.
+    const line = (command) => runShellLine({ command, cwd: os.tmpdir(), shellPath: ps, env: process.env }).done;
+    const [ok, code, err, warn, host, thrown] = await Promise.all([
+      line('Write-Output ok'),
+      line('cmd /c exit 3'),
+      line('Get-Item C:\\no-such-item-786'),
+      line('cmd /c "echo warn 1>&2"'),
+      line('Write-Host hosttext; Write-Warning careful'),
+      line('throw "boom-786"'),
+    ]);
     if (ok.failed) { t.skip(`${ps} is not installed`); return; }
     assert.equal(ok.exitCode, 0);
     assert.equal(ok.stderr, '', 'no progress record');
-    const code = await runShellLine({ command: 'cmd /c exit 3', cwd: os.tmpdir(), shellPath: ps, env: process.env }).done;
     assert.equal(code.exitCode, 3);
-    const err = await runShellLine({ command: 'Get-Item C:\\no-such-item-786', cwd: os.tmpdir(), shellPath: ps, env: process.env }).done;
     assert.equal(err.exitCode, 1);
     assert.match(err.stderr, /no-such-item-786/);
     assert.doesNotMatch(err.stderr, /CLIXML|\u001b\[/, 'text, not CLIXML or escape codes');
-    const warn = await runShellLine({ command: 'cmd /c "echo warn 1>&2"', cwd: os.tmpdir(), shellPath: ps, env: process.env }).done;
     assert.equal(warn.exitCode, 0, 'a native command writing to stderr has not failed');
-    const host = await runShellLine({ command: 'Write-Host hosttext; Write-Warning careful', cwd: os.tmpdir(), shellPath: ps, env: process.env }).done;
     assert.match(host.stdout, /hosttext/);
     assert.match(host.stderr, /^WARNING: careful/);
-    const thrown = await runShellLine({ command: 'throw "boom-786"', cwd: os.tmpdir(), shellPath: ps, env: process.env }).done;
     assert.equal(thrown.exitCode, 1);
     for (const r of [host, thrown]) assert.doesNotMatch(r.stdout + r.stderr, /CLIXML|\u001b\[/);
   });
