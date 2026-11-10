@@ -50,6 +50,7 @@ back on Save.
 | `confirmQuitWithRunningSessions` | Ask before closing while sessions run | bool | `true` | global |
 | `expandToolOutput` | Show tool calls expanded | bool | `false` | global |
 | `conversationEnterWhileBusy` | Enter while a turn runs | `hold` \| `steer` | `hold` | global |
+| `sessionSidebarDefault` | Session sidebar on a new session: whether it starts open in a session with no stored state (#831, spec 43) | `open` \| `closed` | `closed` | global |
 | `idleMaintenanceMode` | Maintenance while idle: real model turns a pipe-driven session gets while idle; compaction can lose detail (spec 45) | `off` \| `warm` \| `compact` \| `warm-compact` | `off` | global + project |
 | `idleMaintenanceRefreshMinutes` | Minutes between refreshes, from the last turn. 0 is the backend's bound; a longer one is refused | 0 to 60 | `0` | global + project |
 | `idleMaintenanceRefreshLimit` | Refreshes per idle period; a real turn starts a new one | 1 to 10 | `3` | global + project |

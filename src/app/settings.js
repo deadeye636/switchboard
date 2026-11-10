@@ -89,6 +89,8 @@ const SETTING_DEFAULTS = {
   forgeProvider: 'auto',
   forgeRemote: 'origin',
   sidebarWidth: 340,
+  // Whether a session sidebar starts open in a session that has no stored state of its own (#831): 'open' | 'closed'.
+  sessionSidebarDefault: 'closed',
   terminalTheme: 'switchboard',
   shellProfile: 'auto',
   // T-2.5/T-3.7: the Terminal bucket's shell (in-app plain terminal + External Terminal).

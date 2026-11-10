@@ -388,6 +388,7 @@
     const confirmQuitValue = fieldValue('confirmQuitWithRunningSessions', true);
     const expandToolOutputValue = fieldValue('expandToolOutput', false);
     const conversationEnterWhileBusyValue = fieldValue('conversationEnterWhileBusy', 'hold');
+    const sessionSidebarDefaultValue = fieldValue('sessionSidebarDefault', 'closed');
     const forgeEnabledValue = fieldValue('forgeIssuesEnabled', false) === true;
     const forgeProviderValue = fieldValue('forgeProvider', 'auto');
     const forgeGhPathValue = fieldValue('forgeGhPath', '');
@@ -1057,7 +1058,7 @@ ${window.settingsInstructions.sectionHtml('project')}
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -1650,6 +1651,7 @@ ${window.settingsInstructions.sectionHtml('project')}
         settings.confirmQuitWithRunningSessions = settingsViewerBody.querySelector('#sv-confirm-quit').checked;
         settings.expandToolOutput = settingsViewerBody.querySelector('#sv-expand-tool-output').checked;
         settings.conversationEnterWhileBusy = settingsViewerBody.querySelector('#sv-conversation-enter-while-busy')?.value === 'steer' ? 'steer' : 'hold';
+        settings.sessionSidebarDefault = settingsViewerBody.querySelector('#sv-session-sidebar-default')?.value === 'open' ? 'open' : 'closed';
         settings.forgeIssuesEnabled = settingsViewerBody.querySelector('#sv-forge-enabled').checked;
         settings.forgeProvider = settingsViewerBody.querySelector('#sv-forge-provider').value || 'auto';
         settings.forgeGhPath = (settingsViewerBody.querySelector('#sv-forge-gh-path').value || '').trim();

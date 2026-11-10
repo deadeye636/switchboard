@@ -14,6 +14,15 @@ test('a session nobody chose for is closed, at the default width, with the cheap
   assert.deepEqual(sidebarStateOf({}, 's1'), { open: false, width: SESSION_SIDEBAR_WIDTH.default, groups: ['repository', 'tasks', 'context'] });
 });
 
+test('the global start state (#831) applies only to a session with no stored row', () => {
+  assert.equal(sidebarStateOf({}, 's1', true).open, true, 'no row, default open');
+  assert.equal(sidebarStateOf({}, 's1', false).open, false);
+  assert.equal(sidebarStateOf({}, 's1', 'open').open, false, 'only the boolean true opens');
+  const map = { a: { open: false, width: 300 }, b: { open: true, width: 300 } };
+  assert.equal(sidebarStateOf(map, 'a', true).open, false, 'a stored closed row stays closed');
+  assert.equal(sidebarStateOf(map, 'b', false).open, true, 'a stored open row stays open');
+});
+
 test('repository rows (#821): repository, branch with ahead/behind and state, worktree; none for a directory under no VCS', () => {
   assert.equal(repositoryRows({ ok: true, vcs: null }), null);
   assert.equal(repositoryRows({ ok: false }), null);

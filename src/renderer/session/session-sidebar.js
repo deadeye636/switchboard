@@ -34,10 +34,12 @@ const SESSION_SIDEBAR_ROWS = 30;
 
 // --- The stored state: pure, and exported at the end for the tests. ---
 
-function sidebarStateOf(map, sessionId) {
-  const s = (map && map[sessionId]) || {};
+// `defaultOpen` (#831) answers only for a session with no stored row; a stored row, closed or not, keeps its own.
+function sidebarStateOf(map, sessionId, defaultOpen) {
+  const row = map && map[sessionId];
+  const s = row || {};
   return {
-    open: s.open === true,
+    open: row ? s.open === true : defaultOpen === true,
     width: clampSidebarWidth(s.width),
     groups: Array.isArray(s.groups) ? s.groups.filter((g) => typeof g === 'string') : SESSION_SIDEBAR_OPEN_GROUPS.slice(),
   };
@@ -295,10 +297,14 @@ if (typeof module !== 'undefined' && module.exports) {
 function readSidebarStates() {
   try { return JSON.parse(localStorage.getItem(SESSION_SIDEBAR_KEY)) || {}; } catch { return {}; }
 }
+// The global start state for a session with no row (#831). Read at the call, so a changed setting applies to the next mount.
+function sidebarDefaultOpen() {
+  return typeof appGlobalSettings !== 'undefined' && !!appGlobalSettings && appGlobalSettings.sessionSidebarDefault === 'open';
+}
 // Read fresh on every write: a detached window shares this storage and writes its own session's row.
 function writeSidebarState(sessionId, patch) {
   const map = readSidebarStates();
-  const next = withSidebarState(map, sessionId, { ...sidebarStateOf(map, sessionId), ...patch }, Date.now());
+  const next = withSidebarState(map, sessionId, { ...sidebarStateOf(map, sessionId, sidebarDefaultOpen()), ...patch }, Date.now());
   try { localStorage.setItem(SESSION_SIDEBAR_KEY, JSON.stringify(next)); } catch { /* the state is a convenience */ }
 }
 
@@ -1083,7 +1089,7 @@ function hideSidebar(entry) {
 // A session that had it open comes back with it open.
 function sessionSidebarMount(entry) {
   if (!entry || !entry.session) return;
-  const state = sidebarStateOf(readSidebarStates(), entry.session.sessionId);
+  const state = sidebarStateOf(readSidebarStates(), entry.session.sessionId, sidebarDefaultOpen());
   if (state.open) showSidebar(entry, state.width);
 }
 

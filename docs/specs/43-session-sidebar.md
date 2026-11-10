@@ -36,6 +36,12 @@ because a padding wider than the box would make FitAddon answer its minimum of t
 this storage, so a write reads the map fresh and changes only its own session's row. A write can still lose a change made
 by another window in the same moment, which costs a remembered width.
 
+A session with no row starts as the global setting `sessionSidebarDefault` says (`open` or `closed`, default `closed`, #831).
+A row, once written, keeps its own state whatever the setting says, so changing it never moves a session that was set. There
+is no "last state" option and no per-project override. `sidebarStateOf` takes the default as a third argument and applies it
+only when there is no row; a write passes it too, so a width change in a session that was showing open by default stores
+`open`.
+
 ## Choices worth keeping
 
 - **A group reads when it is open and in view.** A restart can bring back several sessions with an open sidebar. Hidden
