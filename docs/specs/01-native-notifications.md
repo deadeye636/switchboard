@@ -78,7 +78,7 @@ Switchboard's whole value is watching multiple agents for you, but **every atten
 Decides whether/what to notify based on transitions + focus + settings + the flood guard. No DOM, no Electron.
 
 ```js
-// decideNotifications({ prev, next, windowFocused, settings, now, lastNotifiedAt })
+// decideNotifications({ prev, next, windowFocused, settings, prevSettings, now, recent, summary, fresh, describeSession })
 //   prev/next: { attention: Set|string[], ready: Set|string[] } snapshots
 //   settings:  { enabled, notifyOnReady } (sound handled by spec 02)
 // returns: { notifications: [{ kind:'attention'|'ready', sessionId, sessionIds:[...], title, body }], cleared, clearSummary, clearAll, summary, badgeCount }

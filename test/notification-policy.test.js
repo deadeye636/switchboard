@@ -220,6 +220,22 @@ test('repeated overflow inside one window gives one summary, then the cumulative
   assert.equal(fourth.notifications.length, 0);
 });
 
+test('a summary shown in the same sync as its old sessions left is not cleared right after', () => {
+  const ids = Array.from({ length: FLOOD_MAX + 1 }, (_, i) => `s${i}`);
+  const first = decideNotifications({
+    prev: snapshot(), next: snapshot(ids), windowFocused: false, settings: {}, now: 1,
+  });
+  assert.equal(first.summary.shownCount, 1);
+  // Past the window, every old session leaves and a new burst overflows in the same sync.
+  const fresh = Array.from({ length: FLOOD_MAX + 2 }, (_, i) => `n${i}`);
+  const next = decideNotifications({
+    prev: snapshot(ids), next: snapshot(fresh), windowFocused: false, settings: {}, now: 1 + FLOOD_WINDOW_MS,
+    summary: first.summary,
+  });
+  assert.equal(next.notifications.filter((n) => n.summary).length, 1, 'a new summary is shown');
+  assert.equal(next.clearSummary, false, 'and not cleared in the same breath');
+});
+
 test('turning notifications off clears what the old settings had announced', () => {
   const off = decideNotifications({
     prev: snapshot(['a'], ['r']), next: snapshot(['a'], ['r']), windowFocused: false,

@@ -169,6 +169,9 @@
       // "need your attention" unless every folded one is only "ready".
       const kind = [...folded].some((id) => nextAttention.has(id)) ? 'attention' : 'ready';
       result.notifications.push(summaryNotification(kind, [...folded]));
+      // A new summary replaces the old one by id; a clear in the same sync would take the new one down
+      // right after it was shown (the caller sends the notifies first, then the clear).
+      result.clearSummary = false;
       shownCount = folded.size;
       shownAt = now;
     }
