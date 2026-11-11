@@ -30,6 +30,7 @@ const {
   instructionLabel, trunc, firstLine, isObject, readLines, detailSize, evidence, flagSize,
 } = require('../flow-lines');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
+const pflags = require('./flow-flags');
 const { transportFromEntry } = require('./transport-marker');
 const modelWindows = require('./model-windows');
 const { activeChain } = require('./active-branch');
@@ -148,12 +149,19 @@ function makeBuilder(sourceId, limits, shared) {
     return step;
   }
 
+  // One flag per code on a step; its sentence counts toward the snapshot's size estimate like the rest of a step.
+  function addFlag(step, f) {
+    if (step.flags.some((x) => x.code === f.code)) return;
+    step.flags.push(f);
+    grow(flagSize(f));
+  }
+
   // Terminal Pi has no approval step; a session driven over the pipe has the app's gate. The marker entry says which, and
   // it comes early, so the start step is updated when it is seen.
   function approvalNote() {
     return transport === null
       ? 'Terminal Pi has no approval step: every call runs without being asked.'
-      : 'Driven over the pipe: the app\'s gate asks before a gated call. An answer is not recorded; a refusal shows as a refused call.';
+      : 'Driven over the pipe: the app\'s gate asks before a gated call. An answer is not recorded; a refusal shows as a denied call.';
   }
 
   function ensureStart(ctx) {
@@ -213,6 +221,7 @@ function makeBuilder(sourceId, limits, shared) {
       if (typeof args.agent === 'string' && args.agent) detail.agent = trunc(args.agent, 100);
     }
     const step = addStep(ctx, 'tool', brief ? `${name}: ${firstLine(brief)}` : name, detail);
+    if (step) for (const f of pflags.commandFlags(name, args)) addFlag(step, f);
     if (step && typeof block.id === 'string' && block.id) {
       pendingTools.set(block.id, step);
       if (pendingTools.size > MAX_PENDING_TOOLS) pendingTools.delete(pendingTools.keys().next().value);
@@ -262,12 +271,11 @@ function makeBuilder(sourceId, limits, shared) {
     step.detail.result = result;
     step.detail.status = m.isError === true ? 'error' : 'ok';
     if (m.isError === true) {
-      // Pi records the failure itself, so the evidence is `structured`.
-      const flag = { axis: 'outcome', code: 'tool-error', why: 'the tool result is marked as an error', evidence: 'structured' };
-      step.flags.push(flag);
-      grow(flagSize(flag));
-      // The pi-native gate's refusal is the one result with exactly this text (`../pi-native/runtime-extension.js`).
-      if (raw.trim() === `The user did not allow this ${step.detail.tool} call.`) step.detail.refused = true;
+      // Pi records the failure itself, so the evidence is `structured`. The pi-native gate's refusal is the one result with
+      // exactly its reason text, and only in a session driven over the pipe (`./flow-flags.js`); it replaces the plain error.
+      const refused = pflags.isGateRefusal(raw, step.detail.tool, transport);
+      if (refused) step.detail.refused = true;
+      addFlag(step, pflags.resultFlag(refused));
     }
     if (step.detail.tool === SUBAGENT_TOOL) {
       const summary = subagentSummary(raw);

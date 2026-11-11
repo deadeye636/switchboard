@@ -159,14 +159,16 @@ test('compaction: before is tokensBefore, after is the next non-zero request inp
   } finally { t.cleanup(); }
 });
 
-test('a tool result with isError is a structured outcome flag; the gate refusal text also sets refused', async () => {
+test('a tool result with isError is a structured outcome flag; the gate text in a TERMINAL session is no refusal', async () => {
+  // The fixture has no transport marker: terminal Pi has no gate, so the text is a plain error (T23; the pi-native case is in
+  // `flow-pi-flags.test.js`).
   const snap = await read(FIXTURE);
   const read1 = snap.steps.find(s => s.detail.tool === 'read');
   const bash = snap.steps.find(s => s.detail.tool === 'bash');
   assert.equal(read1.flags.length, 0);
   assert.equal(read1.detail.status, 'ok');
   assert.deepEqual(bash.flags.map(f => [f.axis, f.code, f.evidence]), [['outcome', 'tool-error', 'structured']]);
-  assert.equal(bash.detail.refused, true);
+  assert.equal(bash.detail.refused, undefined);
   const t = tmpFile([
     header(), user('a'),
     assistant([{ type: 'toolCall', id: 't1', name: 'bash', arguments: { command: 'x' } }], usage(10)),
