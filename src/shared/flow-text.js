@@ -1,7 +1,9 @@
 // --- The words of the session flow (spec 46, #826) ---
 //
 // The pure text helpers the Flow tab (`session/flow-view.js`) and the SVG export (`src/app/flow-svg.js`) both draw
-// with: the checkpoint figure, the limitations behind the banner, the lane tag and a row's text. They read only the
+// with: the checkpoint figure, the limitations behind the banner, the lane tag and a row's text. The flag helpers
+// (`flagWord`, `flagLines`, `flagChips`: glyph, axis word, code in words, evidence; T24) are used by the Flow tab only, the
+// SVG export still draws a flag count. They read only the
 // neutral shape (`src/shared/flow-snapshot.js`, `flow-layout.js`) and name no backend (CLAUDE.md reflex 5). One copy
 // here, so the screen and the export cannot word the same step two ways.
 //
@@ -28,6 +30,56 @@
   };
 
   function clamp(n, lo, hi) { return n < lo ? lo : n > hi ? hi : n; }
+
+  // A flag's axis in a glyph AND a word (spec 46: colour is never the only signal). Axes outside the four keep a neutral mark.
+  const AXES = Object.freeze({
+    risk: { glyph: '▲', word: 'risk', order: 0 },
+    outcome: { glyph: '■', word: 'outcome', order: 1 },
+    attention: { glyph: '●', word: 'attention', order: 2 },
+    lifecycle: { glyph: '◆', word: 'lifecycle', order: 3 },
+  });
+  const OTHER_AXIS = Object.freeze({ glyph: '•', word: 'flag', order: 4 });
+  const axisOf = (f) => (f && Object.prototype.hasOwnProperty.call(AXES, f.axis) ? AXES[f.axis] : OTHER_AXIS);
+
+  /** A flag's code in words: `destructive:git-force-push` reads `destructive: git force push`. The code is data from a reader. */
+  function flagWord(f) {
+    const code = f && typeof f.code === 'string' ? f.code : '';
+    return code.replace(/-/g, ' ').replace(/:\s*/g, ': ').trim() || 'flag';
+  }
+
+  /**
+   * One line per flag, for the detail panel (and the input `flagChips` builds a card's marks from): glyph, axis word, the code in words, the evidence, the
+   * reader's sentence and a count (a lane summary's flags carry one). Risk first, then outcome, attention, lifecycle;
+   * otherwise in the order given.
+   */
+  function flagLines(flags) {
+    const list = Array.isArray(flags) ? flags.map((f, i) => ({ f, i })) : [];
+    list.sort((a, b) => (axisOf(a.f).order - axisOf(b.f).order) || (a.i - b.i));
+    return list.map(({ f }) => {
+      const ax = axisOf(f);
+      const count = Number.isFinite(f.count) && f.count > 1 ? f.count : 1;
+      return {
+        axis: ax.word, glyph: ax.glyph, word: flagWord(f), evidence: f.evidence === 'heuristic' ? 'heuristic' : 'structured',
+        why: typeof f.why === 'string' ? f.why : '', count,
+      };
+    });
+  }
+
+  /**
+   * The marks a card shows: at most `max` (default 2) chips, each a glyph and a word, and how many more there are. A chip
+   * from a heuristic says so in its text (`~`) and its title; the title holds the sentence.
+   */
+  function flagChips(flags, max) {
+    const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : 2;
+    const lines = flagLines(flags);
+    const chips = lines.slice(0, limit).map((l) => ({
+      axis: l.axis,
+      heuristic: l.evidence === 'heuristic',
+      text: l.glyph + ' ' + (l.evidence === 'heuristic' ? '~' : '') + l.word + (l.count > 1 ? ' ×' + l.count : ''),
+      title: l.axis + ', ' + l.evidence + (l.why ? ': ' + l.why : ''),
+    }));
+    return { chips, more: Math.max(0, lines.length - chips.length) };
+  }
 
   /** The limitations to show, each with the capabilities that point at it. Everything, never an empty banner by accident. */
   function bannerItems(snapshot) {
@@ -99,7 +151,7 @@
 
   function rowText(row, columns) {
     if (row.kind === 'step') return row.step.label;
-    if (row.kind === 'group') return row.count + ' × ' + (row.tool || 'tool');
+    if (row.kind === 'group') return row.quiet ? row.count + ' steps without a highlight' : row.count + ' × ' + (row.tool || 'tool');
     const col = (columns || []).find((c) => c.laneId === row.laneId);
     return row.count + ' steps' + (col && col.label ? ' in ' + col.label : '');
   }
@@ -121,8 +173,9 @@
 
   function rowBadge(row) {
     if (row.kind === 'step') return row.step.kind;
-    return row.kind === 'group' ? 'tool' : 'agent';
+    if (row.kind === 'group') return row.quiet ? 'steps' : 'tool';
+    return 'agent';
   }
 
-  return Object.freeze({ CAP_LABELS, bannerItems, bannerSummary, checkpointInfo, rowText, laneTagInfo, rowBadge });
+  return Object.freeze({ CAP_LABELS, bannerItems, bannerSummary, checkpointInfo, rowText, laneTagInfo, rowBadge, flagWord, flagLines, flagChips });
 });

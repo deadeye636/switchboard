@@ -43,9 +43,16 @@
 // pure description of the boxes, so a test proves they stay inside the gutter. A return anchor that is the spawn step
 // (what Claude has: call and result are one step) is a return row ABOVE the child, so the vertical runs upward.
 //
-// COLLAPSE STATE (O9: in memory per session, no setting). `{ groups: {key: bool}, lanes: {laneId: bool} }`,
+// COLLAPSE STATE (O9: in memory per session, no setting). `{ groups: {key: bool}, lanes: {laneId: bool}, highlightsOnly }`,
 // `true` = expanded. A missing entry means the default: groups collapsed, finished agent lanes collapsed.
 // The helpers return a new object; they never mutate the one they are given.
+//
+// HIGHLIGHTS ONLY (T24, spec 46 "Highlights"). With `highlightsOnly` set, the rows that stay are the ones that carry a
+// flag, the session start, a prompt, a compaction and every spawn or return anchor; every other run of adjacent steps of
+// one lane and one turn is COMPACTED into one quiet group ("N steps"), not dimmed. A quiet group is an ordinary group row
+// (`quiet: true`, `tool: null`), expandable like any other, with its open state kept apart from the normal mode's under
+// `groupKey` `q:` + its first member's id (its row key stays `g:` + that id, so selection and the step-row map need no
+// second shape). Collapsed lanes stay summaries and keep their flag union. Equivalence runs do not form in this mode.
 //
 // KEYS. A step row's key is the step id. A group's key is `g:` + its FIRST member's id, a lane summary's is
 // `l:` + the lane id: none depends on the rendered index, so selection and the scroll anchor survive a
@@ -77,12 +84,12 @@
 
   // Collapse maps have no prototype and are read only through `own`, so an id such as `constructor` or `__proto__` is an
   // ordinary key and not a property of Object.prototype.
-  function emptyCollapseState() { return { groups: Object.create(null), lanes: Object.create(null) }; }
+  function emptyCollapseState() { return { groups: Object.create(null), lanes: Object.create(null), highlightsOnly: false }; }
   function own(map, key) { return map && Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined; }
 
   function withEntry(state, field, key, value) {
     const base = state || {};
-    const next = { groups: base.groups || Object.create(null), lanes: base.lanes || Object.create(null) };
+    const next = { groups: base.groups || Object.create(null), lanes: base.lanes || Object.create(null), highlightsOnly: !!base.highlightsOnly };
     const copy = Object.create(null);
     const from = next[field];
     for (const k of Object.keys(from)) copy[k] = from[k];
@@ -94,6 +101,14 @@
   function setGroupExpanded(state, groupKey, expanded) { return withEntry(state, 'groups', groupKey, expanded); }
   /** New state with one lane expanded or collapsed. */
   function setLaneExpanded(state, laneId, expanded) { return withEntry(state, 'lanes', laneId, expanded); }
+  /** New state with "Highlights only" on or off; the group and lane entries are carried over untouched. */
+  function setHighlightsOnly(state, on) {
+    const base = state || {};
+    return { groups: base.groups || Object.create(null), lanes: base.lanes || Object.create(null), highlightsOnly: !!on };
+  }
+
+  // The step kinds "Highlights only" keeps as rows of their own, besides a flagged step and a spawn or return anchor.
+  const HIGHLIGHT_KEEP = new Set(['start', 'prompt', 'compaction']);
 
   // The tool a `tool` step stands for. The neutral shape has no dedicated field, so a reader that has the
   // tool name puts it in `detail.tool`; a reader that does not leaves it to the label.
@@ -228,8 +243,9 @@
    * Snapshot + collapse state in; rows, columns, turns, rails and edges out.
    *
    * Row: { key, index, kind: 'step' | 'group' | 'lane', col, laneId, turn, depth, step, firstStepId, tool,
-   *        count, expanded, groupKey, flags, laneStart }
-   * `step` is set on step rows only; a group or lane row names its first step in `firstStepId`.
+   *        count, expanded, groupKey, flags, laneStart, quiet? }
+   * `step` is set on step rows only; a group or lane row names its first step in `firstStepId`. `quiet` is true on a
+   * group "Highlights only" compacted (see HIGHLIGHTS ONLY above); its `groupKey` is `q:` + its first member's id.
    * `depth` is 1 for a member row under an expanded group, else 0. `turn` is the band's turn (a child lane's
    * rows take the band they sit in). `laneStart` marks the first row of an expanded child lane, where its header
    * text and its collapse control are drawn.
@@ -238,6 +254,7 @@
   function layout(snapshot, state) {
     const lanes = (snapshot && snapshot.lanes) || [];
     const groupsState = (state && state.groups) || {};
+    const quietMode = !!(state && state.highlightsOnly);
     const metas = resolveLanes(lanes, state);
     const ordered = orderSteps((snapshot && snapshot.steps) || [], lanes);
     const steps = ordered.order;
@@ -290,15 +307,17 @@
       if (r.count === 1) { stepRow(steps[r.first], 0, null); return; }
       const first = steps[r.first];
       const key = 'g:' + first.id;
-      const expanded = own(groupsState, key) === true;
+      const groupKey = r.quiet ? 'q:' + first.id : key;
+      const expanded = own(groupsState, groupKey) === true;
       stats.groups++;
       const head = push({
         key, index: 0, kind: 'group', col: colOf(first.laneId), laneId: first.laneId, turn: first.turn == null ? null : first.turn,
-        depth: 0, step: null, firstStepId: first.id, tool: r.tool, count: r.count, expanded, groupKey: key, flags: EMPTY_FLAGS, laneStart: false,
+        depth: 0, step: null, firstStepId: first.id, tool: r.tool, count: r.count, expanded, groupKey, flags: EMPTY_FLAGS, laneStart: false,
+        quiet: !!r.quiet,
       }, first.laneId);
       if (expanded) {
         noteAnchor(first.id, head.index);
-        for (const i of r.idxs) stepRow(steps[i], 1, key);
+        for (const i of r.idxs) stepRow(steps[i], 1, groupKey);
       } else if (anchorIds.size) {
         for (const i of r.idxs) noteAnchor(steps[i].id, head.index);
       }
@@ -333,6 +352,20 @@
           }
         }
         noteAnchor(step.id, owner.summary.index);
+        continue;
+      }
+
+      // Highlights only: a step that is no highlight joins the quiet run of its lane and turn; a highlight ends it.
+      if (quietMode) {
+        const keep = (step.flags && step.flags.length) || (anchorIds.size && anchorIds.has(step.id)) || HIGHLIGHT_KEEP.has(step.kind);
+        if (keep) { flush(); stepRow(step, 0, null); continue; }
+        if (run && run.laneId === step.laneId && run.turn === step.turn) {
+          if (!run.idxs) run.idxs = [run.first, i]; else run.idxs.push(i);
+          run.count++;
+        } else {
+          flush();
+          run = { first: i, laneId: step.laneId, turn: step.turn, tool: null, count: 1, idxs: null, quiet: true };
+        }
         continue;
       }
 
@@ -475,6 +508,7 @@
     emptyCollapseState,
     setGroupExpanded,
     setLaneExpanded,
+    setHighlightsOnly,
     layout,
     connectorsForRows,
     findRowIndex,

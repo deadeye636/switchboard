@@ -129,6 +129,7 @@
       <div id="flow-view" style="display:none;">
         <div id="flow-toolbar">
           <button id="flow-refresh-btn" class="new-session-secondary-btn" aria-label="Refresh flow" title="Read the session again">Refresh</button>
+          <button id="flow-highlights-btn" class="new-session-secondary-btn" aria-pressed="false" title="Keep flagged steps, prompts, compactions and agent starts and returns; fold everything else">Highlights only</button>
           <select id="flow-export-select" aria-label="Export flow" title="Save this flow to a file">
             <option value="">Export…</option>
             <option value="json">JSON</option>
@@ -144,6 +145,7 @@
         <div id="flow-scroller" tabindex="0" role="listbox" aria-label="Session steps">
           <div id="flow-spacer"><div id="flow-rails"></div><div id="flow-slice"></div></div>
         </div>
+        <div id="flow-detail" role="region" aria-label="Step details" tabindex="0" hidden></div>
       </div>
     </div>
     <div id="away-overview-viewer" style="display:none;">

@@ -329,3 +329,79 @@ test('refresh: the scroll anchor on a lane row survives the lane growing and fin
   const top2 = FlowView.restoreAnchor(fin, folded.rows, FlowView.buildStepRowMap(fin, folded.rows, folded.order), anchor, ROW);
   assert.equal(Math.floor(top2 / ROW), folded.rows.findIndex((r) => r.kind === 'lane'));
 });
+
+// --- T24: marks and the detail panel ---
+
+const FlowText = require('../src/shared/flow-text.js');
+
+test('flagChips: glyph and word per mark, risk first, heuristic marked in the text, at most two plus a count', () => {
+  const flags = [
+    { axis: 'outcome', code: 'permission-denied', why: 'refused', evidence: 'structured' },
+    { axis: 'risk', code: 'destructive:git-force-push', why: 'force', evidence: 'heuristic' },
+    { axis: 'lifecycle', code: 'skill-granted-tools', why: 'g', evidence: 'structured' },
+  ];
+  const { chips, more } = FlowText.flagChips(flags, 2);
+  assert.deepEqual(chips.map((c) => c.text), ['▲ ~destructive: git force push', '■ permission denied']);
+  assert.equal(chips[0].heuristic, true);
+  assert.match(chips[0].title, /^risk, heuristic: force$/);
+  assert.equal(more, 1);
+  const counted = FlowText.flagChips([{ axis: 'risk', code: 'x', why: '', evidence: 'structured', count: 3 }]);
+  assert.equal(counted.chips[0].text, '▲ x ×3');
+  assert.deepEqual(FlowText.flagChips([]).chips, []);
+  assert.equal(FlowText.flagChips([{ axis: 'odd', code: '', why: '', evidence: 'x' }]).chips[0].text, '• flag');
+});
+
+test('rowText and rowBadge name a quiet group in words', () => {
+  const row = { kind: 'group', quiet: true, count: 5, tool: null };
+  assert.equal(FlowText.rowText(row, []), '5 steps without a highlight');
+  assert.equal(FlowText.rowBadge(row), 'steps');
+  assert.equal(FlowText.rowText({ kind: 'group', count: 2, tool: 'Read' }, []), '2 × Read');
+});
+
+test('detailOf: a step lists its fields, its detail rows and every flag with evidence and sentence', () => {
+  const s = mkStep(1, { turn: 3, ts: Date.parse('2026-01-01T12:00:00Z'), detail: { tool: 'Bash', input: 'rm -rf /', nested: { a: 1 }, empty: '' },
+    flags: [{ axis: 'risk', code: 'destructive:rm-recursive', why: 'Looks destructive.', evidence: 'heuristic' }] });
+  const lay = FlowLayout.layout(mkSnap([s]), FlowLayout.emptyCollapseState());
+  const d = FlowView.detailOf(lay.rows[0], lay.columns);
+  assert.equal(d.title, 'Bash 1');
+  const f = Object.fromEntries(d.fields);
+  assert.equal(f.Kind, 'tool');
+  assert.equal(f.Turn, '3');
+  assert.equal(f.Lane, 'Main');
+  assert.ok(f.Time);
+  assert.equal(f.input, 'rm -rf /');
+  assert.equal(f.nested, '{"a":1}');
+  assert.ok(!('empty' in f), 'an empty value is no row');
+  assert.deepEqual(d.flags.map((x) => [x.axis, x.word, x.evidence, x.why]), [['risk', 'destructive: rm recursive', 'heuristic', 'Looks destructive.']]);
+  assert.equal(FlowView.detailOf(null, []), null);
+});
+
+test('highlights only: a selected step resolves to its quiet group, and back to itself when the mode is off again', () => {
+  const steps = [mkStep(1, { kind: 'prompt', label: 'go' }), mkStep(2, { detail: { tool: 'Read' } }), mkStep(3, { detail: { tool: 'Edit' } }), mkStep(4, { kind: 'output' })];
+  const s = mkSnap(steps);
+  const normal = FlowLayout.layout(s, FlowLayout.emptyCollapseState());
+  const before = normal.rows.findIndex((r) => r.key === 's3');
+  assert.ok(before >= 0);
+  const anchor = FlowView.captureAnchor(s, normal.rows, before * ROW + 7, ROW);
+  const on = FlowLayout.setHighlightsOnly(FlowLayout.emptyCollapseState(), true);
+  const quiet = FlowLayout.layout(s, on);
+  const map = FlowView.buildStepRowMap(s, quiet.rows, quiet.order);
+  const at = FlowView.resolveSelection(s, quiet.rows, map, 's3', 's3');
+  assert.equal(quiet.rows[at].quiet, true, 'the selection lands on the quiet group that holds the step');
+  assert.equal(quiet.rows[at].count, 3);
+  assert.equal(Math.floor(FlowView.restoreAnchor(s, quiet.rows, map, anchor, ROW) / ROW), at, 'the scroll anchor follows too');
+  const off = FlowLayout.layout(s, FlowLayout.setHighlightsOnly(on, false));
+  const back = FlowView.resolveSelection(s, off.rows, FlowView.buildStepRowMap(s, off.rows, off.order), quiet.rows[at].key, 's3');
+  assert.equal(off.rows[back].key, 's3', 'off again: the step itself, not the group key that no longer exists');
+});
+
+test('detailOf: a long value is cut; a lane summary lists its count and the flags it inherited with their counts', () => {
+  const long = mkStep(1, { detail: { result: 'x'.repeat(5000) } });
+  const lay = FlowLayout.layout(mkSnap([long]), FlowLayout.emptyCollapseState());
+  const v = Object.fromEntries(FlowView.detailOf(lay.rows[0], lay.columns).fields).result;
+  assert.ok(v.length <= 600 && v.endsWith('…'));
+  const summary = { kind: 'lane', laneId: 'main', count: 7, flags: [{ axis: 'outcome', code: 'tool-error', why: 'w', evidence: 'structured', count: 2 }] };
+  const d = FlowView.detailOf(summary, lay.columns);
+  assert.equal(Object.fromEntries(d.fields).Steps, '7');
+  assert.equal(d.flags[0].count, 2);
+});

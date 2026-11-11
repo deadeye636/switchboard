@@ -549,3 +549,58 @@ test('gutter geometry: one column per lane in use, the dot on the rail', () => {
   assert.equal(FL.gutterWidth(3), 3 * FL.COL_W + 20);
   assert.equal(FL.railX(2) - FL.dotX(2), 3); // an 8 px dot is centred on a 2 px rail
 });
+
+// --- T24: Highlights only ---
+
+test('highlights only: flagged steps, start, prompts and compactions stay; the rest compacts into quiet groups per lane and turn', () => {
+  const flag = { axis: 'risk', code: 'destructive:rm-recursive', why: 'x', evidence: 'heuristic' };
+  const s = snap([
+    step('start', { turn: 0 }), step('prompt'), step('thinking'), tool('Read'), tool('Bash', { flags: [flag] }),
+    step('output'), tool('Edit'), step('compaction'), step('prompt', { turn: 2 }), step('output', { turn: 2 }),
+  ]);
+  const st = FL.setHighlightsOnly(FL.emptyCollapseState(), true);
+  const lay = FL.layout(s, st);
+  assert.deepEqual(lay.rows.map((r) => (r.kind === 'group' ? 'q' + r.count : r.step.kind)),
+    ['start', 'prompt', 'q2', 'tool', 'q2', 'compaction', 'prompt', 'output']);
+  const q = lay.rows[2];
+  assert.equal(q.quiet, true);
+  assert.equal(q.tool, null);
+  assert.equal(q.key, 'g:' + s.steps[2].id, 'the row key has the ordinary group shape');
+  assert.equal(q.groupKey, 'q:' + s.steps[2].id, 'the open state is kept apart from normal mode');
+  assert.equal(q.flags.length, 0);
+  // Off again: the ordinary layout, with no quiet group.
+  const off = FL.layout(s, FL.setHighlightsOnly(st, false));
+  assert.ok(!off.rows.some((r) => r.quiet));
+});
+
+test('highlights only: a quiet group opens through its own key; normal-mode open states do not leak into it', () => {
+  const s = snap([step('prompt'), tool('Read'), tool('Read'), tool('Read')]);
+  let st = FL.setGroupExpanded(FL.emptyCollapseState(), 'g:' + s.steps[1].id, true);   // opened in normal mode
+  st = FL.setHighlightsOnly(st, true);
+  const closed = FL.layout(s, st);
+  assert.deepEqual(kinds(closed), ['step', 'group']);
+  assert.equal(closed.rows[1].expanded, false);
+  st = FL.setGroupExpanded(st, closed.rows[1].groupKey, true);
+  assert.equal(st.highlightsOnly, true, 'a group change keeps the mode');
+  const open = FL.layout(s, st);
+  assert.deepEqual(kinds(open), ['step', 'group', 'step', 'step', 'step']);
+  assert.ok(open.rows.slice(2).every((r) => r.depth === 1 && r.groupKey === closed.rows[1].groupKey));
+});
+
+test('highlights only: spawn and return anchors keep their rows, so the lane edges still find them', () => {
+  const sp = tool('Agent', { line: 50 });
+  const childSteps = [step('prompt', { laneId: 'c1', line: 51 }), tool('Read', { laneId: 'c1', line: 52 }), step('output', { laneId: 'c1', line: 53 })];
+  const ret = step('agent', { line: 54 });
+  const lanes = [MAIN, { id: 'c1', parentLaneId: 'main', depth: 1, label: 'helper', kind: 'agent', spawnAnchor: { stepId: sp.id }, returnAnchor: { stepId: ret.id }, summaryOnly: false, sessionRef: null }];
+  const s = snap([step('prompt', { line: 49 }), sp, ret, ...childSteps], lanes);
+  let st = FL.setLaneExpanded(FL.emptyCollapseState(), 'c1', true);
+  st = FL.setHighlightsOnly(st, true);
+  const lay = FL.layout(s, st);
+  const ids = lay.rows.filter((r) => r.kind === 'step').map((r) => r.step.id);
+  assert.ok(ids.includes(sp.id) && ids.includes(ret.id));
+  assert.equal(lay.edges.length, 2);
+  // The child's Read and output compact into one quiet group in the child lane.
+  const q = lay.rows.find((r) => r.quiet);
+  assert.equal(q.laneId, 'c1');
+  assert.equal(q.count, 2);
+});

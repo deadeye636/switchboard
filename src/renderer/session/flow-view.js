@@ -34,7 +34,14 @@
 //
 // Free globals it reaches for (all at call time): app.js `activePtyIds`; backends/backend-registry.js
 // `sessionBackendId` and `window._backendsById`; `window.api.getSessionFlow / cancelSessionFlow / getSessionFlowStatus / exportSessionFlow` (feature-detected); `showControlDialog`, `showControlToast` (dialogs/control-dialogs.js); `sessionBadgeBackendId` (dialogs/dialogs.js, the backend the sidebar badge names);
-// FlowLayout (shared/flow-layout.js); loads AFTER shared/flow-text.js; FlowText (shared/flow-text.js, a parameter of the factory: the checkpoint figure, banner items, lane tag and row text, shared with the SVG export).
+// FlowLayout (shared/flow-layout.js); loads AFTER shared/flow-text.js; FlowText (shared/flow-text.js, a parameter of the factory: the checkpoint figure, banner items, lane tag and row text, shared with the SVG export; `flagChips` and `flagLines` for the marks and the detail panel, used by this tab only).
+//
+// HIGHLIGHTS (T24). A row's flags are drawn as marks, each a glyph and a word (`FlowText.flagChips`; a heuristic one
+// dashed and with `~`), at most two and "+N". "Highlights only" (`#flow-highlights-btn`, aria-pressed) sets
+// `highlightsOnly` in the entry's collapse state, so FlowLayout compacts the rest into quiet groups; it is per session, in
+// memory, like the other collapse state. The detail panel (`#flow-detail`, a focusable region under the list) shows the
+// selected row through `detailOf`: its fields, `step.detail`'s key/value rows and every flag with its sentence and
+// evidence. It is rebuilt only when the selection or the layout changes, never on scroll. No "Open in messages" (O6).
 //
 // Callers: session/timeline-view.js (`FlowView.attach` from showTimelineViewer).
 
@@ -42,7 +49,9 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = factory(require('../../shared/flow-text'));
   else root.FlowView = factory(root.FlowText);   // a classic <script> loaded before this one
 })(typeof self !== 'undefined' ? self : this, function (FlowText) {
-  const { bannerItems, bannerSummary, checkpointInfo, rowText, laneTagInfo, rowBadge } = FlowText;
+  const { bannerItems, bannerSummary, checkpointInfo, rowText, laneTagInfo, rowBadge, flagChips, flagLines } = FlowText;
+  const DETAIL_VALUE_CHARS = 600; // a detail value is cut here in the panel; the snapshot already bounds it
+  const DETAIL_MAX_FIELDS = 40;
   const ROW_H = 40;
   const OVERSCAN = 10;
   const POLL_MS = 5000;
@@ -180,7 +189,54 @@
   /** Does a status answer mean "there is more to read". */
   function statusMeansNewSteps(status) { return status === 'grew' || status === 'rewritten'; }
 
-  // bannerItems, bannerSummary, checkpointInfo, rowText, laneTagInfo and rowBadge are the shared words (src/shared/flow-text.js).
+  function detailValue(v) {
+    let s;
+    if (v == null) return '';
+    if (typeof v === 'string') s = v;
+    else if (typeof v === 'number' || typeof v === 'boolean') s = String(v);
+    else { try { s = JSON.stringify(v); } catch { s = ''; } }
+    return s.length > DETAIL_VALUE_CHARS ? s.slice(0, DETAIL_VALUE_CHARS - 1) + '…' : s;
+  }
+
+  /**
+   * What the detail panel shows for one row (spec 46 "Detail panel"): a heading, key/value fields and the flag lines.
+   * A step row lists its own fields and every key of `step.detail` (the reader's key/value rows, in the snapshot's words);
+   * a group or a lane summary lists its count, and a summary its inherited flags. `columns` names the lanes. Pure.
+   * There is no "Open in messages": O6 found no stable anchor in the messages view (see spec 46).
+   */
+  function detailOf(row, columns) {
+    if (!row) return null;
+    const fields = [];
+    const lane = (columns || []).find((c) => c.laneId === row.laneId);
+    const laneName = lane ? (lane.label || lane.laneId) : row.laneId;
+    if (row.kind === 'step') {
+      const s = row.step;
+      fields.push(['Kind', s.kind]);
+      if (s.turn != null) fields.push(['Turn', String(s.turn)]);
+      if (laneName) fields.push(['Lane', String(laneName)]);
+      if (Number.isFinite(s.ts)) fields.push(['Time', new Date(s.ts).toLocaleString()]);
+      const cp = checkpointInfo(s);
+      if (cp) fields.push(['Context', cp.text + (cp.estimated ? ' (estimated)' : '')]);
+      const d = s.detail && typeof s.detail === 'object' ? s.detail : {};
+      for (const k of Object.keys(d)) {
+        if (fields.length >= DETAIL_MAX_FIELDS) break;
+        const v = detailValue(d[k]);
+        if (v !== '') fields.push([k, v]);
+      }
+      return { title: s.label || s.kind, fields, flags: flagLines(row.flags) };
+    }
+    if (row.kind === 'group') {
+      fields.push(['Steps', String(row.count)]);
+      if (row.tool) fields.push(['Tool', row.tool]);
+      if (laneName) fields.push(['Lane', String(laneName)]);
+      return { title: rowText(row, columns), fields, flags: flagLines(row.flags) };
+    }
+    fields.push(['Steps', String(row.count)]);
+    if (laneName) fields.push(['Lane', String(laneName)]);
+    return { title: rowText(row, columns), fields, flags: flagLines(row.flags) };
+  }
+
+  // bannerItems, bannerSummary, checkpointInfo, rowText, laneTagInfo, rowBadge, flagChips and flagLines are the shared words (src/shared/flow-text.js).
 
   // ---------- the view (browser only; every DOM access is at call time) ----------
 
@@ -324,6 +380,85 @@
     el.hidden = false;
   }
 
+  /** The detail panel for the selected row; hidden with no selection. Built only when the selection or the layout changes. */
+  function renderDetail() {
+    const el = $('flow-detail');
+    if (!el) return;
+    const entry = cur && cur.entry;
+    const idx = entry && entry.lay ? currentRowIndex(entry) : -1;
+    const d = idx >= 0 ? detailOf(entry.lay.rows[idx], entry.lay.columns) : null;
+    if (!d) { el.replaceChildren(); el.hidden = true; syncViewportHeight(); return; }
+    const kids = [];
+    const h = document.createElement('div');
+    h.className = 'flow-detail-title';
+    h.textContent = d.title;
+    kids.push(h);
+    if (d.flags.length) {
+      const list = document.createElement('div');
+      list.className = 'flow-detail-flags';
+      for (const f of d.flags) {
+        const line = document.createElement('div');
+        line.className = 'flow-detail-flag flow-flag-' + f.axis + (f.evidence === 'heuristic' ? ' heuristic' : '');
+        const head = document.createElement('span');
+        head.className = 'flow-detail-flag-head';
+        head.textContent = f.glyph + ' ' + f.axis + ' · ' + f.word + (f.count > 1 ? ' ×' + f.count : '') + ' · ' + f.evidence;
+        const why = document.createElement('span');
+        why.className = 'flow-detail-flag-why';
+        why.textContent = f.why;
+        line.append(head, why);
+        list.appendChild(line);
+      }
+      kids.push(list);
+    }
+    const dl = document.createElement('dl');
+    dl.className = 'flow-detail-fields';
+    for (const [k, v] of d.fields) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      dl.append(dt, dd);
+    }
+    kids.push(dl);
+    el.replaceChildren(...kids);
+    el.hidden = false;
+    syncViewportHeight();
+  }
+
+  /**
+   * The panel is a flex sibling of the list, so showing it or changing its height shrinks the list. Read the new height
+   * at once (one layout read per selection change, never per scroll), so `ensureVisible` scrolls against the real
+   * viewport; the ResizeObserver would only learn it a frame later, after the scroll was decided.
+   */
+  function syncViewportHeight() {
+    const sc = $('flow-scroller');
+    if (!cur || !sc || cur.tab !== 'flow') return;
+    const h = sc.clientHeight;
+    if (h && h !== cur.viewportH) { cur.viewportH = h; markDirty(); }
+  }
+
+  function applyHighlightsButton() {
+    const btn = $('flow-highlights-btn');
+    if (!btn) return;
+    const on = !!(cur && cur.entry && cur.entry.collapse && cur.entry.collapse.highlightsOnly);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.classList.toggle('active', on);
+    btn.disabled = !(cur && cur.entry && cur.entry.lay);   // nothing to fold before the first read
+    // The state in a glyph too, not only in colour; hidden from the accessible name, which aria-pressed already carries.
+    const mark = document.createElement('span');
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = on ? '✓ ' : '';
+    btn.replaceChildren(mark, document.createTextNode('Highlights only'));
+  }
+
+  function toggleHighlights() {
+    const entry = cur && cur.entry;
+    if (!entry || !entry.lay) return;
+    entry.collapse = FlowLayout.setHighlightsOnly(entry.collapse, !entry.collapse.highlightsOnly);
+    applyHighlightsButton();
+    relayoutKeepingPlace();
+  }
+
   function buildRow(entry, index) {
     const lay = entry.lay;
     const row = lay.rows[index];
@@ -373,10 +508,25 @@
       el.appendChild(t);
     }
     if (row.flags && row.flags.length) {
-      const f = document.createElement('span');
-      f.className = 'flow-flags';
-      f.textContent = row.flags.length + (row.flags.length === 1 ? ' flag' : ' flags');
-      el.appendChild(f);
+      // Each mark is a glyph and a word; a heuristic one is dashed and starts with `~` (never colour alone).
+      const { chips, more } = flagChips(row.flags, 2);
+      const box = document.createElement('span');
+      box.className = 'flow-flags';
+      for (const c of chips) {
+        const chip = document.createElement('span');
+        chip.className = 'flow-flag flow-flag-' + c.axis + (c.heuristic ? ' heuristic' : '');
+        chip.textContent = c.text;
+        chip.title = c.title;
+        box.appendChild(chip);
+      }
+      if (more) {
+        const m = document.createElement('span');
+        m.className = 'flow-flag-more';
+        m.textContent = '+' + more;
+        box.appendChild(m);
+      }
+      el.appendChild(box);
+      el.setAttribute('aria-label', (el.getAttribute('aria-label') || text) + '. ' + chips.map((c) => c.text.replace(/^\S+\s~?/, '') + ' (' + c.title.split(':')[0] + ')').join('; ') + (more ? '; and ' + more + ' more' : ''));
     }
     const cp = row.kind === 'step' ? checkpointInfo(row.step) : null;
     if (cp) {
@@ -505,6 +655,8 @@
     markDirty();
     if (top != null) setScroll(top);
     render();
+    renderDetail();
+    applyHighlightsButton();
   }
 
   function select(index, toggle) {
@@ -522,6 +674,7 @@
     } else {
       markDirty();
       render();
+      renderDetail();
     }
   }
 
@@ -546,7 +699,11 @@
     const el = ev.target.closest && ev.target.closest('.flow-row');
     if (!el) return;
     if (ev.target.closest('.flow-lane-tag')) { collapseLane(Number(el.dataset.index)); return; }
-    select(Number(el.dataset.index), true);
+    const index = Number(el.dataset.index);
+    select(index, true);
+    // The panel that just opened may cover a row near the bottom: keep the clicked row in view.
+    const at = cur && cur.entry ? currentRowIndex(cur.entry) : -1;
+    if (at >= 0) { ensureVisible(at); render(); }
   }
 
   function onKey(ev) {
@@ -750,6 +907,8 @@
     evBtn.addEventListener('keydown', tabKeys);
     flowBtn.addEventListener('keydown', tabKeys);
     refreshBtn.addEventListener('click', () => { if (cur) refresh(); });
+    const hlBtn = $('flow-highlights-btn');
+    if (hlBtn) hlBtn.addEventListener('click', toggleHighlights);
     const exportSel = $('flow-export-select');
     if (exportSel) exportSel.addEventListener('change', () => {
       const format = exportSel.value;
@@ -792,6 +951,8 @@
     if (slice) slice.replaceChildren();
     const banner = $('flow-banner');
     if (banner) banner.replaceChildren();
+    const detail = $('flow-detail');
+    if (detail) { detail.replaceChildren(); detail.hidden = true; }
   }
 
   /** Called by showTimelineViewer once the Events list is drawn. Opens on the last used tab. */
@@ -844,6 +1005,8 @@
     showHint(false);
     showMessage(cur.avail.ok ? '' : cur.avail.reason);
     renderBanner();
+    applyHighlightsButton();
+    renderDetail();
     setTab(lastTab === 'flow' && cur.avail.ok ? 'flow' : 'events');
   }
 
@@ -871,7 +1034,7 @@
   return Object.freeze({
     ROW_H, OVERSCAN, POLL_MS, CACHE_MAX,
     computeSlice, buildStepRowMap, resolveSelection, captureAnchor, resolveRowForStep, restoreAnchor,
-    laneTagInfo, shouldPoll, statusMeansNewSteps, isCancelledAnswer, bannerItems, bannerSummary, checkpointInfo, rowText,
+    laneTagInfo, shouldPoll, statusMeansNewSteps, isCancelledAnswer, bannerItems, bannerSummary, checkpointInfo, rowText, detailOf,
     attach, refresh, notifyRunningChanged, debugStats,
   });
 });

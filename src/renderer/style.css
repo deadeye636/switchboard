@@ -5734,6 +5734,40 @@ mark.jsonl-search-hit-active {
 .flow-cp-bar { width: 64px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
 .flow-cp-fill { display: block; height: 100%; background: #4fc3f7; }
 .flow-cp-text { color: #9a9aac; font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 10px; }
+/* Highlights (T24): a mark is a glyph and a word; a heuristic one is dashed. Colour only repeats what the text says. */
+.flow-flags { display: flex; align-items: center; gap: 4px; max-width: 280px; overflow: hidden; }
+.flow-flag { flex-shrink: 1; min-width: 0; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; color: #c8c8dc; font-size: 10px; }
+.flow-flag.heuristic { border-style: dashed; }
+.flow-flag-risk { border-color: rgba(240,160,80,0.6); color: #f0c090; }
+.flow-flag-outcome { border-color: rgba(128,136,255,0.55); color: #c0c4ff; }
+.flow-flag-more { flex-shrink: 0; color: #9a9ab8; font-size: 10px; }
+#flow-highlights-btn { padding: 3px 12px; font-size: 12px; }
+#flow-highlights-btn[aria-pressed="true"] { border-color: #7c8cff; color: #e0e0ec; }
+#flow-detail {
+  flex-shrink: 0;
+  max-height: 35%;
+  overflow: auto;
+  margin: 0 16px 12px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 7px;
+  background: rgba(255,255,255,0.02);
+  color: #d0d0e0;
+  font-size: 12px;
+  outline: none;
+}
+#flow-detail:focus-visible { box-shadow: inset 0 0 0 1px rgba(128,136,255,0.5); }
+.flow-detail-title { margin-bottom: 6px; color: #e8e8f4; font-weight: 600; overflow-wrap: anywhere; }
+.flow-detail-flags { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.flow-detail-flag { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; }
+.flow-detail-flag.heuristic { border-style: dashed; }
+.flow-detail-flag.flow-flag-risk { border-color: rgba(240,160,80,0.5); }
+.flow-detail-flag.flow-flag-outcome { border-color: rgba(128,136,255,0.5); }
+.flow-detail-flag-head { color: #e0e0ec; font-size: 11px; }
+.flow-detail-flag-why { color: #a8a8c0; font-size: 11px; overflow-wrap: anywhere; }
+.flow-detail-fields { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+.flow-detail-fields dt { color: #8a8aa0; }
+.flow-detail-fields dd { margin: 0; color: #c8c8dc; white-space: pre-wrap; overflow-wrap: anywhere; font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 11px; }
 
 .jsonl-entry {
   margin-bottom: 2px;

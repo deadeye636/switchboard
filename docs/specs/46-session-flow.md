@@ -241,7 +241,8 @@ shell, so closing the viewer in one window must not cancel another's read): `get
 - **Evidence in the picture.** Measured values are solid; estimated values are visually distinct (dashed outline plus an
   "est." label, never colour alone); `included` and `unknown` say so in words.
 - **Detail panel.** Key/value rows from `Step.detail`, the flags with their `why` and evidence, and "Open in messages" where a
-  stable source reference can navigate there (O6).
+  stable source reference can navigate there (O6). As built (T24): no such reference exists, so there is no "Open in messages"; see
+  "As built (T24, the highlights UI)".
 
 ### Flow tab, as built (T8/T9)
 
@@ -392,6 +393,31 @@ Claude's list (all heuristic; a recursive delete is flagged only at a BROAD targ
   terminal could return the same text from a tool, which is judged too unlikely to guard. The gate's text was confirmed from Pi's source
   (a blocked call's result is the hook's `reason` word for word), not from a real refused turn.
 
+*As built (T24, the highlights UI).* Screen only; the SVG, PDF and Mermaid exports are unchanged (the SVG still shows a flag count).
+- **Marks on a card.** `FlowText.flagChips` (`src/shared/flow-text.js`): each flag is a glyph and a word, the axis as the glyph (`▲` risk,
+  `■` outcome, `●` attention, `◆` lifecycle) and the code in words (`destructive:git-force-push` reads `destructive: git force push`; the code
+  is the reader's data, the renderer branches on none). A heuristic mark starts with `~` and has a dashed border; colour only repeats the
+  axis. Risk first, then outcome; at most two marks and `+N`. A collapsed lane summary shows its inherited union with counts (`×2`). The row's
+  accessible name lists the marks with axis and evidence; the title of a mark holds the reader's sentence.
+- **Highlights only.** A toggle button in the Flow toolbar (`aria-pressed`, and a `✓` when on, hidden from its accessible name). It sets `highlightsOnly` in the
+  session's collapse state (in memory, per session, like the rest of it, so a Refresh keeps it), and `FlowLayout.layout` keeps as rows the
+  flagged steps, every `start` step (the session's, and an agent's where its reader writes one), prompts, compactions and every spawn or
+  return anchor; a child lane whose first step is none of these starts with a quiet group, which still carries the lane tag. Every other run of adjacent steps of one
+  lane and one turn becomes ONE quiet group, "N steps without a highlight" (badge `steps`), expandable by click, Enter or Right. A run of one
+  stays a plain row. A quiet group's open state lives under `q:` + its first member's id, apart from the normal mode's groups. Collapsed lanes
+  stay summaries. Selection and the scroll anchor carry across the switch (the row key keeps the group shape `g:`).
+- **Detail panel.** `#flow-detail` under the list, a focusable region (Tab from the list), hidden with no selection, built only when the
+  selection or the layout changes (`FlowView.detailOf`, pure). It shrinks the list, so the list's height is read again right after the panel
+  changes and the selected row is scrolled into view against it. The toggle is disabled until the first read. A step shows its label, kind, turn, lane, local time, the context figure and
+  every key of `step.detail` (a value cut at 600 characters, at most 40 fields), then one box per flag: glyph, axis, the code in words, the
+  count, the evidence, and the reader's `why`. A group or a lane summary shows its count, its lane and the flags it inherited.
+- **No "Open in messages" (O6).** The messages view addresses an entry by its position after merging and filtering
+  (`dataset.entryIndex` in `src/renderer/jsonl/jsonl-viewer.js`) or by a tool-use id; a flow step carries a file line and byte offset, and no
+  reader puts a tool-use id into the snapshot. There is no stable mapping, so the button is not offered.
+- Click test (demo, 2026-11-11): the Codex flags fixture shows every mark kind with the guardian's verdicts and the mode mark; a Claude
+  session with subagents compacts `2 × Bash` into a quiet group with anchors and lane summaries kept; End, Enter and Tab reach the quiet group
+  and the panel; switching the mode off restores the ordinary rows; no console error.
+
 ## Exports
 
 Every export materialises the complete snapshot, not the viewport.
@@ -435,7 +461,7 @@ visible.
 | O3 | Whether a template/profile session inherits `sessionFlow` or lists it in `NOT_INHERITED`. | Forward it by hand like `listSubagents` (`src/backends/index.js`), since a template runs the base binary and writes the base's transcript. The shape test pins it. |
 | O4 | Order of delivery: the issue's review revision puts highlights before visual exports; the task order is exports (JSON, SVG, PDF, Mermaid), then highlights. | Follow the task order (the plan does). The `Flag` field exists from the first schema, so JSON never changes shape when highlights land. |
 | O5 | The step cap and what the viewer does at it. | Measure the largest local transcripts per backend in the first Claude reader step; set the cap from that; `complete: false` plus a limitation, never a silent cut. |
-| O6 | "Open in messages": whether the conversation viewer can address a step by a stable reference (line, uuid). **Not verified.** | Check `src/renderer/jsonl/` in the highlights UI step; if there is no addressable anchor, ship the button without it and record the gap. |
+| O6 | "Open in messages": whether the conversation viewer can address a step by a stable reference (line, uuid). **Not verified.** | Check `src/renderer/jsonl/` in the highlights UI step; if there is no addressable anchor, ship the button without it and record the gap. **Answered (T24):** no stable anchor (the messages view keys an entry by its position after merging, a step by its file line), so no button; see "As built (T24, the highlights UI)". |
 | O7 | What "equivalent" tool calls are for collapsing. | Same tool name, same lane, same turn, no flags, adjacent. Commands may differ. The group shows the count and the distinct targets on expand. |
 | O8 | Whether claude-native or pi-native declares a measured start baseline (req. 3, "may use an existing measured baseline"). | None in the first version; the start total stays `unknown` before the first request. Revisit with #758. |
 | O9 | Whether the Flow tab remembers its collapse state across reopen. | Per session, in memory only, for the first version; no setting. |
