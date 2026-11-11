@@ -158,6 +158,19 @@
     return s && stepRows.has(s.id) ? stepRows.get(s.id) : -1;
   }
 
+  /**
+   * The row the selection sits on after a re-layout (a Refresh, an automatic refresh at the session's end, a fold): the
+   * row with the selected key when it still exists, else the row that stands for the selected step, which is the
+   * nearest collapsed ancestor lane's summary when the step's lane is folded now (`stepRows` is `buildStepRowMap`). -1 when
+   * neither resolves. Lane ids (`agent:<id>`) and step ids are stable across reads, so no other state is needed.
+   */
+  function resolveSelection(snapshot, rows, stepRows, selectedKey, selectedStepId) {
+    if (selectedKey != null) {
+      for (let i = 0; i < rows.length; i++) if (rows[i].key === selectedKey) return i;
+    }
+    return selectedStepId != null ? resolveRowForStep(snapshot, stepRows, selectedStepId, null) : -1;
+  }
+
   /** The scrollTop that puts the anchored step back where it was; `null` when the anchor can not be resolved. */
   function restoreAnchor(snapshot, rows, stepRows, anchor, rowH) {
     if (!anchor || !rows || !rows.length) return null;
@@ -571,11 +584,11 @@
 
   function currentRowIndex(entry) {
     if (!entry || !entry.lay) return -1;
-    if (entry.selectedKey != null) {
-      const i = FlowLayout.findRowIndex(entry.lay, entry.selectedKey);
-      if (i >= 0) return i;
-    }
-    return entry.selectedStepId != null ? resolveRowForStep(entry.snapshot, stepRowsOf(entry), entry.selectedStepId, null) : -1;
+    if (entry.selectedKey == null && entry.selectedStepId == null) return -1;
+    const rows = entry.lay.rows;
+    const direct = entry.selectedKey != null ? FlowLayout.findRowIndex(entry.lay, entry.selectedKey) : -1;
+    if (direct >= 0) return direct;
+    return resolveSelection(entry.snapshot, rows, stepRowsOf(entry), null, entry.selectedStepId);
   }
 
   /** Re-layout after a snapshot or a collapse change, keeping the scroll anchor and the selected step. */
@@ -916,7 +929,7 @@
 
   return Object.freeze({
     ROW_H, OVERSCAN, POLL_MS, CACHE_MAX,
-    computeSlice, buildStepRowMap, captureAnchor, resolveRowForStep, restoreAnchor,
+    computeSlice, buildStepRowMap, resolveSelection, captureAnchor, resolveRowForStep, restoreAnchor,
     laneTagInfo, shouldPoll, statusMeansNewSteps, isCancelledAnswer, bannerItems, bannerSummary, checkpointInfo, rowText,
     attach, refresh, notifyRunningChanged, debugStats,
   });

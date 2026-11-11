@@ -301,3 +301,177 @@ test('the window hint is asked without a synchronous read: contextWindowAsync is
   assert.ok(!/\b\w+Sync\(/.test(src), 'contextWindowAsync has no *Sync call of its own');
   assert.equal(typeof claude.contextWindowAsync, 'function');
 });
+
+// --- status notices subagent files (T13) ---
+
+async function readOnce(t) {
+  const n = t.w.made.length + 1;
+  const p = sessionFlow.getSessionFlow('s1');
+  await tick(t.w, n);
+  t.w.made[n - 1].emit('message', { type: 'result', snapshot: goodSnapshot() });
+  return p;
+}
+const subDirOf = (t) => path.join(t.dir, 's1', 'subagents');
+function writeSub(t, name, text) {
+  fs.mkdirSync(subDirOf(t), { recursive: true });
+  fs.writeFileSync(path.join(subDirOf(t), name), text);
+}
+
+test('status: a subagent file that grew, or a new one, is "grew" while the main transcript is unchanged', async () => {
+  const t = setup();
+  try {
+    writeSub(t, 'agent-a.jsonl', '{"type":"user"}\n');
+    await readOnce(t);
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged', 'nothing moved');
+    fs.appendFileSync(path.join(subDirOf(t), 'agent-a.jsonl'), '{"type":"user"}\n');
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew', 'a listed file grew');
+    await readOnce(t);   // a second read re-fingerprints
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged');
+    writeSub(t, 'agent-b.jsonl', '{"type":"user"}\n');
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew', 'a new file');
+  } finally { t.cleanup(); }
+});
+
+test('status: a subagent directory that appears after the read is "grew"; one that never existed is "unchanged"', async () => {
+  const t = setup();
+  try {
+    await readOnce(t);
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged', 'no directory, no subagents');
+    writeSub(t, 'agent-a.jsonl', 'x\n');
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew');
+  } finally { t.cleanup(); }
+});
+
+test('status: a removed or shrunk subagent file is "rewritten"; other files in the directory are ignored', async () => {
+  const t = setup();
+  try {
+    writeSub(t, 'agent-a.jsonl', '{"type":"user"}\n{"type":"user"}\n');
+    writeSub(t, 'agent-a.meta.json', '{}');
+    await readOnce(t);
+    writeSub(t, 'agent-a.meta.json', '{"changed":true}');
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged', 'only .jsonl files count');
+    writeSub(t, 'agent-a.jsonl', 'x\n');
+    assert.equal(await sessionFlow.getStatus('s1'), 'rewritten', 'shrunk');
+    fs.rmSync(path.join(subDirOf(t), 'agent-a.jsonl'));
+    assert.equal(await sessionFlow.getStatus('s1'), 'rewritten', 'removed');
+  } finally { t.cleanup(); }
+});
+
+test('status cost: one stat of the main file, one readdir and a stat per listed subagent file; no path in the answer', async () => {
+  const t = setup();
+  const realStat = fs.promises.stat;
+  const realReaddir = fs.promises.readdir;
+  try {
+    for (const n of ['agent-a.jsonl', 'agent-b.jsonl', 'agent-c.jsonl']) writeSub(t, n, '{"type":"user"}\n');
+    await readOnce(t);
+    let stats = 0;
+    let readdirs = 0;
+    fs.promises.stat = (...a) => { stats++; return realStat.apply(fs.promises, a); };
+    fs.promises.readdir = (...a) => { readdirs++; return realReaddir.apply(fs.promises, a); };
+    const answer = await sessionFlow.getStatus('s1');
+    assert.equal(answer, 'unchanged');
+    assert.equal(readdirs, 1);
+    assert.equal(stats, 1 + 3);
+    assertNoPath(answer, t.dir);
+    // A new name needs no stat of its own.
+    fs.promises.stat = realStat;
+    writeSub(t, 'agent-d.jsonl', 'x\n');
+    stats = 0;
+    fs.promises.stat = (...a) => { stats++; return realStat.apply(fs.promises, a); };
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew');
+    assert.ok(stats <= 1 + 3, `stats ${stats}`);
+  } finally {
+    fs.promises.stat = realStat;
+    fs.promises.readdir = realReaddir;
+    t.cleanup();
+  }
+});
+
+test('the subagent directory is found by its source role, not by a backend id', () => {
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'session-flow.js'), 'utf8'));
+  assert.ok(/role === 'subagents-dir'/.test(src));
+  assert.ok(!/['"]claude['"]/.test(src.replace(/LEGACY_SESSION_BACKEND = 'claude'/, '')), 'no backend id beyond the grandfathered default');
+});
+
+// --- status above the cap, and the odd read-time cases (T13 follow-up) ---
+
+function fillSubs(t, n) {
+  fs.mkdirSync(subDirOf(t), { recursive: true });
+  for (let i = 0; i < n; i++) fs.writeFileSync(path.join(subDirOf(t), 'agent-' + String(i).padStart(4, '0') + '.jsonl'), 'x\n');
+}
+
+test('status above the 200-file cap: an early-sorting new file is "grew", not "rewritten"; a late one is seen too', async () => {
+  const t = setup();
+  try {
+    fillSubs(t, 205);
+    await readOnce(t);
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged', 'nothing moved');
+    writeSub(t, 'agent-0000a.jsonl', 'x\n');   // sorts inside the window and pushes the 200th name out of it
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew');
+  } finally { t.cleanup(); }
+  const late = setup();
+  try {
+    fillSubs(late, 205);
+    await readOnce(late);
+    writeSub(late, 'zz.jsonl', 'x\n');         // sorts past the window: only the count shows it
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew');
+  } finally { late.cleanup(); }
+});
+
+test('status stats at most 200 subagent files, one after the other', async () => {
+  const t = setup();
+  const realStat = fs.promises.stat;
+  try {
+    fillSubs(t, 230);
+    await readOnce(t);
+    let inFlight = 0;
+    let peak = 0;
+    let stats = 0;
+    fs.promises.stat = async (...a) => { stats++; inFlight++; peak = Math.max(peak, inFlight); try { return await realStat.apply(fs.promises, a); } finally { inFlight--; } };
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged');
+    assert.equal(stats, 1 + 200);
+    assert.equal(peak, 1, 'never in parallel');
+  } finally { fs.promises.stat = realStat; t.cleanup(); }
+});
+
+test('status: a directory that could not be listed at the read is listed again later', async () => {
+  const t = setup();
+  try {
+    fs.mkdirSync(path.join(t.dir, 's1'), { recursive: true });
+    fs.writeFileSync(subDirOf(t), 'not a directory');   // readdir fails with ENOTDIR, not ENOENT
+    await readOnce(t);
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged', 'still unreadable: the main transcript decides');
+    fs.rmSync(subDirOf(t));
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged', 'readable and empty');
+    writeSub(t, 'agent-a.jsonl', 'x\n');
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew', 'watching resumed');
+  } finally { t.cleanup(); }
+});
+
+test('status: a file the read could not stat does not report "grew" on every poll', async () => {
+  const t = setup();
+  const realStat = fs.promises.stat;
+  try {
+    writeSub(t, 'agent-a.jsonl', 'x\n');
+    writeSub(t, 'agent-b.jsonl', 'x\n');
+    fs.promises.stat = (f, ...a) => (String(f).endsWith('agent-b.jsonl') ? Promise.reject(Object.assign(new Error('busy'), { code: 'EBUSY' })) : realStat.call(fs.promises, f, ...a));
+    await readOnce(t);
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged', 'still cannot be stat-ed: no change');
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged');
+    fs.promises.stat = realStat;
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew', 'a successful stat is the first change');
+  } finally { fs.promises.stat = realStat; t.cleanup(); }
+});
+
+test('the snapshot handed to the renderer carries no subagent state and no path in its fingerprint', async () => {
+  const t = setup();
+  try {
+    writeSub(t, 'agent-a.jsonl', 'x\n');
+    const snap = await readOnce(t);
+    assert.ok(snap.fingerprint && typeof snap.fingerprint.size === 'number');
+    const all = strings(snap.fingerprint);
+    assert.ok(!all.includes('subs') && !all.includes('sizes'), 'no subagent bookkeeping');
+    assertNoPath(snap.fingerprint, t.dir);
+    assertNoPath(snap, t.dir);
+  } finally { t.cleanup(); }
+});

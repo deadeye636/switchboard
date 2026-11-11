@@ -260,3 +260,72 @@ test('a step of a lane below a collapsed lane maps to the summary and never uses
   for (const id of ['s1', 's2', 's4', 's6']) assert.equal(map.get(id), 1, id);
   for (const id of ['s3', 's5', 's7']) assert.equal(map.get(id), 2, id);
 });
+
+// --- Refresh with lanes (T13) ---
+
+function laneSnap(steps, finished) {
+  const snap = mkSnap(steps);
+  snap.lanes.push({ id: 'agent:x', parentLaneId: 'main', depth: 1, label: 'helper', kind: 'agent', spawnAnchor: { laneId: 'main', stepId: 's1' }, returnAnchor: finished ? { laneId: 'main', stepId: 's1' } : null });
+  return snap;
+}
+const base = () => [
+  mkStep(0, { kind: 'prompt', detail: {} }),
+  mkStep(1, { kind: 'agent', detail: {} }),
+  mkStep(2, { laneId: 'agent:x', kind: 'prompt', detail: {} }),
+  mkStep(3, { laneId: 'agent:x', kind: 'output', detail: {} }),
+];
+const more = () => base().concat([mkStep(4, { laneId: 'agent:x', kind: 'output', detail: {} }), mkStep(5, { kind: 'output', detail: {} })]);
+
+function reselect(prev, next, collapse, sel) {
+  const lay = FlowLayout.layout(next, collapse);
+  const map = FlowView.buildStepRowMap(next, lay.rows, lay.order);
+  return { lay, idx: FlowView.resolveSelection(next, lay.rows, map, sel.key, sel.stepId) };
+}
+
+test('refresh: a selected step in a lane that finished meanwhile resolves to its summary row', () => {
+  const open = FlowLayout.layout(laneSnap(base(), false), FlowLayout.emptyCollapseState());
+  const selRow = open.rows.find((r) => r.key === 's3');
+  assert.ok(selRow, 'the step has a row while the lane is open');
+  const r = reselect(null, laneSnap(more(), true), FlowLayout.emptyCollapseState(), { key: selRow.key, stepId: selRow.firstStepId });
+  assert.equal(r.lay.rows[r.idx].kind, 'lane');
+  assert.equal(r.lay.rows[r.idx].key, 'l:agent:x');
+});
+
+test('refresh: an explicit choice survives, in both directions, whatever the lane did meanwhile', () => {
+  // The user expanded a lane that is finished now: it stays expanded and the selected step keeps its own row.
+  const expanded = FlowLayout.setLaneExpanded(FlowLayout.emptyCollapseState(), 'agent:x', true);
+  const r1 = reselect(null, laneSnap(more(), true), expanded, { key: 's3', stepId: 's3' });
+  assert.equal(r1.lay.rows[r1.idx].key, 's3');
+  // The user collapsed a lane that was still open: it stays collapsed after the lane grew.
+  const collapsed = FlowLayout.setLaneExpanded(FlowLayout.emptyCollapseState(), 'agent:x', false);
+  const r2 = reselect(null, laneSnap(more(), false), collapsed, { key: 's3', stepId: 's3' });
+  assert.equal(r2.lay.rows[r2.idx].key, 'l:agent:x');
+  // No choice at all: an open lane is expanded, a finished one collapsed.
+  assert.equal(FlowLayout.layout(laneSnap(more(), false), FlowLayout.emptyCollapseState()).rows.some((r) => r.kind === 'lane'), false);
+  assert.equal(FlowLayout.layout(laneSnap(more(), true), FlowLayout.emptyCollapseState()).rows.some((r) => r.kind === 'lane'), true);
+});
+
+test('refresh: a selected lane summary whose lane is expanded now falls back to the lane first step', () => {
+  const lay = FlowLayout.layout(laneSnap(base(), true), FlowLayout.emptyCollapseState());
+  const sum = lay.rows.find((r) => r.kind === 'lane');
+  const expanded = FlowLayout.setLaneExpanded(FlowLayout.emptyCollapseState(), 'agent:x', true);
+  const r = reselect(null, laneSnap(more(), true), expanded, { key: sum.key, stepId: sum.firstStepId });
+  assert.equal(r.lay.rows[r.idx].key, 's2');
+  assert.equal(FlowView.resolveSelection(laneSnap(more(), true), r.lay.rows, new Map(), 'nope', null), -1);
+});
+
+test('refresh: the scroll anchor on a lane row survives the lane growing and finishing', () => {
+  const before = FlowLayout.layout(laneSnap(base(), false), FlowLayout.emptyCollapseState());
+  const at = before.rows.findIndex((r) => r.key === 's3');
+  const anchor = FlowView.captureAnchor(laneSnap(base(), false), before.rows, at * ROW + 9, ROW);
+  assert.equal(anchor.stepId, 's3');
+  const next = laneSnap(more(), false);
+  const after = FlowLayout.layout(next, FlowLayout.emptyCollapseState());
+  const top = FlowView.restoreAnchor(next, after.rows, FlowView.buildStepRowMap(next, after.rows, after.order), anchor, ROW);
+  assert.equal(top, after.rows.findIndex((r) => r.key === 's3') * ROW + 9);
+  // The lane finished: the anchored step is inside the summary now and the anchor lands on that row.
+  const fin = laneSnap(more(), true);
+  const folded = FlowLayout.layout(fin, FlowLayout.emptyCollapseState());
+  const top2 = FlowView.restoreAnchor(fin, folded.rows, FlowView.buildStepRowMap(fin, folded.rows, folded.order), anchor, ROW);
+  assert.equal(Math.floor(top2 / ROW), folded.rows.findIndex((r) => r.kind === 'lane'));
+});

@@ -35,6 +35,8 @@ const RESOURCE_LIMITS = Object.freeze({ maxOldGenerationSizeMb: 256, maxYoungGen
 const TIMEOUT_MS = 30000;
 const HEAD_BYTES = 4096;
 const MAX_FINGERPRINTS = 100;
+// The subagent files watched by `status`: the same bound as the reader's lane cap (spec 46), so the poll never stats more than a read can show.
+const MAX_SUB_FILES = 200;
 
 let ctx = null;
 // A request belongs to ONE window and one session: a detached window loads the same shell, so keying by the session
@@ -115,6 +117,61 @@ async function headHashOf(file, len) {
   }
 }
 
+/** The directory a source list names with the role `subagents-dir`, or null. The core reads the role, never a backend id. */
+function subagentsDir(sources) {
+  const s = Array.isArray(sources) && sources.find(x => x && x.role === 'subagents-dir' && typeof x.file === 'string');
+  return s ? s.file : null;
+}
+
+/**
+ * The `.jsonl` files of a directory: `{ names, total }` with the first MAX_SUB_FILES names in sorted order and the count
+ * of ALL of them, so a directory past the cap still shows that it grew. One readdir. An absent directory is
+ * `{ names: [], total: 0 }`; any other failure is null.
+ */
+async function listSubNames(dir) {
+  let names;
+  try { names = await fs.promises.readdir(dir); } catch (err) { return err && err.code === 'ENOENT' ? { names: [], total: 0 } : null; }
+  const all = names.filter(n => n.endsWith('.jsonl')).sort();
+  return { names: all.slice(0, MAX_SUB_FILES), total: all.length };
+}
+
+/**
+ * What the read saw of the subagent files, kept in main: `{ sizes: Map(name -> size | null), total }` (null = the stat failed, so
+ * nothing is known about that file until a later stat succeeds), or `{ unknown: true }` when the directory could not be listed (the
+ * next status lists it again). One readdir and one stat per file, off the poll path.
+ */
+async function subagentSizes(dir) {
+  const now = await listSubNames(dir);
+  if (!now) return { unknown: true };
+  const sizes = new Map();
+  for (const n of now.names) {
+    try { sizes.set(n, (await fs.promises.stat(path.join(dir, n))).size); } catch { sizes.set(n, null); }
+  }
+  return { sizes, total: now.total };
+}
+
+/**
+ * Whether the subagent files moved since the read: `unchanged | grew | rewritten`, or null when the directory cannot be
+ * listed. One readdir, and a stat of each file the last read listed, one after the other (never in parallel: 200 at once would
+ * flood the thread pool other I/O shares). A name that is new, or more files than at the read, answers `grew` without a stat; a
+ * listed file that is gone or smaller is `rewritten`. A listed file is never called gone for falling out of the capped window.
+ * The directory's own mtime is no signal: appending to a file inside does not move it on Windows.
+ */
+async function subagentStatus(dir, before) {
+  const now = await listSubNames(dir);
+  if (!now) return null;
+  if (before.unknown) return now.total > 0 ? 'grew' : 'unchanged';
+  let grew = now.total > before.total || now.names.some(n => !before.sizes.has(n));
+  for (const [n, size] of before.sizes) {
+    let st;
+    try { st = await fs.promises.stat(path.join(dir, n)); } catch { if (size === null) continue; return 'rewritten'; }
+    if (size === null) { grew = true; continue; }   // first successful stat of a file the read could not stat
+    if (st.size < size) return 'rewritten';
+    if (st.size > size) grew = true;
+  }
+  return grew ? 'grew' : 'unchanged';
+}
+
 function remember(key, fp) {
   fingerprints.delete(key);
   fingerprints.set(key, fp);
@@ -123,8 +180,10 @@ function remember(key, fp) {
 
 /**
  * Whether the transcript moved since the snapshot last handed out, as one string: `unchanged | grew | rewritten`,
- * or `unknown` (no read yet, an unknown session, or a source that cannot be stat-ed). At most one stat; a 4 KB
- * read only when size or mtime moved and the file did not shrink. The answer holds no path.
+ * or `unknown` (no read yet, an unknown session, or a source that cannot be stat-ed). One stat of the main file, a
+ * 4 KB read only when its size or mtime moved and it did not shrink, then — for a backend whose sources name a
+ * `subagents-dir` — one readdir and a stat of each file the snapshot listed (at most MAX_SUB_FILES, in sequence). A new or grown
+ * subagent file is `grew`, a removed or shrunk one `rewritten`. The answer holds no path.
  */
 async function getStatus(sessionId, senderId) {
   const row = lookupRow(sessionId);
@@ -135,11 +194,17 @@ async function getStatus(sessionId, senderId) {
   if (!file) return 'unknown';
   let st;
   try { st = await fs.promises.stat(file); } catch { return 'unknown'; }
+  let main = 'unchanged';
   if (st.size < before.size) return 'rewritten';
-  if (st.size === before.size && st.mtimeMs === before.mtimeMs) return 'unchanged';
-  const head = await headHashOf(file, before.headLen);
-  if (head === null || head !== before.head) return 'rewritten';
-  return st.size > before.size ? 'grew' : 'unchanged';
+  if (!(st.size === before.size && st.mtimeMs === before.mtimeMs)) {
+    const head = await headHashOf(file, before.headLen);
+    if (head === null || head !== before.head) return 'rewritten';
+    if (st.size > before.size) main = 'grew';
+  }
+  if (main === 'grew') return main;
+  const dir = subagentsDir(flow.sources);
+  if (!dir || !before.subs) return main;
+  return (await subagentStatus(dir, before.subs)) || main;
 }
 
 // --- lookups ---
@@ -259,6 +324,8 @@ async function getSessionFlow(sessionId, senderId) {
 
   const file = mainFile(flow.sources);
   const fingerprint = file ? await fingerprintOf(file) : null;
+  const subDir = subagentsDir(flow.sources);
+  if (fingerprint && subDir) fingerprint.subs = await subagentSizes(subDir);   // kept in main; the snapshot's copy below omits it
   if (generations.get(key) !== gen || quitting()) return failureSnapshot('cancelled', flow.answer);
 
   const backend = flow.backend;
