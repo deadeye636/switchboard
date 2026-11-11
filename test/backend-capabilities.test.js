@@ -26,7 +26,7 @@ const PINNED = {
     review: 'no',     // spec 39: a review runs on a pipe; Claude's pipe driver is claude-native
     task: 'no',     // spec 41: a task runs on a pipe; Claude's pipe driver is claude-native
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is claude-native
-    sessionFlow: 'limited', // spec 46: main lane read; agents, approvals, risk marks not yet
+    sessionFlow: 'limited', // spec 46: main and subagent lanes, risk marks; a background agent's end and approvals not read
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
@@ -42,7 +42,7 @@ const PINNED = {
     review: 'no',     // spec 39: no pipe driver
     task: 'no',     // spec 41: no pipe driver
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
-    sessionFlow: 'limited', // spec 46: main plus child lanes; no approval record
+    sessionFlow: 'limited', // spec 46: main plus child lanes, risk marks; approvals only as the guardian's verdict
     turnDigest: 'yes',   // #507: a bounded tail read of its rollout
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',

@@ -627,7 +627,7 @@ module.exports = {
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is pi-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is pi-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is pi-native' },
-    sessionFlow: { state: 'limited', note: 'one lane: a delegated agent writes no session file, so it is one summary step; no permission mode, no approval step in a terminal, no risk marks yet (spec 46)' },
+    sessionFlow: { state: 'limited', note: 'one lane: a delegated agent writes no session file, so it is one summary step; no permission mode, no approval step in a terminal; risk marks are a built-in pattern list on bash and powershell calls (heuristic), and a pi-native refusal shows as a denied call (spec 46)' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },

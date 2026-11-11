@@ -52,6 +52,14 @@ one entry: every session that changed while you were gone, in one list, each row
 did and which files it touched. Away means away — leaving the desk, not switching windows — and the
 record behind it survives a reload, a window close and a restart.
 
+**It can draw what a session did.** The timeline viewer has a second tab, Flow: the session as a lane
+graph, time running down, every subagent in a lane of its own that branches off where it was started
+and joins back where it returned. Each model request shows how much context it sent, measured or marked
+as an estimate. Risky commands, refused or blocked calls, and the moments a session stopped or waited for
+you are marked with a symbol and a word, and *Highlights only* folds the rest away. It works for Claude,
+Codex and Pi and reads the transcript, so a Claude or Pi session looks the same whether it ran in a
+terminal or in the conversation view. It exports to JSON, SVG, PDF or Mermaid.
+
 **You can hand a busy session its next job and walk away.** Stage a prompt for a session that is
 working, or sitting on a permission dialog, and Switchboard types it in once the session is ready for
 it — never over a turn in progress, and never over a line you have half-typed in the session's own

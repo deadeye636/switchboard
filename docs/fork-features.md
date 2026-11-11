@@ -1036,6 +1036,15 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Design record: [`docs/specs/19-editor-live-preview.md`](specs/19-editor-live-preview.md).
 
 ### Supervision extensions
+- **Session flow** (#826, spec 46) — a Flow tab beside Events in the timeline viewer. The session is read from its transcript
+  in a worker and drawn as a lane graph: one card per step, subagents in lanes of their own with their spawn and return,
+  context per model request (measured or estimated, said so), turns and compactions. Claude, Codex (child rollouts and the
+  guardian's verdicts) and Pi. Risk and outcome marks: a built-in, conservative list of destructive commands (a heuristic,
+  labelled as one), prompt-skipping modes, escalation requests, hook blocks, denials and refusals; each mark is a symbol and
+  a word with its reason and evidence in a detail panel. *Highlights only* folds unmarked detail, keeping prompts, starts,
+  compactions and lane anchors; stop, fork and
+  needs-attention events from the Events record sit on the step before them without being merged into it. Exports: JSON,
+  SVG, a paginated PDF and Mermaid. A snapshot with an explicit Refresh, polled for new steps only while it is on screen.
 - **Maintenance while idle** (#827, spec 45) — Off, Keep warm, Compact only or Warm then compact, for a pipe-driven session, set
   globally, per project, or for one running session from its session line. A refresh comes within the backend's cache bound;
   a read that finds the cache cold ends keep-alive for that idle period. Nothing runs over a draft, a question or a held prompt,

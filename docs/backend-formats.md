@@ -219,7 +219,8 @@ Measured on Claude Code 2.1.310 and 2.1.311 (Haiku), in a terminal session and i
   started in another mode.
 
 ### Steps, instruction files and permissions in the transcript (#826)
-Read from existing transcripts, structure only (2026-11-07). The session flow diagram of #826 is built on these.
+Read from existing transcripts, structure only (2026-11-07). The session flow diagram of #826 is built on these: spec 46
+"Claude reader, as built (T4/T5)" reads them, and its highlight flags are "As built (T21, Claude)".
 
 - **Instruction files, one by one.** An `attachment` with `type: "instructions"` holds `files[]`, each with
   `path` and `content`: CLAUDE.md, the rule files and the other memory files loaded at start. A subagent's own
@@ -788,6 +789,7 @@ Measured on Pi 0.85.1.
 
 ### Instruction files, refusals, subagents and compaction (#826)
 Measured on Pi 1.1.0 with `pi -p` (`openai-codex`, gpt-5.6-luna) and read back from existing sessions (2026-11-07).
+The session flow reads them: spec 46 "Pi reader, as built (T16)", its flags "As built (T23, Pi)".
 
 - **The system prompt is stored with its parts.** A `message` with role `system` carries `sections`
   (`preamble`, `tools`, `rules`, `docs`, `project_context`, `skills`, `cwd`, `mcp_servers`) and `toolsAdded`,

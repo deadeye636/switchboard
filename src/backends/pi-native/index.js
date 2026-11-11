@@ -93,7 +93,7 @@ const capabilities = {
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
   review: { state: 'yes', note: 'a review runs here with the approval gate on; every ask is refused' },
   task: { state: 'yes', note: 'a task runs here with the approval gate on; each ask is shown on the row of the task' },
-  sessionFlow: { state: 'limited', note: 'read through the reader of the terminal Pi backend: one lane, an approval shows only as a refused call (spec 46)' },
+  sessionFlow: { state: 'limited', note: 'read through the reader of the terminal Pi backend: one lane, an approval shows only as a denied call when the gate refused it, and risk marks are a built-in pattern list (heuristic) (spec 46)' },
   idleMaintenance: { state: 'limited', note: 'a cache hit is judged from the turn\'s own figures, measured on small prompts only, so it is best effort' },
 };
 

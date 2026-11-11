@@ -1,8 +1,9 @@
 # 46 — Session flow (the Flow tab)
 
-Issue: #826. Status: **planned, nothing built**. This file is the design record written before the build: the owner's
-decisions, what each backend can answer according to the measurements on the issue, the neutral shape, where the work runs, and
-what is still open. When a phase lands, "As built" and "Known gaps" are corrected in place.
+Issue: #826. Status: **built** (phases 1-5, plan steps T1-T26, 2026-11-11). This file began as the design record written before
+the build: the owner's decisions, what each backend can answer according to the measurements on the issue, the neutral shape, where
+the work runs, and what was open. Each step corrected its "As built" and "Known gaps" in place, so where a decision and an "As built"
+paragraph differ, the "As built" paragraph is what the code does.
 
 Measured formats are not repeated here; they live in `docs/backend-formats.md` (the #826 subsections for Claude, Codex and Pi)
 and `docs/specs/28-session-health.md` (the Codex compaction marker). Anything this spec states that no measurement covers is
@@ -155,11 +156,11 @@ What each backend can answer, from the measurements on the issue (second to four
 
 | | Claude | Codex | Pi |
 |---|---|---|---|
-| Answer | `yes` | `limited` | `limited` |
+| Answer | `limited` | `limited` | `limited` |
 | Lanes | main plus `subagents/agent-<id>.jsonl`, joined by the meta file's `toolUseId` or the `agentId` in the parent's `toolUseResult`; depth 1 in practice | child rollouts; `source.subagent.thread_spawn` states `depth` and `agent_path`; parent side `spawn_agent`, `wait_agent`, `wait`, `send_message`; `inter_agent_communication_metadata` marks a turn another agent started | single lane; the app's `subagent` call is one collapsed node (call plus the one summary line), never a lane, and Pi nesting cannot be shown. No built-in subagents. |
 | Instruction files | per file (`attachment` `instructions` `files[]`, characters) | one block (`# AGENTS.md instructions for <dir>`); `estimated` (characters / 4) | per file from `sections.project_context` (`<project_instructions path>`), **Pi 1.1.0 and newer only**; older sessions store no system message, so the start step lists none and a limitation says why |
 | Checkpoints | `message.usage`; window from the model | `token_count.info.last_token_usage` + `model_context_window`; skip the `input_tokens: 0` record after a compaction | `message.usage` |
-| Permission mode | `permissionMode` per user line; `mode` line | `turn_context`: `approval_policy`, `sandbox_policy` | none in a terminal session; pi-native gate refusals only |
+| Permission mode | `permissionMode` per user line (a `mode` line is the prompt-input mode and is ignored, see "Claude reader, as built") | `turn_context`: `approval_policy`, `sandbox_policy` | none in a terminal session; pi-native gate refusals only |
 | Compaction | `compact_boundary` (`preTokens`/`postTokens` per the issue table) | the `compacted` line (`window_number`), then the zero record, then the next real one | `compaction` with `tokensBefore` |
 | Interrupt | `[Request interrupted by user]` | `event_msg` `turn_aborted` (no `task_complete` follows) | aborted turn (zero-usage record, spec 28) |
 | Blocked / denied | hook block text (`PreToolUse:<Tool> hook error: BLOCKED`), `Permission for this action was denied`, `hook_cancelled` | escalation in the call (`sandbox_permissions: require_escalated`); guardian verdict; a sandbox block only as a failed command (**heuristic**) | pi-native refusal: `toolResult` `isError` with the gate's own reason text (matched exactly); an allow leaves no trace |
@@ -193,7 +194,8 @@ other transcript hooks are); they implement no reader of their own and do not wi
 - **Paths.** The renderer sends a session id, never a path. Main resolves the sources from the cached row. There is no containment check on that path, on purpose: it is not input (it comes from the backend's `sessionFlow(row)` applied to a row main cached itself) and a guard would have no root to compare against; any future path that DOES come from outside decides on real paths through `src/app/path-containment.js` (reflex 13). Exports never contain raw vendor records; instruction
   files appear only as project-relative or `~` labels, but tool arguments (files read, commands run) may name paths, hence the
   export warning.
-- **Probes.** The structure-only probes are kept under `scripts/` (see the plan, T1) and listed in `docs/settings-reference.md`.
+- **Probes.** The structure-only probes are kept under `scripts/` (`scripts/probe-transcript-shape.js`, `scripts/probe-flow-codex-pi.js`,
+  `scripts/measure-flow-sizes.js`) and listed in `docs/settings-reference.md`.
 
 ### Main side and worker, as built (T6)
 
@@ -227,7 +229,7 @@ shell, so closing the viewer in one window must not cancel another's read): `get
   the limitations instead.
 - **Entry points.** The sidebar row button (`showTimelineViewer`, unchanged) and the new toolbar button next to
   `terminal-messages-btn`. Both open the viewer on the last used tab.
-- **Layout is a pure module** (src/shared/flow-layout.js (new)): snapshot plus collapse state in, columns and rows out. It has no DOM,
+- **Layout is a pure module** (`src/shared/flow-layout.js`): snapshot plus collapse state in, columns and rows out. It has no DOM,
   so the on-screen view, the SVG export, the PDF pages and the Mermaid text all use the same model.
 - **Drawing.** Virtualised HTML cards with an SVG connector layer; rows and lanes are windowed (req. 7). Spawn and return
   connectors run in the gap between two rows, so they never cross a card.
@@ -302,14 +304,17 @@ expand by click, Enter/Space or the arrow keys.
 - **Row lookup.** A step below a collapsed lane maps to its nearest collapsed ancestor's summary row (walking `parentLaneId`) and never uses up a hidden group's count; two root lanes keep snapshot order.
 - **Lane tag on a group row.** Left folds the group there; the row's accessible name carries the tag text and the "Started by" relation, and a click on the tag folds the lane.
 
-## Highlights (a later phase, built on flags the shape already carries)
+## Highlights (built T21-T25, on flags the shape already carries)
 
 Four axes, never merged: **risk** (destructive-command pattern, a permission mode that skips prompts, an escalated sandbox, a
-guardian `risk_level` above `low`), **outcome** (allowed, blocked, denied, failed; structured only), **attention**, **lifecycle**
-(from Events, E5, without merging the sources). "Highlights only" keeps prompt, spawn, return and compaction anchors and
-compacts unhighlighted detail rather than dimming it. Colour is never the only signal (a glyph and a word accompany it). The
-pattern list is built in, per descriptor, conservative, and labelled heuristic. Editing it is later (a bounded safe pattern
-language, documented in `docs/settings-reference.md`, after false positives have been seen).
+guardian `risk_level` above `low`), **outcome** (allowed, blocked, denied, failed; structured where the transcript says so, and
+labelled heuristic where it is read out of text, as Codex's failure and sandbox block are), **attention**, **lifecycle** (from
+Events, E5, without merging the sources: built as an overlay, see T25). "Highlights only" keeps prompt, spawn, return and compaction
+anchors and compacts unhighlighted detail rather than dimming it. Colour is never the only signal (a glyph and a word accompany it).
+The pattern list is built in, conservative, and labelled heuristic. As built it is ONE list shared by every backend whose tool runs a
+shell (`src/backends/flow-command-patterns.js`, T22), not one per descriptor as O4 first said: `rm` and `git` are command-line
+language, not a transcript format, and each backend's folder keeps how it finds the command. Editing it is later (a bounded safe
+pattern language, documented in `docs/settings-reference.md`, after false positives have been seen).
 
 Each marker says WHY (`why`, one sentence) and whether its evidence is `structured` (the transcript says so) or `heuristic` (a
 pattern matched). Markers are separate facts that coexist on a step: a blocked destructive command carries a `risk` marker AND an
@@ -614,9 +619,9 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
 
 **Reader timing (T16, one machine, 2026-11-11, Node, warm cache).** Largest local Pi session (83.8 MB): about 450 ms, 1 599 steps, 1.6 MB serialised; the read is incomplete there (`line-over-cap`: lines over 4 MB, images, are skipped unread). The plan's note that readline took over 120 s on it was the reason for the bounded reader.
 
-**O5 measured (2026-11-10, one machine, `scripts/measure-flow-sizes.js`).** Claude: 2523 files, size p50/p90/p99/max 774/2464/17455/59170 KB, the largest files 674-2385 assistant steps. Codex: max 6.4 MB, at most 79 steps among the largest. Pi: max 82 MB, at most 786 steps. Steps are few, bytes many, so the binding bounds are the per-line byte cap, string truncation and the wall-clock budget (see `docs/plans/826-session-flow/PLAN.md`, "O5 input"). T4 set the caps to 20 000 steps and 8 MB of estimated snapshot size; the measured Claude maxima are about 1.2k steps and 1.4 MB.
+**O5 measured (2026-11-10, one machine, `scripts/measure-flow-sizes.js`).** Claude: 2523 files, size p50/p90/p99/max 774/2464/17455/59170 KB, the largest files 674-2385 assistant steps. Codex: max 6.4 MB, at most 79 steps among the largest. Pi: max 82 MB, at most 786 steps. Steps are few, bytes many, so the binding bounds are the per-line byte cap, string truncation and the wall-clock budget (the script prints the per-backend figures again; how to run it is in `docs/settings-reference.md`). T4 set the caps to 20 000 steps and 8 MB of estimated snapshot size; the measured Claude maxima are about 1.2k steps and 1.4 MB.
 
-## Known gaps (planned)
+## Known gaps
 
 - Cross-backend session trees (#804, #806, #809) and live append are later extensions.
 - A Claude background subagent (`async_launched`) is never shown as ended: the parent records its launch, and the end arrives as a later notification line the reader does not read, so its lane stays open.
@@ -630,6 +635,10 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files (shown as the limitation `instructions-not-recorded`). The Pi reader shows the active branch only (abandoned steps still count against the caps), and a model missing from Pi's catalog has an unknown window.
 - A Codex sandbox block and every destructive-command match are heuristics and are labelled so.
+- The exports carry no highlight marks: the SVG and the PDF show a flag count per card, Mermaid none, and none of them shows the Events
+  lifecycle marks (T24, T25 are the screen only).
+- No reader writes the `attention` axis. "Needs attention" reaches the Flow only through the Events overlay, drawn with the lifecycle
+  glyph `◆`, and several Events on one step share one chip (the newest word and `+N`; the full list is in the title and the panel).
 - Lifecycle marks from Events (T25) are placed by time only: an event lands on the last main-lane step written before it, so a session whose
   clock and the app's disagree, or a step with no `ts`, can put it a row off. Events that arrive while the Flow tab is open show after a
   Refresh or a reopen. **A `forked` mark can stand for any re-key**: the Events record writes `forked` / "Session forked" in `applyRekey`
@@ -642,7 +651,7 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
   happens to equal a later call's would pair with that later call. The shell dialect is guessed from the command.
 - Codex (T15): a header whose fields cannot be read at all (a `thread_spawn` seen, no `id` in the first 64 KB) is reported as `agent-header-unreadable`, not dropped; a first line over 64 KB whose `source` object and `id` lie inside those bytes is read by pattern, not by a full parse.
 - Codex (T15): a child lane exists only if its rollout starts within the parent's first-to-last-line window (plus 2 minutes) and the search bound (2 000 rollouts opened, 31 days, 200 lanes, 4 widening rounds) was not hit; a parent that is still running has a window that ends at its last written line; the spawn-to-lane link rests on the task name matching the child's path (a repeated task name pairs calls and children in order); the child's result is the first message from its path, so a continued or second result is not a second return.
-- Codex (T14): a failed call is recognised only from an `Exit code: N` head or an `exit_code=N` last line, neither of which was seen in a local rollout (the code-mode `exec` prints no exit code), so failures are probably under-marked. `turn_aborted` was not in the local rollouts either. Codex shows one AGENTS.md block, never per file, and no subagent lane until T15.
+- Codex (T14): a failed call is recognised only from an `Exit code: N` head or an `exit_code=N` last line, neither of which was seen in a local rollout (the code-mode `exec` prints no exit code), so failures are probably under-marked. `turn_aborted` was not in the local rollouts either. Codex shows one AGENTS.md block, never per file.
 - Per-step token values exist only where a transcript measures one; the diagram never invents them.
 - The pi-native "asked and allowed" state is not in the transcript and is not shown.
 
