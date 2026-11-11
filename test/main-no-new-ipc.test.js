@@ -107,6 +107,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/spell-check.js         the spell check of a text field: its languages and its right-click menu
   src/app/forge-issues.js        a project's GitHub or GitLab issues, read through their CLIs
   src/app/session-flow.js        a session's flow (the Flow tab): reading a transcript into a snapshot in a worker, its status and cancel
+  src/app/flow-export.js         a session's flow saved to a file (JSON now): fresh read, save dialog, safe-write
   src/app/process-usage.js       the CPU and memory of a session's process tree (one shared sample, on the sidebar's ask)
 
 None of the above? A NEW src/app/<area>.js — not main.js.

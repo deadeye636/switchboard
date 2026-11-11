@@ -316,6 +316,18 @@ Every export materialises the complete snapshot, not the viewport.
 
 1. **JSON**: the `FlowSnapshot` with capabilities, limitations and evidence basis; no raw vendor records. The export dialog warns
    that prompts, commands and local paths may be present.
+   *As built (T17).* `src/app/flow-export.js`, IPC `flow-export { sessionId, format }`, preload `exportSessionFlow(sessionId, format)`.
+   Main re-reads the snapshot through `session-flow.js` (a fresh, complete read under a key of its own, so it neither supersedes
+   nor is superseded by the view's read; the worker caps still apply and a capped snapshot exports with `complete: false` and its
+   limitations), runs `validateSnapshot` and refuses on failure or when there are no steps, opens the native save dialog (default
+   name `<first 8 characters of the session id>-flow.json`, folder remembered under `flowExport` in `dialog-dirs.js`) and writes
+   through `safe-write.js`. The file is `{ exportVersion: 1, exportedAt, app: { name, version }, snapshot }`; `sources` and the
+   `fingerprint` (size, mtime, head hash of a local file) are removed, so no transcript path and no vendor record is in it. Step
+   labels and details are the session's own text and stay. The answer is `{ ok, canceled, error, name }` (`name` = the file's base
+   name for the toast, never a path). The `FORMATS` table in the module is where SVG, PDF and Mermaid (T18-T20) join; an unknown
+   format is refused before any read or dialog. Renderer: an Export select in the Flow toolbar beside Refresh (JSON now) opens a
+   question dialog, dismissible since it holds no work, warning that the file can contain prompts, commands and local paths;
+   confirming opens the save dialog; a toast reports success or failure and a cancel is silent.
 2. **SVG**: one complete static drawing from `flow-layout.js`.
 3. **PDF**: the same layout cut into pages with repeated lane headers, loaded into a hidden window and printed with
    `webContents.printToPDF` (no new dependency; print CSS keeps a card whole). The IPC handler lives in an `src/app/` module.

@@ -33,7 +33,7 @@
 // switch, on close and on a session change.
 //
 // Free globals it reaches for (all at call time): app.js `activePtyIds`; backends/backend-registry.js
-// `sessionBackendId` and `window._backendsById`; `window.api.getSessionFlow / cancelSessionFlow / getSessionFlowStatus` (feature-detected);
+// `sessionBackendId` and `window._backendsById`; `window.api.getSessionFlow / cancelSessionFlow / getSessionFlowStatus / exportSessionFlow` (feature-detected); `showControlDialog`, `showControlToast` (dialogs/control-dialogs.js);
 // FlowLayout (shared/flow-layout.js).
 //
 // Callers: session/timeline-view.js (`FlowView.attach` from showTimelineViewer).
@@ -743,6 +743,38 @@
     relayoutKeepingPlace();
   }
 
+  // ----- export -----
+
+  function say(message) {
+    if (typeof showControlToast === 'function') showControlToast({ message, timeoutMs: 4000 });
+    else setStatusText(message);
+  }
+
+  /** Ask first (the file can hold prompts, commands and local paths), then let main read fresh, ask for a place and write. */
+  async function exportFlow(format) {
+    const c = cur;
+    const a = api();
+    if (!c || c.exporting || !a || typeof a.exportSessionFlow !== 'function') return;
+    if (typeof showControlDialog === 'function') {
+      const go = await showControlDialog({
+        title: 'Export flow',
+        message: 'The exported file can contain prompts, commands and local paths from this session. Check it before you share it.',
+        confirmLabel: 'Choose file…',
+      });
+      if (!go) return;
+    }
+    c.exporting = true;
+    const sel = $('flow-export-select');
+    if (sel) sel.disabled = true;
+    let res = null;
+    try { res = await a.exportSessionFlow(c.sessionId, format); } catch { res = null; }
+    c.exporting = false;
+    if (sel) sel.disabled = false;
+    if (!res) say('The export failed.');
+    else if (res.ok) say('Flow exported' + (res.name ? ' to ' + res.name : '') + '.');
+    else if (!res.canceled) say(res.error || 'The export failed.');
+  }
+
   // ----- polling -----
 
   function gateNow() {
@@ -816,6 +848,12 @@
     evBtn.addEventListener('keydown', tabKeys);
     flowBtn.addEventListener('keydown', tabKeys);
     refreshBtn.addEventListener('click', () => { if (cur) refresh(); });
+    const exportSel = $('flow-export-select');
+    if (exportSel) exportSel.addEventListener('change', () => {
+      const format = exportSel.value;
+      exportSel.value = '';
+      if (format) exportFlow(format);
+    });
     const banner = $('flow-banner');
     if (banner) banner.addEventListener('click', (ev) => {
       if (!cur || !cur.entry || !ev.target.closest || !ev.target.closest('.flow-banner-toggle')) return;

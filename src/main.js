@@ -2404,6 +2404,9 @@ processUsage.registerIpc(ipcMain);
 const flowRead = require('./app/session-flow');
 flowRead.init({ getCachedSession, getSetting, getAppQuitting: () => appQuitting, log });
 flowRead.registerIpc(ipcMain);
+const flowExport = require('./app/flow-export');
+flowExport.init({ dialog, getParentWindow: (sender) => BrowserWindow.fromWebContents(sender) || mainWindow, getAppVersion: () => app.getVersion(), log });
+flowExport.registerIpc(ipcMain);
 
 const spawn = require('./app/terminal/spawn');
 spawn.init({

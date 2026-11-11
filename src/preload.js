@@ -298,6 +298,8 @@ contextBridge.exposeInMainWorld('api', {
   getSessionFlow: (sessionId) => ipcRenderer.invoke('get-session-flow', sessionId),
   cancelSessionFlow: (sessionId) => ipcRenderer.invoke('cancel-session-flow', sessionId),
   getSessionFlowStatus: (sessionId) => ipcRenderer.invoke('get-session-flow-status', sessionId),
+  // Export of the Flow (T17): a session id and a format in, `{ ok, canceled, error, name }` out (the file's base name, never a path).
+  exportSessionFlow: (sessionId, format) => ipcRenderer.invoke('flow-export', { sessionId, format }),
   // For the one class of fact main cannot see: something that happened in the UI. Main still writes it,
   // and refuses any kind a window has no business claiming.
   //

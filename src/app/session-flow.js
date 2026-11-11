@@ -328,7 +328,7 @@ function terminateAll() {
 
 // --- the handlers ---
 
-async function getSessionFlow(sessionId, senderId) {
+async function getSessionFlow(sessionId, senderId, { remember: keep = true } = {}) {
   const started = performance.now();
   if (quitting()) return failureSnapshot('cancelled', null);
   const row = lookupRow(sessionId);
@@ -373,7 +373,7 @@ async function getSessionFlow(sessionId, senderId) {
   if (fingerprint && Array.isArray(outcome.files) && outcome.files.length) {
     fingerprint.files = new Map(outcome.files.filter(f => f && typeof f.file === 'string' && Number.isFinite(f.size)).slice(0, MAX_SUB_FILES).map(f => [f.file, f.size]));
   }
-  if (fingerprint) remember(key, fingerprint);
+  if (fingerprint && keep) remember(key, fingerprint);   // an export (`remember: false`) leaves no fingerprint behind for `status`
   debug(`worker start ${Math.round(outcome.onlineMs || 0)} ms, load ${Math.round(outcome.loadMs || 0)} ms, read ${Math.round(outcome.readMs || 0)} ms, `
     + `reply ${outcome.replyBytes || 0} bytes, round trip ${Math.round(outcome.totalMs)} ms, main side before the worker ${mainMs.toFixed(1)} ms`);
   return snapshot;

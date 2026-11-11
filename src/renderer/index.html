@@ -129,6 +129,10 @@
       <div id="flow-view" style="display:none;">
         <div id="flow-toolbar">
           <button id="flow-refresh-btn" class="new-session-secondary-btn" aria-label="Refresh flow" title="Read the session again">Refresh</button>
+          <select id="flow-export-select" aria-label="Export flow" title="Save this flow to a file">
+            <option value="">Export…</option>
+            <option value="json">JSON</option>
+          </select>
           <span id="flow-hint" role="status" hidden>New steps available</span>
           <span id="flow-status" role="status" aria-live="polite"></span>
         </div>

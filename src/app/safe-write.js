@@ -121,6 +121,7 @@ function failed(err) {
  *                    the check (a caller that has no baseline, e.g. a fresh create).
  *   mustExist      — refuse when the file is not there (an edit, as opposed to a create).
  *   validate       — `(text) => ({ ok, error })`; runs on the caller's text before anything is written.
+ *   keepEncoding   — default true: the file's own line endings and BOM are kept. `false` writes LF and no BOM.
  *
  * Returns `{ ok: true, content, mtimeMs, verdict }` with the text as it was actually WRITTEN — which is not
  * what was handed in, once the file's own line endings and BOM are back on it, and is therefore what a
@@ -129,7 +130,7 @@ function failed(err) {
  * On refusal: `{ ok: false, code }` where `code` is `missing`, `stale` (with `conflict` and `diskContent`),
  * `invalid` (with `error`) or `failed` (with `cause`, unworded).
  */
-function writeTextFile(file, content, { expectPrevious = null, mustExist = true, validate = null, rename = fs.renameSync } = {}) {
+function writeTextFile(file, content, { expectPrevious = null, mustExist = true, validate = null, rename = fs.renameSync, keepEncoding = true } = {}) {
   const target = path.resolve(file);
   const current = readCurrent(target);
   if (current.blocked) return failed(current.blocked);
@@ -165,7 +166,8 @@ function writeTextFile(file, content, { expectPrevious = null, mustExist = true,
   }
 
   // The encoding to keep is the FILE's, not the editor's — and for a new file, plain LF with no BOM.
-  const text = applyEncoding(content, onDisk === null ? { bom: false, eol: '\n' } : encodingOf(onDisk));
+  // `keepEncoding: false` (a file the app owns outright, such as an export) writes LF and no BOM even over a file that had one.
+  const text = applyEncoding(content, onDisk === null || !keepEncoding ? { bom: false, eol: '\n' } : encodingOf(onDisk));
 
   const dir = path.dirname(target);
   const tmp = path.join(dir, '.' + path.basename(target) + '.sb-' + process.pid + '-' + Date.now() + '.tmp');

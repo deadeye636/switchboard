@@ -5658,6 +5658,10 @@ mark.jsonl-search-hit-active {
 #flow-refresh-btn { padding: 3px 12px; font-size: 12px; }
 #flow-refresh-btn.flow-refresh-pending { border-color: #7c8cff; color: #e0e0ec; }
 #flow-hint { color: #c0c4ff; font-size: 12px; }
+#flow-export-select { padding: 3px 7px; border: 1px solid rgba(255,255,255,0.08); border-radius: 7px; background: rgba(255,255,255,0.04); color: #c8c8dc; font: inherit; font-size: 12px; }
+#flow-export-select:hover:not(:disabled) { border-color: rgba(255,255,255,0.2); color: #e0e0ec; }
+#flow-export-select:disabled { opacity: 0.5; cursor: default; }
+#flow-export-select option { background-color: #1e1e2a; color: #c0c0d0; }
 #flow-status { color: #7a7a90; font-size: 12px; }
 #flow-banner {
   flex-shrink: 0;
