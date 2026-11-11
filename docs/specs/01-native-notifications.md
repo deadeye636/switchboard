@@ -49,6 +49,10 @@
 >   show) and cleared once all its folded sessions have left the sets.
 >   Chosen over a quiet period because that swallowed whole batches: a session needing you 3 s after
 >   another was never announced; here only the excess is folded and the badge always counts all.
+> - **Windows: a toast that times out also fires `close`** (measured in the Action Center, cb3e694c). The
+>   toast moves into the Action Center and stays there, so dropping the kept `Notification` on every `close`
+>   left an entry nobody could take away once the session was read. Only a close the USER caused
+>   (`reason === 'userCanceled'`) drops it from the map; any other close keeps it, so the clear still reaches it.
 
 ## Problem & goal
 

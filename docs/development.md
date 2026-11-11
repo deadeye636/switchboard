@@ -12,6 +12,18 @@ covers what the app *does*; this page covers working on it.
   - **Linux**: `build-essential`, `python3` (`sudo apt install build-essential python3`)
   - **Windows**: Visual Studio Build Tools with the Spectre-mitigated MSVC libraries — [`build-windows.md`](build-windows.md)
     has the current toolchain notes (node-gyp override, node-pty patch, the optional process-tree module)
+- The app runs on **macOS 13 (Ventura)** or later: Electron dropped macOS 12 in Electron 44 (Electron's breaking-changes
+  document, "Removed: macOS 12 support"), and Switchboard is on 45.
+  `package.json` sets no `minimumSystemVersion` of its own; Electron's floor is the one that applies.
+
+## CI traps
+
+- **CI checks out ONE commit.** A test that reads an older revision with `git show <sha>:<path>` fails there while it passes
+  locally. Keep such an oracle as a fixture in the tree (pinned by its hash) and compare with the commit only where the
+  history has it, as the transport-neutral golden test does (`0fc5c9ca`).
+- **A Windows path spelling means something else on Linux.** `\\host\share\x` is a network path on Windows and a relative
+  name on POSIX, so a check that only Windows can trip passes on the Linux runner. A value spelled as a network path is kept
+  as spelled and refused on every platform, through one helper.
 
 ## Setup
 

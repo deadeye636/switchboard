@@ -285,6 +285,17 @@ dir and inserts that path, and everything else is **text**. `src/app/clipboard-i
 one place, deliberately: paste checks the bitmap first because a copied image file carries none, while the
 clipboard reader checks the file formats first, because where both exist a real path beats a snapshot.
 
+**Since Electron 44 the main-process clipboard is async and has no format list** (#843): `readBuffer`, `readImage`
+and `availableFormats` are gone, so `clipboard-insert.js` reads `clipboard.read()` ONCE and walks its items. Measured on
+Windows: a copied file is one item with `text/uri-list` (a UTF-8 `file:///...` URL, beside the raw OS format), a screenshot
+is one item with `image/png`; anything else falls through to `clipboard.readText()`. Every write handler awaits its write,
+and so does the `/copy` notice.
+
+**Secrets use the async `safeStorage` API** (`encryptStringAsync` / `decryptStringAsync`, gated by
+`isAsyncEncryptionAvailable`; `src/app/variables.js`), because the sync one goes in Electron 46. Measured on Windows: a value
+encrypted by Electron 41's sync `encryptString` decrypts under 45's async API, so no stored secret needed re-encrypting.
+Check that again before the next major Electron step.
+
 **A path is emitted as one quoted shell word** (`shellQuotePath`), the way the paste route quotes every path
 it inserts. **Text is cleaned first** — every C0 control except tab and newline, DEL, and C1 — because the
 resolver refuses a composed insert still carrying an ESC byte, and *"insert my clipboard"* must not fail on

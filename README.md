@@ -44,8 +44,9 @@ throughout, and a window can hold as many sessions as you move into it. The othe
 **grid** below: every session as a card at once, rather than one at a time.
 
 **It tells you when an agent needs you.** A prioritized attention inbox, OS notifications, a taskbar
-badge and a tray icon — even when the window is in the background. Detection runs off CLI hooks, so
-it catches the permission prompts a terminal heuristic misses.
+badge and a tray icon — even when the window is in the background. Each session gets a notification of
+its own, named after the session and its project, and on Windows and macOS it goes away once you have read that session.
+Detection runs off CLI hooks, so it catches the permission prompts a terminal heuristic misses.
 
 **And it tells you what you missed.** Come back after being away from the machine and the inbox holds
 one entry: every session that changed while you were gone, in one list, each row opening to what it
@@ -128,7 +129,8 @@ chart rather than a row of zeroes.
   questions to you and its plans as cards you answer in place, and images you
   paste or drop go out with your message, while any other file is named as `@path`, which Claude reads
   in. `/mcp` opens the session's MCP servers as the CLI's own `/mcp` does, by mouse or keyboard: their state and tools, and reconnect, enable or disable, sign in or out. A running subagent shows a badge on its row and tab, and its transcript opens live in an overlay over the conversation, the way a document does. A setting decides whether Enter during a turn holds the prompt or steers it into the turn. Scrolled back through a long turn, the prompt that started it stays pinned at the top of the
-  conversation, in both views without a terminal. It starts only
+  conversation, in both views without a terminal. A `!` line runs in the project's shell and stays visible while it
+  runs: its time, its last lines above the input, and a Stop for that line alone. It starts only
   in a project Claude trusts, and it has no login of its own. Its sessions are ordinary Claude sessions and
   reopen where they were driven.
   → [`docs/specs/32-claude-native.md`](docs/specs/32-claude-native.md)
@@ -212,6 +214,10 @@ chart rather than a row of zeroes.
   A picker hands one to the session you are already in, and writing one is a keyboard route out of that
   session rather than a trip to the sidebar
   → [`docs/handoffs-convention.md`](docs/handoffs-convention.md)
+- **Session flow** — a Flow tab beside Events in the timeline viewer: the session as a lane graph with its subagents,
+  context per model request (measured or marked as an estimate), risky and refused calls marked with their reason, a
+  *Highlights only* view, and export as JSON, SVG, PDF or Mermaid. Claude, Codex and Pi.
+  → [spec 46](docs/specs/46-session-flow.md)
 - **Session lineage** — a session that continued another's work reads as one, with the earlier ones
   folded behind a caret. Backend-neutral, and a Claude `/clear` is inferred.
   → [spec 13](docs/specs/13-session-lineage.md)
@@ -279,6 +285,8 @@ chart rather than a row of zeroes.
   archived or live ones
 - **Settings** — two-column layout in a window of its own, Apply without closing, export and
   import to move a configured Switchboard to another machine
+- **The window comes back as you left it** — size, position and a maximized state survive a restart, and a window left on
+  a display that is gone opens on the primary one
 - **Custom launchers** — any command or script saved as a launcher, globally or per project, started in
   a monitored tab or a window of its own
 - **Log level and build provenance** — raise the log to `debug` or `silly` live in a packaged build, and
@@ -310,6 +318,26 @@ overview button. Filter by status, step through the attention queue, or stop eve
 Cards can be resized and dragged, and the layout survives a restart.
 
 ![Session overview](docs/images/grid.png)
+
+## Session flow
+
+![Session flow with subagent lanes](docs/images/session-flow.png)
+
+The timeline viewer has two tabs: **Events**, what happened to a session (it needed you, it stopped, it was forked), and
+**Flow**, what the session itself did. Flow reads the transcript and draws it as a lane graph. Time runs down; each
+subagent gets a lane of its own that branches off at the call that started it and joins back where it returned, and a
+finished lane folds into one summary row until you open it. Every model request shows how much context it sent, against
+the model's window, and a figure the transcript does not measure is marked as an estimate rather than shown as fact.
+What a backend cannot tell is listed above the graph instead of being guessed.
+
+![Marked steps and the detail panel](docs/images/session-flow-marks.png)
+
+Risky and refused calls are marked with a symbol and a word: a destructive command from a short built-in list (a
+heuristic, and it says so), a permission mode that skips prompts, a Codex escalation request and the guardian's verdict on
+it, a hook that blocked a call, a denial. Select a row and the panel below gives every mark's reason and where it came from.
+**Highlights only** folds the unmarked steps away, and the Events entries for a stop, a fork or a session needing you sit on
+the step before them. It works for Claude, Codex and Pi, and a Claude or Pi session looks the same whether it ran in a
+terminal or in the conversation view. Export a flow as JSON, SVG, a paginated PDF or Mermaid. → [spec 46](docs/specs/46-session-flow.md)
 
 ## Version control
 
@@ -351,17 +379,24 @@ jumps back to it.
 A project can also list its GitHub or GitLab issues there, read-only, through the `gh` or `glab` CLI, filtered by text,
 state, label and the issues assigned to or opened by you. This is off until you turn it on in Settings.
 
-Each session also has a collapsible sidebar with its repository, branch and worktree, its project's tasks and notes, its
-handoffs, its context fill, its processes with their CPU and memory, and its connectors, opened from the session's
-toolbar. On a Claude session driven over a
-pipe, the context group breaks the fill down by category, memory file, skill, custom agent and MCP tool. A click on a
-task, issue, handoff or skill puts it into the session's prompt; small buttons on hover open it, copy it or edit it.
-Its sections can be reordered by their grips, and a right click on a heading hides or shows them, for every session.
+## Session sidebar
+
+![Session sidebar](docs/images/session-sidebar.png)
+
+Each session has a collapsible sidebar, opened from the session's toolbar: its repository, branch and worktree, its
+processes, its context fill, its project's tasks and notes, its handoffs, the instructions that apply to it, and its
+connectors. Processes opens as an overview (how many, CPU, memory) with the process tree folded below, and a folded
+Processes or Context group still shows its figure in the heading. On a Claude session driven over a pipe, the context
+group breaks the fill down by category, memory file, skill, custom agent and MCP tool. A click on a task, issue, handoff or
+skill puts it into the session's prompt; small buttons on hover open it, copy it or edit it. Its sections can be reordered
+by their grips, and a right click on a heading hides or shows them, for every session; a setting decides whether a new
+session starts with the sidebar open or closed.
 
 ## Writing a prompt
 
 The conversation input checks spelling, in German and English unless you set other languages in Settings. A right click
-on a marked word offers corrections and adds it to the dictionary. On Windows these come from the system's spell checker
+in it always opens the text field's own menu, whatever the terminal's right-click setting says; on a marked word it offers
+corrections and adds it to the dictionary. On Windows these come from the system's spell checker
 where it holds the language, through a small PowerShell process that starts on first use.
 
 In the plan, handoff and variable pickers, Enter inserts the row with its template and Shift+Enter the bare path or value.
@@ -406,7 +441,7 @@ Prebuilt (unsigned) releases — **convenience only**, prefer building from sour
 
 **[Download Switchboard](https://github.com/deadeye636/switchboard/releases/latest)**
 
-- **macOS**: `.dmg` (Apple Silicon & Intel), macOS 13 (Ventura) or later
+- **macOS**: `.dmg` (Apple Silicon & Intel), macOS 13 (Ventura) or later (Electron's own floor since Electron 44)
 - **Windows**: `.exe` installer
 - **Linux**: `.AppImage`, `.deb`, or `.pacman` (Arch/Manjaro)
 

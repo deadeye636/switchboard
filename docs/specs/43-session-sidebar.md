@@ -112,7 +112,7 @@ before: a terminal session, and pi-native, whose stats name no categories.
 
 ## The Instructions group (#823)
 
-Between Handoffs and Context; closed by default, because it reads the files of two scopes (E10: only when open and in
+Between Handoffs and Connectors (the default order since #841); closed by default, because it reads the files of two scopes (E10: only when open and in
 view, marked stale otherwise). It lists what applies to this session: the instruction, memory and settings files of the
 session's CLI, under the subheads Global and Project. A driver backend answers as its owner CLI; main decides that
 (`get-session-instructions`, `src/app/instruction-files.js`), the window sends the session's backend and project and names

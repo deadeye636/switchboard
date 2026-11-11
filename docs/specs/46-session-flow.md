@@ -48,7 +48,7 @@ declines rather than guesses.
 FlowSnapshot {
   schemaVersion: 1,
   snapshotId,                 // opaque; identifies this read
-  fingerprint,                // per source file: size + mtime + a hash of the first and last chunk; see "Staleness"
+  fingerprint,                // the main transcript's size + mtime + a hash of its first 4 KB; see "File fingerprints"
   capabilities: {             // each is yes | partial | no, with a limitation id when not yes
     agents, instructionFiles: 'perFile' | 'block' | 'none', contextCheckpoints, permissionMode,
     approvals, compaction, interrupt, destructivePatterns, timestamps
@@ -102,8 +102,8 @@ The module is `src/shared/flow-snapshot.js` (pure, no fs, path, DOM or crypto). 
 helper names; in main and a worker it is `require()`d.
 
 Its sibling `src/shared/flow-layout.js` (T7: pure layout and collapse, one global `FlowLayout`) is the renderer's since T8
-(`session/flow-view.js`) and main's once the exports (T18-T20) lay out a full snapshot there. The two are the Flow pair
-for that rule's list. Collapse state uses prototype-free maps read through own-property checks, so a lane or group id such as
+(`session/flow-view.js`) and main's since the exports (T18-T20) lay out a full snapshot there; `src/shared/flow-text.js` holds
+the words the tab and every export draw with. The three are the Flow trio in that rule's list. Collapse state uses prototype-free maps read through own-property checks, so a lane or group id such as
 `constructor` is an ordinary key.
 
 - `FLOW_SCHEMA_VERSION` is `1`. `validateSnapshot` declines any other version (older or newer) with an error and checks nothing
@@ -164,7 +164,7 @@ What each backend can answer, from the measurements on the issue (second to four
 | Compaction | `compact_boundary` (`preTokens`/`postTokens` per the issue table) | the `compacted` line (`window_number`), then the zero record, then the next real one | `compaction` with `tokensBefore` |
 | Interrupt | `[Request interrupted by user]` | `event_msg` `turn_aborted` (no `task_complete` follows) | aborted turn (zero-usage record, spec 28) |
 | Blocked / denied | hook block text (`PreToolUse:<Tool> hook error: BLOCKED`), `Permission for this action was denied`, `hook_cancelled` | escalation in the call (`sandbox_permissions: require_escalated`); guardian verdict; a sandbox block only as a failed command (**heuristic**) | pi-native refusal: `toolResult` `isError` with the gate's own reason text (matched exactly); an allow leaves no trace |
-| Destructive-command patterns | on `Bash` input | on the `exec` input | on `bash` input |
+| Destructive-command patterns | on `Bash` and `PowerShell` input | on the `exec` script and the shell function calls (`exec_command`, `shell`, `shell_command`, `local_shell`) | on `bash` and `powershell` input |
 
 Honest declines, to be kept as `null` or `partial` and documented in the descriptor:
 
@@ -447,8 +447,8 @@ Every export materialises the complete snapshot, not the viewport.
    through `safe-write.js`. The file is `{ exportVersion: 1, exportedAt, app: { name, version }, snapshot }`; `sources` and the
    `fingerprint` (size, mtime, head hash of a local file) are removed, so no transcript path and no vendor record is in it. Step
    labels and details are the session's own text and stay. The answer is `{ ok, canceled, error, name }` (`name` = the file's base
-   name for the toast, never a path). The `FORMATS` table in the module is where SVG, PDF and Mermaid (T18-T20) join; an unknown
-   format is refused before any read or dialog. Renderer: an Export select in the Flow toolbar beside Refresh (JSON now) opens a
+   name for the toast, never a path). The `FORMATS` table in the module is where SVG, PDF and Mermaid (T18-T20) joined; an unknown
+   format is refused before any read or dialog. Renderer: an Export select in the Flow toolbar beside Refresh (JSON, SVG, PDF, Mermaid) opens a
    question dialog, dismissible since it holds no work, warning that the file can contain prompts, commands and local paths;
    confirming opens the save dialog; a toast reports success or failure and a cancel is silent.
 2. **SVG**: one complete static drawing from `flow-layout.js`.
@@ -485,7 +485,7 @@ visible.
 
 `src/backends/claude/flow-reader.js`, with the capability and limitation data in `src/backends/claude/flow-capabilities.js` (read by
 both the descriptor's `sessionFlow` and the reader, so the two halves cannot disagree). **`readSessionFlow` of a streaming reader
-returns a Promise** (the stub returns a value): the caller awaits it. It never rejects for a read problem; an unreadable file, an
+returns a Promise** (a backend that declines answers `null` from both hooks): the caller awaits it. It never rejects for a read problem; an unreadable file, an
 abort and every cap end in a snapshot with `complete: false` and a limitation (`read-failed`, `aborted`, `step-cap`, `size-cap`,
 `line-over-cap`, `nothing-read`), none of which names a path.
 
@@ -495,7 +495,7 @@ abort and every cap end in a snapshot with `complete: false` and a limitation (`
   evidence and a `line-over-cap` limitation; `complete` is false. The signal is checked between chunks. No `readline`, no sync fs.
 - **Caps.** 20 000 steps and an 8 MB serialised-size estimate (label and detail lengths plus a fixed overhead per step). The estimate is an approximation (string lengths, JSON escapes not counted), checked after a step and after result or summary text is added, so the real serialised size can differ by a small factor. The measured
   largest transcripts yield about a thousand steps, so the size estimate is the bound that matters; either one stops the read.
-- **Steps.** `start` (the first line); `instructions` children of it (`parentStepId`, part of the shape and checked by `validateSnapshot`; characters in `detail`, `tokens` estimated as about characters / 4); `event` for a slash command (`<command-name>`, labelled with the command, its `<local-command-stdout>` folded into `detail.output`; it starts no turn); a line with `isSidechain` is skipped on the main lane until Phase 2; `prompt` (a user line
+- **Steps.** `start` (the first line); `instructions` children of it (`parentStepId`, part of the shape and checked by `validateSnapshot`; characters in `detail`, `tokens` estimated as about characters / 4); `event` for a slash command (`<command-name>`, labelled with the command, its `<local-command-stdout>` folded into `detail.output`; it starts no turn); a line with `isSidechain` is skipped on the main lane (a subagent's lane reads it, T11); `prompt` (a user line
   without `isMeta`, `isCompactSummary` or `isVisibleInTranscriptOnly`; text parts or an image); `thinking`; `tool` (the call and its
   `tool_result`, paired by `tool_use_id`, `detail.tool` is the tool name on every `tool` step, the key the layout's equivalence rule reads; result and `status` in `detail`; a result with `is_error` puts an `outcome` flag, evidence `structured`, on the step so a failed call never collapses into a run); `output`; `interrupt` (`[Request interrupted by user`
   prefix); `compaction`; `mode`.

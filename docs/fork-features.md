@@ -194,8 +194,10 @@ context switch. Each feature has a full design doc under `docs/specs/`.
   unfocused; clicking one focuses the window and that session.
 - **Dock/taskbar badge** count of inbox sessions; **tray icon** with summary
   tooltip and a menu (Open / Focus next attention / Quit).
-- **Coalescing + throttling** so five agents finishing at once become one
-  "3 sessions need you", not five toasts.
+- **One notification per session** (#847), titled with the session and its project and grouped by
+  project; a new event replaces the session's entry, and reading or removing the session takes it away.
+  A flood guard (5 per 10 s) folds the rest of a burst into one summary. Linux gets plain per-session
+  toasts under the same guard. (This replaced the old coalescing into one "3 sessions need you".)
 - Global Settings toggles (notifications on/off, notify-on-Ready vs only-Needs-You).
 - The notify/badge decision is a pure, unit-tested helper.
 - An **optional second tray icon** showing usage (#113): one backend's worst window as a
@@ -426,7 +428,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   the conversation, the way a document card opens, with *Open in tab* in its bar (#770, #787); the Background list's
   Open and an agent's notice and report open the same overlay, one per conversation. A `!`
   line runs in the project's shell as it does in the CLI: the app runs it, since the pipe has no shell command, shows
-  the output, and hands it to the model: with the next prompt, or as a turn of its own once the line has finished and nobody wrote (#786, #788). The input shows when it holds such a line (#788). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
+  the output, and hands it to the model: with the next prompt, or as a turn of its own once the line has finished and nobody wrote (#786, #788). The input shows when it holds such a line (#788). A running line shows as running: its entry reads `running · m:ss` with a Stop, a strip above the input has its last output lines, the session line counts it and the Background list lists it; the finished entry folds like a tool block (#836, Claude and Pi without a terminal). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:
@@ -708,6 +710,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   accident.
 
 ### UI / window
+- **The main window comes back as you left it** (#846) — Electron keeps its size, position and display mode
+  (`windowStatePersistence`), so a maximized window starts maximized; the app's own saved bounds stay as the fallback, and a
+  window whose corner lies on no display is moved onto the primary one.
 - **Session tabs** — the fork started with a tabbed single view as its primary layout. That mode was
   retired in #357, and its tabs live on in every pane of **Panes**, the default since #374 (below); the
   grid is the other mode left. Right-click **tab context menu** (Close / Stop / Relaunch / Redraw —
@@ -972,7 +977,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   ahead/behind, worktree; #821), Processes (the session's process tree with CPU and memory, measured only while the
   sidebar is in view; #834), Context, Tasks & notes, Handoffs, Instructions and Connectors as groups that collapse on
   their own (default order since #841). A collapsed Processes or Context group shows its CPU or usage figure in its
-  header (#840). Its state survives a restart. The groups can be put in any order by dragging a grip or with Alt+Up /
+  header (#840), spoken apart from the group's name for a screen reader (#842). Processes opens as an overview (process
+  count, CPU, memory) with the process tree folded below it (#845). A setting decides whether a new session starts with the
+  sidebar open or closed (#831). Its state survives a restart. The groups can be put in any order by dragging a grip or with Alt+Up /
   Alt+Down, one order for every sidebar in every window (#829), and hidden or shown again from a right-click list on a
   heading or from Settings → Sessions; a hidden group reads nothing (#835). On a Claude session driven over a pipe,
   Context breaks the fill down by category, memory file, skill, custom agent and MCP tool (#758). One row pattern (#822):
@@ -986,7 +993,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   the state and the two toggles asked of the CLI; all but the text are kept per project.
 - **Spell check in the composer** (#815, spec 32) — marks words in text fields and offers corrections, Add to dictionary
   and the edit actions on a right click. On by default, `de-DE, en-US` unless set. A language the Windows spell checker holds gets
-  its corrections from that checker, through one PowerShell started on first use and ended when idle (#818).
+  its corrections from that checker, through one PowerShell started on first use and ended when idle (#818). A right click
+  in the composer always opens that text field menu, whatever the terminal's right-click setting says (#839).
 - **Shift+Enter in the pickers** (spec 25) — the plan and handoff pickers insert the bare path, the variable picker the value
   without its template. A secret ignores it.
 - **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
@@ -1048,7 +1056,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Maintenance while idle** (#827, spec 45) — Off, Keep warm, Compact only or Warm then compact, for a pipe-driven session, set
   globally, per project, or for one running session from its session line. A refresh comes within the backend's cache bound;
   a read that finds the cache cold ends keep-alive for that idle period. Nothing runs over a draft, a question or a held prompt,
-  and a prompt sent during maintenance is held and sent afterwards. Each action is a real model turn.
+  and a prompt sent during maintenance is held and sent afterwards. Each action is a real model turn. A popover on the
+  session control sets it for that session (#832), and the global settings have a category of their own for it; in the
+  settings nav, Instructions moved into the Extensions group (#833).
 - **Staged prompts** (#614) — hand a busy session its next instruction and walk away. The command palette
   asks for the text, the session's row carries a chip with the count, and Switchboard types it in when the
   session is ready for it: never while the agent is working, never while it is waiting for an answer, and

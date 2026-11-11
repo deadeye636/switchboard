@@ -18,7 +18,14 @@ node scripts/drive-app.js console [seconds]           # renderer console (defaul
 node scripts/drive-app.js dims ["<sessionId>"]        # active terminal geometry: cols/rows, cell box, WebGL state
 node scripts/drive-app.js shot [out.png]              # screenshot the window (default app.png)
 node scripts/drive-app.js --target=settings shot s.png  # …a SECOND window, by title or URL
+node scripts/ax-names.js "<selector>"                 # what a screen reader is told: role + accessible name (AX tree)
+pwsh -NoProfile -File scripts/demo-window.ps1 -Action move -Width 1567 -Height 902  # place/size the dev or demo window (Windows)
 ```
+
+`ax-names.js` reads the accessible name Chromium computes, from the accessibility tree over CDP: a jsdom test sees the
+markup, this sees what is spoken (#842). `demo-window.ps1` moves, maximizes, minimizes or restores this checkout's dev or
+demo main window through Win32 and prints where it is: for a window-state check across a restart (#846), and for README
+screenshots at one size.
 
 `click` and `clicktext` press and release the mouse at the element's centre through CDP, so a handler on
 `mousedown`, `pointerdown` or `click` sees what a hand would give it (#682). They used to call `el.click()`,
