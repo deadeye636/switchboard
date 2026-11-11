@@ -33,16 +33,16 @@
 // switch, on close and on a session change.
 //
 // Free globals it reaches for (all at call time): app.js `activePtyIds`; backends/backend-registry.js
-// `sessionBackendId` and `window._backendsById`; `window.api.getSessionFlow / cancelSessionFlow / getSessionFlowStatus / exportSessionFlow` (feature-detected); `showControlDialog`, `showControlToast` (dialogs/control-dialogs.js);
-// FlowLayout (shared/flow-layout.js).
+// `sessionBackendId` and `window._backendsById`; `window.api.getSessionFlow / cancelSessionFlow / getSessionFlowStatus / exportSessionFlow` (feature-detected); `showControlDialog`, `showControlToast` (dialogs/control-dialogs.js); `sessionBadgeBackendId` (dialogs/dialogs.js, the backend the sidebar badge names);
+// FlowLayout (shared/flow-layout.js); loads AFTER shared/flow-text.js; FlowText (shared/flow-text.js, a parameter of the factory: the checkpoint figure, banner items, lane tag and row text, shared with the SVG export).
 //
 // Callers: session/timeline-view.js (`FlowView.attach` from showTimelineViewer).
 
 (function (root, factory) {
-  const api = factory();
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  else root.FlowView = api;
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module !== 'undefined' && module.exports) module.exports = factory(require('../../shared/flow-text'));
+  else root.FlowView = factory(root.FlowText);   // a classic <script> loaded before this one
+})(typeof self !== 'undefined' ? self : this, function (FlowText) {
+  const { bannerItems, bannerSummary, checkpointInfo, rowText, laneTagInfo, rowBadge } = FlowText;
   const ROW_H = 40;
   const OVERSCAN = 10;
   const POLL_MS = 5000;
@@ -50,19 +50,6 @@
   const CONNECTOR_CAP = 200;
   const MIN_CARD_W = 420; // the cards keep at least this much room to the right of the gutter
   const FALLBACK_VIEWPORT_H = 600;
-
-  // Neutral vocabulary: what a capability id is called in the banner.
-  const CAP_LABELS = {
-    agents: 'Agents',
-    instructionFiles: 'Instruction files',
-    contextCheckpoints: 'Context checkpoints',
-    permissionMode: 'Permission mode',
-    approvals: 'Approvals',
-    compaction: 'Compaction',
-    interrupt: 'Interrupts',
-    destructivePatterns: 'Risky-command patterns',
-    timestamps: 'Timestamps',
-  };
 
   // ---------- pure helpers (tested in node) ----------
 
@@ -193,100 +180,7 @@
   /** Does a status answer mean "there is more to read". */
   function statusMeansNewSteps(status) { return status === 'grew' || status === 'rewritten'; }
 
-  /** The limitations to show, each with the capabilities that point at it. Everything, never an empty banner by accident. */
-  function bannerItems(snapshot) {
-    const out = [];
-    if (!snapshot) return out;
-    const caps = snapshot.capabilities || {};
-    const labelsBy = new Map();
-    for (const id of Object.keys(caps)) {
-      const c = caps[id];
-      if (!c) continue;
-      const full = id === 'instructionFiles' ? c.state === 'perFile' : c.state === 'yes';
-      if (full || !c.limitationId) continue;
-      if (!labelsBy.has(c.limitationId)) labelsBy.set(c.limitationId, []);
-      labelsBy.get(c.limitationId).push(CAP_LABELS[id] || id);
-    }
-    for (const l of snapshot.limitations || []) {
-      if (!l || !l.text) continue;
-      out.push({ id: l.id, text: l.text, caps: labelsBy.get(l.id) || [] });
-    }
-    return out;
-  }
-
-  function fmtTokens(n) {
-    if (n < 1000) return String(Math.round(n));
-    if (n < 1e6) return (n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k';
-    return (n / 1e6).toFixed(1) + 'M';
-  }
-
-  /**
-   * How a step's checkpoint is drawn: `{ pct, text, estimated }` or null. Fill is the input against the window;
-   * a value that is `unknown` or `included` says so in words; an estimated one is flagged (dashed + the word).
-   */
-  function checkpointInfo(step) {
-    const cp = step && step.checkpoint;
-    if (!cp) return tokensInfo(step);
-    const inp = cp.input;
-    const win = cp.window;
-    const val = (e) => (e && e.basis !== 'unknown' && Number.isFinite(e.value) ? e.value : null);
-    const i = val(inp);
-    const w = val(win);
-    const estimated = [inp, win].some((e) => e && e.basis === 'estimated');
-    if (i == null) return { pct: null, text: inp && inp.basis === 'included' ? 'included' : 'input unknown', estimated: false };
-    const pct = w ? clamp((i / w) * 100, 0, 100) : null;
-    let text = fmtTokens(i) + (w ? ' / ' + fmtTokens(w) : '') + (pct != null ? ' · ' + Math.round(pct) + '%' : '');
-    if (estimated) text += ' estimated';
-    return { pct, text, estimated };
-  }
-
-  /** A step with its own token figure and no checkpoint (an instruction file): characters and tokens, estimates worded. */
-  function tokensInfo(step) {
-    const t = step && step.tokens;
-    if (!t || t.basis === 'unknown' || !Number.isFinite(t.value)) return null;
-    const chars = step.detail && Number.isFinite(step.detail.characters) ? step.detail.characters : null;
-    const estimated = t.basis === 'estimated';
-    let text = (chars != null ? fmtTokens(chars) + ' chars · ' : '') + (estimated ? '~' : '') + fmtTokens(t.value) + ' tokens';
-    if (estimated) text += ' · estimated';
-    else if (t.basis === 'included') text += ' · included';
-    return { pct: null, text, estimated };
-  }
-
-  /** The collapsed banner line: the count, plus the context-window limitation when it is short. */
-  function bannerSummary(items) {
-    const n = items.length;
-    let line = n + (n === 1 ? ' limitation' : ' limitations');
-    const key = items.find((it) => it.caps.includes(CAP_LABELS.contextCheckpoints));
-    if (key && key.text.length <= 90) line += ': ' + key.text;
-    return line;
-  }
-
-  function rowText(row, columns) {
-    if (row.kind === 'step') return row.step.label;
-    if (row.kind === 'group') return row.count + ' × ' + (row.tool || 'tool');
-    const col = (columns || []).find((c) => c.laneId === row.laneId);
-    return row.count + ' steps' + (col && col.label ? ' in ' + col.label : '');
-  }
-
-  /**
-   * The lane tag in words: `{ text, title }`. The depth shows when it is more than 1 and the title names the lane
-   * that started this one, so nesting and siblings read apart without colour or column position.
-   */
-  function laneTagInfo(columns, laneId) {
-    const list = columns || [];
-    const col = list.find((c) => c.laneId === laneId);
-    if (!col) return { text: '▾ agent', title: 'Collapse this lane' };
-    const parent = col.parentLaneId != null ? list.find((c) => c.laneId === col.parentLaneId) : null;
-    const parentLabel = parent ? (parent.label || parent.laneId) : 'main';
-    // The depth leads, so the tag's ellipsis cuts the label rather than the depth.
-    const depth = col.depth > 1 ? 'depth ' + col.depth + ' · ' : '';
-    return { text: '▾ ' + depth + (col.label || 'agent'), title: 'Started by ' + parentLabel + '. Click to collapse this lane.' };
-  }
-
-  function rowBadge(row) {
-    if (row.kind === 'step') return row.step.kind;
-    return row.kind === 'group' ? 'tool' : 'agent';
-  }
+  // bannerItems, bannerSummary, checkpointInfo, rowText, laneTagInfo and rowBadge are the shared words (src/shared/flow-text.js).
 
   // ---------- the view (browser only; every DOM access is at call time) ----------
 
@@ -750,6 +644,14 @@
     else setStatusText(message);
   }
 
+  /** The name the sidebar badge shows for this session's backend (`sessionBadgeBackendId` + the descriptor's label, as the badge's title does); '' when unknown. */
+  function backendLabelFor(session) {
+    if (!session || typeof sessionBadgeBackendId !== 'function') return '';
+    const id = sessionBadgeBackendId(session);
+    const d = id && window.getBackend ? window.getBackend(id) : null;
+    return d && d.label ? String(d.label) : String(id || '');
+  }
+
   /** Ask first (the file can hold prompts, commands and local paths), then let main read fresh, ask for a place and write. */
   async function exportFlow(format) {
     const c = cur;
@@ -767,7 +669,7 @@
     const sel = $('flow-export-select');
     if (sel) sel.disabled = true;
     let res = null;
-    try { res = await a.exportSessionFlow(c.sessionId, format); } catch { res = null; }
+    try { res = await a.exportSessionFlow(c.sessionId, format, { backendLabel: backendLabelFor(c.session) }); } catch { res = null; }
     c.exporting = false;
     if (sel) sel.disabled = false;
     if (!res) say('The export failed.');
@@ -899,10 +801,11 @@
     const viewer = $('timeline-viewer');
     if (!viewer || !$('flow-view')) return;
     if (cur && cur.sessionId !== session.sessionId) teardownSession();
+    if (cur) cur.session = session;   // the row the export reads the badge's backend from
     if (!cur) {
       const id = session.sessionId;
       cur = {
-        sessionId: id, tab: 'events', avail: availability(session), declined: false, declineReason: '',
+        sessionId: id, session, tab: 'events', avail: availability(session), declined: false, declineReason: '',
         entry: cache.get(id) || null, gen: 0, loading: false, polling: false, timer: 0, raf: 0,
         wasRunning: false, hint: false, scrollTop: 0, viewportH: FALLBACK_VIEWPORT_H, rendered: null,
       };

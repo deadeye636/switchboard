@@ -119,7 +119,7 @@ function buildSessionItem(session, opts = {}) {
   // pair, or one half not launchable (E8), it answers null and the row keeps its badge exactly as before.
   const view = (session.type !== 'terminal' && typeof sessionViewOf === 'function') ? sessionViewOf(session) : null;
   if (session.type !== 'terminal' && window.sessionBackendId) {
-    const backendId = view ? view.pair.terminal.id : window.sessionBackendId(session);
+    const backendId = sessionBadgeBackendId(session, view);
     // The badge means "this row is NOT the one you would assume". That claim needs a default to compare
     // against, and `_defaultBackendId` is '' until the registry answers — and stays '' when nothing is
     // launchable at all (#225). With no default there is no assumption to correct, so the claim is not

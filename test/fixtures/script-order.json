@@ -16,6 +16,7 @@
     "partial-args.js",
     "flow-snapshot.js",
     "flow-layout.js",
+    "flow-text.js",
     "format-commands.js",
     "format-toolbar.js",
     "viewer-toolbar.js",

@@ -77,7 +77,7 @@ test('the answer holds no path', async () => {
 test('an unknown format is refused before any read or dialog', async () => {
   const s = setup();
   try {
-    for (const format of ['svg', 'pdf', 'mermaid', '', undefined, '__proto__', 'toString']) {
+    for (const format of ['pdf', 'mermaid', '', undefined, '__proto__', 'toString']) {
       const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format }, null);
       assert.equal(res.ok, false);
       assert.equal(res.canceled, false);
@@ -166,4 +166,46 @@ test('overwriting a file that has a BOM and CRLF writes plain UTF-8 and LF', asy
     assert.notDeepEqual([...buf.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
     assert.ok(!buf.includes(13));
   } finally { s.cleanup(); }
+});
+
+test('svg is a registered format: .svg file, the same fresh read, well-formed output', async () => {
+  const s = setup({ pickedName: 'out.svg' });
+  try {
+    assert.ok(flowExport.FORMATS.svg && flowExport.FORMATS.json);
+    const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'svg' }, { sender: { id: 3 } });
+    assert.deepEqual(res, { ok: true, canceled: false, name: 'out.svg' });
+    assert.equal(s.calls.read.length, 1);
+    assert.match(path.basename(s.calls.dialog[0].defaultPath), /^abcdef12-flow\.svg$/);
+    assert.deepEqual(s.calls.dialog[0].filters, [{ name: 'SVG', extensions: ['svg'] }]);
+    const text = fs.readFileSync(path.join(s.dir, 'out.svg'), 'utf8');
+    assert.ok(text.startsWith('<?xml'));
+    assert.ok(text.includes('Session abcdef12'));
+    assert.ok(!text.includes('secret-session'));
+  } finally { s.cleanup(); }
+});
+
+test('the backend label from the view is sanitised; a missing or non-string label prints no backend', async () => {
+  const s = setup({ pickedName: 'l.svg' });
+  const run = async (backendLabel) => {
+    await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'svg', backendLabel }, null);
+    return fs.readFileSync(path.join(s.dir, 'l.svg'), 'utf8');
+  };
+  try {
+    const ok = await run('  Claude Code ' + String.fromCharCode(0, 7) + ' ');
+    assert.ok(ok.includes('Session abcdef12 · Claude Code · exported'));
+    const capped = await run('x'.repeat(500));
+    assert.ok(capped.includes('x'.repeat(80)) && !capped.includes('x'.repeat(81)));
+    const escaped = await run('<b>&</b>');
+    assert.ok(escaped.includes('&lt;b&gt;&amp;&lt;/b&gt;') && !escaped.includes('<b>'));
+    for (const bad of [undefined, null, 42, {}, ['a']]) {
+      const text = await run(bad);
+      assert.ok(!/Session abcdef12 · (undefined|null|42|\[object|a  ·)/.test(text));
+      assert.ok(/Session abcdef12 · exported /.test(text));
+    }
+  } finally { s.cleanup(); }
+});
+
+test('main derives no backend label itself', () => {
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'flow-export.js'), 'utf8'));
+  assert.doesNotMatch(src, /openerFor|backendLabelOf|transcriptsOf/);
 });

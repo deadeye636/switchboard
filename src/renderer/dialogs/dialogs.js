@@ -945,6 +945,14 @@ function sessionViewOf(session) {
   };
 }
 
+// The backend the sidebar's provider badge NAMES for a session: the pair's OWNER when `sessionViewOf` answers (the
+// driver is another view of the same CLI, shown by the view glyph), else the backend the core stamped on the row. The one
+// answer the row's badge and the Flow export's header both read. `view` may be passed when the caller already asked.
+function sessionBadgeBackendId(session, view) {
+  const v = view === undefined ? sessionViewOf(session) : view;
+  return v ? v.pair.terminal.id : (window.sessionBackendId ? window.sessionBackendId(session) : '');
+}
+
 // How a surface NAMES a session's backend in words (#683): the pair's owner and the view it opens in, the way
 // the sidebar row shows it with a badge and a glyph — "Claude (GUI)", "Pi (terminal)". Brackets, not a
 // middle dot: the tooltips join their fields with one, and "Claude · GUI" read as two fields. A session with no pair

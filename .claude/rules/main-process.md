@@ -53,6 +53,7 @@ take an inventory id, re-list on every call and delegate to `backend-resources.j
 `forge-issues.js` (a project's GitHub or GitLab issues, read-only, #816, spec 42: nothing stored, no timer, no token),
 `session-flow.js` (the Flow tab's read — #826, spec 46; a session id in, a `FlowSnapshot` out. One short-lived `src/workers/flow-worker.js` per request with `resourceLimits` and a 30 s timeout, a generation per window and session so a second call from the same window supersedes the first and a stale reply is dropped, `terminateAll()` in the teardown before `closeDb()`. A crash, timeout or out-of-memory answers a snapshot with `complete: false` and a limitation. `status` is one stat plus an optional 4 KB head hash (and, for a source with the role `subagents-dir`, one readdir and a stat per listed file) and answers `unchanged | grew | rewritten`. No `*Sync` call, no `sources` or path in any answer),
 `flow-export.js` (the Flow tab's export — #826, spec 46 T17; `flow-export {sessionId, format}` re-reads the snapshot through `session-flow.js`, validates it, asks the native save dialog and writes through `safe-write.js`; a `FORMATS` table is where SVG/PDF/Mermaid join. The answer is `{ ok, canceled, error, name }`, never a path; the JSON holds the neutral snapshot only, no `sources`, no fingerprint),
+`flow-svg.js` (the SVG form of the Flow export — #826, spec 46 T18; a pure snapshot-to-string renderer called only by `flow-export.js`, no IPC, no DOM, no fs. It lays the snapshot out fully expanded with `src/shared/flow-layout.js`, words it with `src/shared/flow-text.js`, escapes every text and emits no script, handler, `href` or `foreignObject`),
 `process-usage.js` (what a session costs the machine — #834, spec 43; its process tree from `session.pty.pid` with CPU and memory, ONE sample for every session — `@vscode/windows-process-tree` from `process.pid` on Windows, an optional native module required lazily, one `ps` call elsewhere — shared by every request within `REUSE_MS` or while it is out. Nothing runs on its own: the sidebar's Processes group asks while it is open and in view. Names no backend),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
@@ -612,7 +613,7 @@ line there, in the same commit.
 | The static check of a project's external MCP server entries (command, variables, which backends take it) | `src/app/external-mcp-check.js` |
 | The search in the official MCP Registry (one outbound GET, on the user's click) | `src/app/mcp-registry.js` |
 | A session's flow (the Flow tab): the worker read, its cancel and its status (#826) | `src/app/session-flow.js` |
-| A session's flow saved to a file (JSON; SVG/PDF/Mermaid later): fresh read, save dialog, safe-write (#826) | `src/app/flow-export.js` |
+| A session's flow saved to a file (JSON, SVG; PDF/Mermaid later): fresh read, save dialog, safe-write (#826) | `src/app/flow-export.js` |
 | The CPU and memory of a session's process tree, sampled only when the sidebar asks (#834) | `src/app/process-usage.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 

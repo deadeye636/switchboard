@@ -785,8 +785,8 @@ the check is drawn as plain text. Loosening the check means an agent's text can 
 ## `src/shared/`
 
 The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,
-`preview-kind`, `worktree-path` (#582), `convention-dir-name` (#630), `partial-args` (#664) and the Flow pair
-`flow-snapshot` / `flow-layout` (#826: the neutral shape, and the pure layout the Flow tab in `session/flow-view.js` draws; each adds one
+`preview-kind`, `worktree-path` (#582), `convention-dir-name` (#630), `partial-args` (#664) and the Flow trio
+`flow-snapshot` / `flow-layout` / `flow-text` (#826: the neutral shape, the pure layout the Flow tab in `session/flow-view.js` draws, and the words both the tab and the SVG export in main draw with; each adds one
 global and no helper name). **List the directory rather than trusting this line.**
 `require()`d in main, a global in the renderer (which has no require — plain `<script>` tags). The
 preview in main must compute with the same code the insert runs in the renderer; two copies would be

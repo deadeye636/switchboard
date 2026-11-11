@@ -132,6 +132,7 @@
           <select id="flow-export-select" aria-label="Export flow" title="Save this flow to a file">
             <option value="">Export…</option>
             <option value="json">JSON</option>
+            <option value="svg">SVG</option>
           </select>
           <span id="flow-hint" role="status" hidden>New steps available</span>
           <span id="flow-status" role="status" aria-live="polite"></span>
@@ -213,6 +214,7 @@
   <!-- The session flow (#826): the neutral shape and the pure layout, read by session/flow-view.js. -->
   <script src="../shared/flow-snapshot.js"></script>
   <script src="../shared/flow-layout.js"></script>
+  <script src="../shared/flow-text.js"></script>
   <script src="views/format-commands.js"></script>
   <script src="views/format-toolbar.js"></script>
   <script src="views/viewer-toolbar.js"></script>

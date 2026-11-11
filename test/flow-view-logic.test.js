@@ -146,7 +146,7 @@ test('smoke: a big snapshot keeps the DOM bounded; close drops everything', asyn
   const snap = mkSnap(steps);
   w.api = { getSessionFlow: async () => snap, cancelSessionFlow: async () => {}, getSessionFlowStatus: async () => 'unchanged' };
   const ctx = dom.getInternalVMContext();
-  for (const f of ['src/shared/flow-snapshot.js', 'src/shared/flow-layout.js', 'src/renderer/session/flow-view.js']) {
+  for (const f of ['src/shared/flow-snapshot.js', 'src/shared/flow-layout.js', 'src/shared/flow-text.js', 'src/renderer/session/flow-view.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), ctx, { filename: f });
   }
   // The scroller has no layout in jsdom: clientHeight is 0, the view falls back to its default viewport.
