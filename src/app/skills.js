@@ -50,6 +50,10 @@ function backendById(backendId) {
   try { return ctx.backends.get(backendId) || null; } catch { return null; }
 }
 
+// Two leading separators, either kind: `\\host\share`, `//host/share`, `\\?\UNC\…`. Lexical, and asked before
+// anything touches the path. One rule for the setting as spelled and for the resolved and real paths.
+const spelledAsNetworkPath = (p) => /^[\\/]{2}/.test(String(p));
+
 /**
  * Where the app's own skills live.
  *
@@ -57,6 +61,11 @@ function backendById(backendId) {
  * anyone. A value set in the cascade is a path: absolute as given, relative resolved against the project
  * when there is one, and against the data directory otherwise — so a project may keep its skills in the
  * repository (`docs/skills`) without every other project inheriting a path that means nothing there.
+ *
+ * A value spelled as a network path (`\\host\share`, `//host/share`) is handed back as spelled, so
+ * `unsafeToWalk` refuses it on every platform (#844). On macOS and Linux `path` reads `\\host\share` as a relative
+ * name and `//host/share` as `/host/share`, so resolving first turned the same setting into a local folder there
+ * while Windows refused it — and a settings blob travels between machines (export/import).
  */
 function switchboardSkillsDir(projectPath) {
   let configured = '';
@@ -65,6 +74,7 @@ function switchboardSkillsDir(projectPath) {
     configured = (settings && typeof settings.skillsDir === 'string') ? settings.skillsDir.trim() : '';
   } catch { configured = ''; }
   if (!configured) return path.join(ctx.dataDir, 'skills');
+  if (spelledAsNetworkPath(configured)) return configured;
   if (path.isAbsolute(configured)) return path.resolve(configured);
   return path.resolve(projectPath || ctx.dataDir, configured);
 }
@@ -194,10 +204,9 @@ function unusableSkillsDir(dir, projectPath) {
  * to a share while being spelled like a local folder.
  */
 function unsafeToWalk(dir) {
-  const isNetwork = (p) => /^[\\/]{2}/.test(String(p));
-  if (isNetwork(dir)) return 'a network path';
+  if (spelledAsNetworkPath(dir)) return 'a network path';
   const real = realPathish(path.resolve(dir));
-  if (isNetwork(real)) return 'a network path';
+  if (spelledAsNetworkPath(real)) return 'a network path';
   if (path.parse(real).root === real) return 'a drive root';
   if (isAtOrInside(os.homedir(), real)) return 'the home directory or a directory above it';
   return null;

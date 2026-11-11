@@ -1,0 +1,685 @@
+/**
+ * mcp-bridge.js — Per-session WebSocket MCP server for Switchboard.
+ *
+ * Each Claude CLI PTY gets its own MCP server so the CLI can send
+ * openDiff / openFile / closeAllDiffTabs / getDiagnostics calls
+ * to Switchboard's file panel instead of a VS Code extension.
+ */
+
+const { WebSocketServer } = require('ws');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { noteWork } = require('../perf');
+
+// Where Claude looks for IDE lock files. Follows the isolated home (#241): SWITCHBOARD_STORE_CLAUDE
+// names the projects dir, the home is its parent. Resolved per call — the bridge is required at load,
+// long before a lock is written. Without this a demo/sandbox run dropped its lock files into the user's
+// real `~/.claude/ide`, where their real CLI sessions would find them.
+function ideDir() {
+  const store = process.env.SWITCHBOARD_STORE_CLAUDE;
+  return store ? path.join(path.dirname(store), 'ide') : path.join(os.homedir(), '.claude', 'ide');
+}
+
+// sessionId → ServerEntry
+const servers = new Map();
+
+// May the bridge read the path a client names (#780)? A network path no project is on is an SMB connection
+// to whoever named it, and the path here comes from the model. main.js sets the real answer at boot
+// (`setPathGuard`); until then every network path is refused, so a bridge started first fails closed.
+const { isForeignNetworkPath, FOREIGN_NETWORK_REASON } = require('../app/network-path');
+let refusePath = (p) => isForeignNetworkPath(p, []) || isForeignNetworkPath(path.resolve(String(p || '')), []);
+function setPathGuard(fn) { if (typeof fn === 'function') refusePath = fn; }
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function ensureIdeDir() {
+  fs.mkdirSync(ideDir(), { recursive: true });
+}
+
+// How long a pending openDiff waits for the renderer before the CLI's tools/call
+// is released with a rejection — guards against a renderer reload/crash that would
+// otherwise leave the call hanging until session end (issue #76).
+const DIFF_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** Build the JSON-RPC 2.0 response envelope. */
+function rpcResult(id, result) {
+  return JSON.stringify({ jsonrpc: '2.0', id, result });
+}
+
+function rpcError(id, code, message) {
+  return JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } });
+}
+
+// ── MCP Tool Schemas ─────────────────────────────────────────────────
+
+const MCP_TOOLS = [
+  {
+    name: 'openDiff',
+    description: 'Open a diff view for a file edit',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        old_file_path: { type: 'string' },
+        new_file_path: { type: 'string' },
+        new_file_contents: { type: 'string' },
+        tab_name: { type: 'string' },
+      },
+      required: ['old_file_path', 'new_file_path', 'new_file_contents', 'tab_name'],
+    },
+  },
+  {
+    name: 'openFile',
+    description: 'Open a file in the editor',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string' },
+        preview: { type: 'boolean' },
+        startText: { type: 'string' },
+        endText: { type: 'string' },
+        selectToEndOfLine: { type: 'boolean' },
+        makeFrontmost: { type: 'boolean' },
+      },
+      required: ['filePath'],
+    },
+  },
+  {
+    name: 'close_tab',
+    description: 'Close a specific diff tab by name',
+    inputSchema: {
+      type: 'object',
+      properties: { tab_name: { type: 'string' } },
+      required: ['tab_name'],
+    },
+  },
+  {
+    name: 'closeAllDiffTabs',
+    description: 'Close all open diff tabs',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'getDiagnostics',
+    description: 'Get diagnostics for a file',
+    inputSchema: {
+      type: 'object',
+      properties: { uri: { type: 'string' } },
+    },
+  },
+];
+
+// ── JSON-RPC Message Handler ─────────────────────────────────────────
+
+function handleMessage(entry, raw, log) {
+  let msg;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    log.warn('[mcp] Received invalid JSON');
+    return;
+  }
+  // A main-thread entry of its own, with synchronous file reads behind it (src/perf.js has the why).
+  noteWork(`mcp:${(msg && msg.method) || 'reply'}`);
+
+  const { id, method, params } = msg;
+
+  // Notifications (no id) — fire-and-forget
+  if (id === undefined || id === null) {
+    if (method === 'notifications/initialized') {
+      log.info(`[mcp] session=${entry.sessionId} CLI initialized`);
+    }
+    return;
+  }
+
+  // Requests (have id) — must respond
+  switch (method) {
+    case 'initialize':
+      return sendResult(entry, id, {
+        protocolVersion: '2025-03-26',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'Switchboard', version: '1.0.0' },
+      });
+
+    case 'tools/list':
+      return sendResult(entry, id, { tools: MCP_TOOLS });
+
+    case 'tools/call':
+      return handleToolCall(entry, id, params, log);
+
+    default:
+      log.debug(`[mcp] session=${entry.sessionId} unhandled method: ${method}`);
+      return sendError(entry, id, -32601, `Method not found: ${method}`);
+  }
+}
+
+function sendResult(entry, id, result) {
+  if (entry.ws && entry.ws.readyState === 1) {
+    entry.ws.send(rpcResult(id, result));
+  }
+}
+
+function sendError(entry, id, code, message) {
+  if (entry.ws && entry.ws.readyState === 1) {
+    entry.ws.send(rpcError(id, code, message));
+  }
+}
+
+/**
+ * The window a notice is addressed to: the one that RENDERS this session (#393), resolved PER SEND.
+ *
+ * Two decisions live in this one line. The window is resolved rather than captured — a bridge outlives
+ * any window reopen, and the captured one addressed a window that no longer existed: nothing appeared,
+ * nothing errored, and every diff sat out its full timeout (#392). And it is the session's own window
+ * rather than the main one, so a review opens where the user is looking and where the CLI that asked
+ * for it is running.
+ *
+ * The second decision is what makes `rejectPendingDiffsForWindow` necessary: a diff can now live in a
+ * window whose ordinary lifecycle — closed by hand, auto-closed when its last session leaves — ends
+ * while the CLI's call is still open.
+ */
+function targetWindow(entry) {
+  const win = typeof entry.getWindow === 'function' ? entry.getWindow(entry.sessionId) : null;
+  return win && !win.isDestroyed() ? win : null;
+}
+
+/**
+ * Send once the window can actually receive it.
+ *
+ * A window made by the same gesture that triggered this is still loading, and Electron drops a `send`
+ * to a renderer that does not exist yet — silently. A restored window registers its sessions before it
+ * finishes loading, so a CLI reconnecting at launch can open a diff into nothing and then wait out the
+ * full timeout. Same fix as `open-view-in-window` in app/detach.js.
+ */
+function sendWhenReady(win, channel, ...args) {
+  const deliver = () => {
+    if (!win.isDestroyed()) win.webContents.send(channel, ...args);
+  };
+  if (win.webContents.isLoading && win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', deliver);
+  } else {
+    deliver();
+  }
+}
+
+// ── Tool Call Dispatch ───────────────────────────────────────────────
+
+async function handleToolCall(entry, rpcId, params, log) {
+  const toolName = params?.name;
+  const args = params?.arguments || {};
+
+  switch (toolName) {
+    case 'openDiff':
+      return handleOpenDiff(entry, rpcId, args, log);
+    case 'openFile':
+      return handleOpenFile(entry, rpcId, args, log);
+    case 'close_tab':
+      return handleCloseTab(entry, rpcId, args, log);
+    case 'closeAllDiffTabs':
+      return handleCloseAllDiffTabs(entry, rpcId, log);
+    case 'getDiagnostics':
+      return handleGetDiagnostics(entry, rpcId);
+    default:
+      return sendError(entry, rpcId, -32602, `Unknown tool: ${toolName}`);
+  }
+}
+
+async function handleOpenDiff(entry, rpcId, args, log) {
+  const { old_file_path, new_file_contents, tab_name } = args;
+  if (typeof old_file_path === 'string' && refusePath(old_file_path)) {
+    log.info(`[mcp] session=${entry.sessionId} openDiff refused: a network path no project is on`);
+    return sendError(entry, rpcId, -32602, FOREIGN_NETWORK_REASON);
+  }
+
+  // Read the current file from disk
+  let oldContent = '';
+  try {
+    oldContent = fs.readFileSync(old_file_path, 'utf8');
+  } catch {
+    log.debug(`[mcp] Could not read ${old_file_path} — treating as new file`);
+  }
+
+  const diffId = crypto.randomUUID();
+
+  // Create a promise that resolves when the user acts on the diff — or, if the
+  // renderer never answers (reload/crash), when a timeout fires so the CLI's
+  // tools/call doesn't hang until session end (issue #76).
+  const diffPromise = new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!entry.pendingDiffs.has(diffId)) return;
+      entry.pendingDiffs.delete(diffId);
+      log.warn(`[mcp] session=${entry.sessionId} diff ${diffId} timed out — rejecting`);
+      resolve({ action: 'reject', reason: 'timeout' });
+    }, DIFF_TIMEOUT_MS);
+    if (timer.unref) timer.unref();
+    // `win` is which window this diff's view was SENT to, and it is not the same question as
+    // "which window renders the session": the session can move afterwards, and the view does not
+    // follow it. Only the window actually showing the diff can answer for it, so that is the one
+    // whose death has to reject the call.
+    entry.pendingDiffs.set(diffId, { resolve, rpcId, tabName: tab_name, timer, win: null });
+  });
+
+  // Send to renderer
+  const diffWindow = targetWindow(entry);
+  if (diffWindow) {
+    const pending = entry.pendingDiffs.get(diffId);
+    if (pending) pending.win = diffWindow;
+    sendWhenReady(diffWindow, 'mcp-open-diff', entry.sessionId, diffId, {
+      oldFilePath: old_file_path,
+      oldContent,
+      newContent: new_file_contents,
+      tabName: tab_name,
+    });
+  }
+
+  // Await user action
+  const result = await diffPromise;
+
+  // Send JSON-RPC response back to Claude CLI
+  if (result.action === 'accept-edited') {
+    // User accepted with edits — return FILE_SAVED + new content
+    sendResult(entry, rpcId, {
+      content: [
+        { type: 'text', text: 'FILE_SAVED' },
+        { type: 'text', text: result.content },
+      ],
+    });
+  } else if (result.action === 'accept') {
+    // User closed tab (accept as-is)
+    sendResult(entry, rpcId, {
+      content: [{ type: 'text', text: 'TAB_CLOSED' }],
+    });
+  } else {
+    // User rejected
+    sendResult(entry, rpcId, {
+      content: [{ type: 'text', text: 'DIFF_REJECTED' }],
+    });
+  }
+}
+
+async function handleOpenFile(entry, rpcId, args, log) {
+  const { filePath, preview, startText, endText } = args;
+  if (typeof filePath === 'string' && refusePath(filePath)) {
+    log.info(`[mcp] session=${entry.sessionId} openFile refused: a network path no project is on`);
+    return sendError(entry, rpcId, -32602, FOREIGN_NETWORK_REASON);
+  }
+
+  let content = '';
+  try {
+    content = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    log.debug(`[mcp] Could not read ${filePath}: ${err.message}`);
+  }
+
+  const fileWindow = targetWindow(entry);
+  if (fileWindow) {
+    sendWhenReady(fileWindow, 'mcp-open-file', entry.sessionId, {
+      filePath,
+      content,
+      preview: preview ?? false,
+      startText: startText || '',
+      endText: endText || '',
+    });
+  }
+
+  sendResult(entry, rpcId, {
+    content: [{ type: 'text', text: 'ok' }],
+  });
+}
+
+async function handleCloseTab(entry, rpcId, args, log) {
+  const { tab_name } = args;
+  log.debug(`[mcp] session=${entry.sessionId} close_tab: ${tab_name}`);
+
+  // Find the pending diff by tab_name
+  for (const [diffId, pending] of entry.pendingDiffs) {
+    if (pending.tabName === tab_name) {
+      entry.pendingDiffs.delete(diffId);
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.resolve({ action: 'accept' });
+
+      // Notify the window that is actually SHOWING it, which is not necessarily the one that renders
+      // the session now — a session can move while its diff stays where it was opened.
+      const closeWindow = (pending.win && !pending.win.isDestroyed()) ? pending.win : targetWindow(entry);
+      if (closeWindow) {
+        closeWindow.webContents.send('mcp-close-tab', entry.sessionId, diffId);
+      }
+      break;
+    }
+  }
+
+  sendResult(entry, rpcId, {
+    content: [{ type: 'text', text: 'ok' }],
+  });
+}
+
+async function handleCloseAllDiffTabs(entry, rpcId, log) {
+  log.debug(`[mcp] session=${entry.sessionId} closeAllDiffTabs`);
+
+  // Resolve all pending diffs as TAB_CLOSED, collecting the windows they were shown in — several
+  // diffs of one session can sit in different windows.
+  const showing = new Set();
+  for (const [, pending] of entry.pendingDiffs) {
+    if (pending.timer) clearTimeout(pending.timer);
+    if (pending.win && !pending.win.isDestroyed()) showing.add(pending.win);
+    pending.resolve({ action: 'accept' });
+  }
+  entry.pendingDiffs.clear();
+
+  // The window rendering the session may hold none of them, and a window that held one may hold
+  // nothing else — so tell both kinds. The renderer's own close is keyed by session, so a window with
+  // nothing to close simply does nothing.
+  const current = targetWindow(entry);
+  if (current) showing.add(current);
+  for (const win of showing) {
+    win.webContents.send('mcp-close-all-diffs', entry.sessionId);
+  }
+
+  sendResult(entry, rpcId, {
+    content: [{ type: 'text', text: 'ok' }],
+  });
+}
+
+async function handleGetDiagnostics(entry, rpcId) {
+  sendResult(entry, rpcId, {
+    content: [{ type: 'text', text: '[]' }],
+  });
+}
+
+// ── Public API ───────────────────────────────────────────────────────
+
+/**
+ * Start an MCP WebSocket server for a session.
+ * @param getWindow a GETTER for the window its notices go to — never a window (see targetWindow).
+ * @returns {{ port: number, authToken: string }}
+ */
+async function startMcpServer(sessionId, workspaceFolders, getWindow, log) {
+  ensureIdeDir();
+
+  const authToken = crypto.randomUUID();
+
+  // Bind to an OS-assigned port (port: 0) and wait for 'listening' before reading
+  // the actual port — this removes the old findFreePort probe/release/rebind TOCTOU
+  // race and ensures we never advertise a port that isn't accepting yet (issue #76).
+  const wss = new WebSocketServer({
+    port: 0,
+    host: '127.0.0.1',
+    // Cap frame size: ws defaults to 100 MiB and every frame is JSON.parsed on
+    // the broker (main) process. 8 MiB comfortably covers large diffs while a
+    // same-user client can't spike RSS / block the event loop with giant frames.
+    maxPayload: 8 * 1024 * 1024,
+    handleProtocols: (protocols) => {
+      if (protocols.has('mcp')) return 'mcp';
+      return false;
+    },
+  });
+  await new Promise((resolve, reject) => {
+    const onListening = () => { wss.off('error', onError); resolve(); };
+    const onError = (err) => { wss.off('listening', onListening); reject(err); };
+    wss.once('listening', onListening);
+    wss.once('error', onError);
+  });
+  const port = wss.address().port;
+
+  const lockFilePath = path.join(ideDir(), `${port}.lock`);
+  const lockData = JSON.stringify({
+    pid: process.pid,
+    workspaceFolders,
+    ideName: 'Switchboard',
+    transport: 'ws',
+    runningInWindows: false,
+    authToken,
+  });
+  // Create lockfile only readable by user (it contains the MCP auth token).
+  // If the file already exists with wider permissions (from an older build
+  // before this hardening), chmodSync tightens it before the new content is written.
+  if (fs.existsSync(lockFilePath)) {
+    try { fs.chmodSync(lockFilePath, 0o600); } catch {}
+  }
+  fs.writeFileSync(lockFilePath, lockData, { encoding: 'utf8', mode: 0o600 });
+
+  const entry = {
+    sessionId,
+    wss,
+    port,
+    authToken,
+    lockFilePath,
+    getWindow,
+    ws: null,
+    pendingDiffs: new Map(),
+  };
+
+  wss.on('connection', (ws, req) => {
+    // Validate auth
+    const headerAuth = req.headers['x-claude-code-ide-authorization'];
+    if (headerAuth !== authToken) {
+      log.warn(`[mcp] session=${sessionId} rejected connection: bad auth`);
+      ws.close(4001, 'Unauthorized');
+      return;
+    }
+
+    log.info(`[mcp] session=${sessionId} CLI connected on port ${port}`);
+
+    // Close any previous connection
+    if (entry.ws) {
+      try { entry.ws.close(); } catch {}
+    }
+    entry.ws = ws;
+
+    ws.on('message', (data) => {
+      handleMessage(entry, data.toString(), log);
+    });
+
+    ws.on('close', () => {
+      if (entry.ws === ws) entry.ws = null;
+      log.debug(`[mcp] session=${sessionId} CLI disconnected`);
+    });
+
+    ws.on('error', (err) => {
+      log.debug(`[mcp] session=${sessionId} ws error: ${err.message}`);
+    });
+  });
+
+  wss.on('error', (err) => {
+    log.error(`[mcp] session=${sessionId} server error: ${err.message}`);
+  });
+
+  servers.set(sessionId, entry);
+  log.info(`[mcp] session=${sessionId} server started on port ${port}`);
+
+  return { port, authToken };
+}
+
+/**
+ * Shut down the MCP server for a session.
+ *
+ * Two things this owes whoever is still looking at a review of that session (#405).
+ *
+ * The answer is a REJECTION. It used to be `accept`, which said the user approved every edit still on
+ * screen — nobody approved anything, the process ended. For a CLI that died with it the answer changes
+ * nothing, but the same call also settles the diffs of a session whose PTY exited while the CLI lives
+ * on, and "the session ended" is not "yes, write it".
+ *
+ * And the renderer has to be TOLD. Nothing else clears those surfaces: the entries stayed in the file
+ * panel, the pager kept counting them, and answering one sent `mcpDiffResponse` into a bridge that had
+ * already answered for it. Same two kinds of window as `closeAllDiffTabs` — the ones a diff was shown
+ * in, plus the one rendering the session now, which may hold none of them.
+ */
+function shutdownMcpServer(sessionId, log) {
+  const entry = servers.get(sessionId);
+  if (!entry) return;
+
+  // Resolve all pending diffs — rejected, and collect the windows showing them.
+  const showing = new Set();
+  let answered = 0;
+  for (const [, pending] of entry.pendingDiffs) {
+    if (pending.timer) clearTimeout(pending.timer);
+    if (pending.win && !pending.win.isDestroyed()) showing.add(pending.win);
+    pending.resolve({ action: 'reject', reason: 'session ended' });
+    answered++;
+  }
+  entry.pendingDiffs.clear();
+
+  // Sent even when this bridge holds nothing: a review whose call already timed out is gone from
+  // `pendingDiffs` while its card is still on screen, and that card can only be cleared from here.
+  // The whole block is guarded, resolving the window included: this also runs on the way out of the
+  // app, where every window is somewhere between alive and destroyed, and a throw here would take
+  // the lock-file cleanup below with it.
+  try {
+    const current = targetWindow(entry);
+    if (current) showing.add(current);
+    for (const win of showing) {
+      try { win.webContents.send('mcp-close-all-diffs', entry.sessionId); } catch {}
+    }
+  } catch {}
+  if (answered && log) {
+    log.info(`[mcp] session=${entry.sessionId} ended holding ${answered} unanswered review(s) — rejected and cleared`);
+  }
+
+  // Delete lock file
+  try { fs.unlinkSync(entry.lockFilePath); } catch {}
+
+  // The entry is gone from the registry NOW — a relaunch under the same id must not find this one —
+  // but the socket outlives it by a turn. `handleOpenDiff` is still parked on the promise resolved
+  // above; it writes its DIFF_REJECTED in a microtask, and closing here synchronously would take the
+  // socket out from under the answer this function just decided to give. `sendResult` reads
+  // `entry.ws`, not the registry, so the reply still finds its way out.
+  servers.delete(sessionId);
+  setImmediate(() => {
+    if (entry.ws) {
+      try { entry.ws.close(); } catch {}
+    }
+    try { entry.wss.close(); } catch {}
+  });
+}
+
+/**
+ * Shut down all MCP servers (app quit).
+ */
+function shutdownAll(log) {
+  for (const sessionId of servers.keys()) {
+    shutdownMcpServer(sessionId, log);
+  }
+}
+
+/**
+ * Resolve a pending diff from the renderer.
+ * @param {string} action - 'accept' | 'accept-edited' | 'reject'
+ * @param {string|null} editedContent - modified content (for accept-edited)
+ */
+function resolvePendingDiff(sessionId, diffId, action, editedContent) {
+  const entry = servers.get(sessionId);
+  if (!entry) return;
+
+  const pending = entry.pendingDiffs.get(diffId);
+  if (!pending) return;
+
+  entry.pendingDiffs.delete(diffId);
+  if (pending.timer) clearTimeout(pending.timer);
+  pending.resolve({ action, content: editedContent });
+}
+
+/**
+ * A window is going away — answer every diff it was showing (#393).
+ *
+ * This is the price of opening a review where the user is looking. While a diff could only live in the
+ * main window, nothing had to do this: that window's only death was the app quitting, and quit resolves
+ * everything on its way out. A window of its own dies for ordinary reasons — closed by hand, auto-closed
+ * when its last session leaves — and the CLI's `tools/call` is still open on the other side.
+ *
+ * Rejecting is the honest answer: the user closed the window rather than deciding, and the ten-minute
+ * timeout that would otherwise fire is not a decision either, just a long silence.
+ *
+ * Returns how many were answered, so the caller can log it rather than guess.
+ */
+/**
+ * Is this window showing a review nobody has answered yet?
+ *
+ * Asked before a window is taken down on the app's own initiative — a window whose last session moved
+ * away is auto-closed, and in grid mode it reports no views at all, so nothing else would notice the
+ * diff standing in it. Answering the call afterwards is the safety net; not destroying the window out
+ * from under an open review is the actual behaviour.
+ */
+function hasPendingDiffsForWindow(win) {
+  if (!win) return false;
+  for (const entry of servers.values()) {
+    for (const pending of entry.pendingDiffs.values()) {
+      if (pending.win === win) return true;
+    }
+  }
+  return false;
+}
+
+function rejectPendingDiffsForWindow(win, log) {
+  if (!win) return 0;
+  let answered = 0;
+  for (const entry of servers.values()) {
+    for (const [diffId, pending] of entry.pendingDiffs) {
+      if (pending.win !== win) continue;
+      entry.pendingDiffs.delete(diffId);
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.resolve({ action: 'reject', reason: 'window closed' });
+      answered++;
+    }
+  }
+  if (answered && log) {
+    log.info(`[mcp] a window closed holding ${answered} unanswered diff(s) — rejected, so no CLI waits on it`);
+  }
+  return answered;
+}
+
+/**
+ * Re-key a server entry when session ID changes (e.g. fork).
+ */
+function rekeyMcpServer(oldId, newId) {
+  const entry = servers.get(oldId);
+  if (!entry) return;
+
+  servers.delete(oldId);
+  entry.sessionId = newId;
+  servers.set(newId, entry);
+}
+
+/**
+ * Clean up stale lock files from previous Switchboard runs.
+ */
+function cleanStaleLockFiles(log) {
+  try {
+    ensureIdeDir();
+    const files = fs.readdirSync(ideDir());
+    for (const file of files) {
+      if (!file.endsWith('.lock')) continue;
+      const lockPath = path.join(ideDir(), file);
+      try {
+        const data = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        // Remove Switchboard-owned locks whose recorded process is no longer
+        // alive (left behind by a crashed run). process.kill(pid, 0) sends no
+        // signal — it just probes existence and throws ESRCH when the PID is dead.
+        if (data.ideName === 'Switchboard' && typeof data.pid === 'number') {
+          let alive = true;
+          try { process.kill(data.pid, 0); } catch (e) { alive = (e.code === 'EPERM'); }
+          if (!alive) {
+            fs.unlinkSync(lockPath);
+            if (log) log.info(`[mcp] Cleaned stale lock file: ${file} (pid ${data.pid} dead)`);
+          }
+        }
+      } catch {
+        // Not our lock file or can't parse — skip
+      }
+    }
+  } catch {
+    // IDE dir may not exist yet
+  }
+}
+
+module.exports = {
+  startMcpServer,
+  shutdownMcpServer,
+  shutdownAll,
+  resolvePendingDiff,
+  hasPendingDiffsForWindow,
+  rejectPendingDiffsForWindow,
+  rekeyMcpServer,
+  cleanStaleLockFiles,
+  setPathGuard,
+};

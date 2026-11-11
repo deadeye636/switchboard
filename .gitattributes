@@ -1,0 +1,2 @@
+# A fixture compared byte for byte (hash and git provenance): never converted to CRLF on checkout (#844).
+test/fixtures/*.js.txt -text

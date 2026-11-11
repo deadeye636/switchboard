@@ -5,14 +5,20 @@
 //   T5 split the tool-call logic from the WebSocket write so the same handling can later answer an HTTP
 //   transport. The one promise that cannot be allowed to slip is that a Claude CLI, which speaks the
 //   WebSocket dialect, sees exactly the same bytes it saw before. So this is a GOLDEN test: the oracle is
-//   the ORIGINAL module, read straight out of git (`git show <ORACLE_REF>:src/servers/mcp-bridge.js`) —
-//   never the edited file — and the edited module has to produce frame-for-frame identical replies for the
-//   five shapes a Claude client exercises: initialize, tools/list, an openDiff accept, an openDiff reject
-//   and a timeout. The lock-file content and the auth header are pinned too.
+//   the ORIGINAL module — never the edited file — and the edited module has to produce frame-for-frame
+//   identical replies for the five shapes a Claude client exercises: initialize, tools/list, an openDiff
+//   accept, an openDiff reject and a timeout. The lock-file content and the auth header are pinned too.
 //
-//   THE ORACLE REF IS PINNED to the T4 commit — the last state of mcp-bridge.js before T5. It must NOT be
+//   THE ORACLE IS PINNED to the T4 commit — the last state of mcp-bridge.js before T5. It must NOT be
 //   `HEAD`: once T5 is committed HEAD would become the edited module and the frame comparison would turn
-//   trivially green. A deliberate future change to Claude's wire bytes updates ORACLE_REF with its reason.
+//   trivially green. A deliberate future change to Claude's wire bytes replaces the fixture and ORACLE_REF
+//   together, with its reason.
+//
+//   THE ORACLE IS A FIXTURE, `test/fixtures/mcp-bridge-oracle-<ORACLE_REF>.js.txt` (#844). It used to be read
+//   with `git show <ORACLE_REF>:…`, which needs the commit in the checkout: CI clones one commit deep, so the
+//   test failed there on every run while passing on any full clone. The file is `git show` output byte for
+//   byte, `.txt` so no linter or code scanner reads a second copy of the bridge. Where the history is there,
+//   the provenance test below compares it with the commit, so the copy cannot drift from what it claims to be.
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -37,11 +43,13 @@ const ORACLE_REF = '4c41fc20';
 // The edited module under test.
 const edited = require('../src/servers/mcp-bridge');
 
-// The oracle: the ORIGINAL module, straight from git. It is written to a scratch file so it loads as its
+const ORACLE_FIXTURE = path.join(__dirname, 'fixtures', `mcp-bridge-oracle-${ORACLE_REF}.js.txt`);
+
+// The oracle: the ORIGINAL module, from the fixture. It is written to a scratch file so it loads as its
 // own module instance (its own `servers` Map, independent of the edited one). Its relative requires are
 // rewritten to absolute paths of the real repo modules so the copy resolves them from anywhere on disk.
 function loadOracle() {
-  let src = execFileSync('git', ['show', `${ORACLE_REF}:src/servers/mcp-bridge.js`], { cwd: repoRoot }).toString();
+  let src = fs.readFileSync(ORACLE_FIXTURE, 'utf8');
   const abs = (p) => JSON.stringify(path.resolve(repoRoot, p));
   src = src
     .replace("require('ws')", `require(${JSON.stringify(require.resolve('ws'))})`)
@@ -215,4 +223,27 @@ test('the auth header is untouched — the exact header name still gates the con
   } finally {
     edited.shutdownMcpServer('auth-1');
   }
+});
+
+// #844: the oracle is a copy, so it is pinned twice. Its hash is checked on every checkout, a shallow CI clone
+// included; where the commit is in the history, the copy is compared with it byte for byte, which is what
+// makes the hash above the right one. A deliberate change of the oracle changes both constants together.
+const ORACLE_SHA256 = 'af3190951877a65cd94b275eadfb15cbe124fa88cc8615b8d1c6e390ef5db616';
+
+test('the oracle fixture is the pinned file, byte for byte', () => {
+  const digest = require('node:crypto').createHash('sha256').update(fs.readFileSync(ORACLE_FIXTURE)).digest('hex');
+  assert.equal(digest, ORACLE_SHA256, 'the fixture was changed; a new oracle needs a new ORACLE_REF and hash, with the reason');
+});
+
+test('the oracle fixture is what ORACLE_REF holds, where the history has that commit', (t) => {
+  let fromGit;
+  try {
+    execFileSync('git', ['-C', repoRoot, 'cat-file', '-e', `${ORACLE_REF}^{commit}`], { stdio: 'ignore' });
+    fromGit = execFileSync('git', ['-C', repoRoot, 'show', `${ORACLE_REF}:src/servers/mcp-bridge.js`]);
+  } catch {
+    // A shallow clone (CI) has no such commit. The hash test above still holds the fixture there.
+    t.skip(`commit ${ORACLE_REF} is not in this checkout's history`);
+    return;
+  }
+  assert.ok(fromGit.equals(fs.readFileSync(ORACLE_FIXTURE)), 'the fixture differs from the commit it names');
 });
