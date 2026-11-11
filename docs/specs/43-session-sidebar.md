@@ -79,7 +79,7 @@ rest; E2 a local task inserts its title plus a task reference.
   functions (`handoffInsertText`, `skillInsertText`); the caret returns to the session afterwards (requirement 8). A
   conversation view takes the text into its input, a terminal pastes it.
 - **Gap: no task picker exists**, so a task has no template setting and `Title (task #id)` is fixed in
-  `taskInsertText`. It stays until a task picker with a template exists.
+  `taskInsertText`. It stays until a task picker with a template exists (#857).
 - **A handoff's Open leaves the file editable**: handoffs are working documents, not configuration, so unlike an
   instruction file it opens in the ordinary preview, not read-only.
 - **A memory file's row reads the neutral `path`** that the backend puts on the memory row (`title` stays the tooltip).
@@ -280,7 +280,7 @@ ids, and every session sidebar in every window hides the same sections.
 - The Repository group does not follow the poller: it shows what it read at open or reload. A branch switch while it is
   open shows after the reload button, which skips the poller's cache and runs the status afresh.
 - A main repository whose git directory is not a `.git` folder in its working tree (`--separate-git-dir`) looks bare to
-  `describeRepo`: a linked worktree of it is named as the repository and gets no worktree row.
+  `describeRepo`: a linked worktree of it is named as the repository and gets no worktree row. Both gaps: #858.
 
 - A backend that measures no context fill shows "No figure for this session yet." rather than leaving the group out, as
   does a session that has not reported yet. A projected capability could tell the two apart; nothing does yet.

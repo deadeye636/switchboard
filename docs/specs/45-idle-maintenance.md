@@ -282,7 +282,7 @@ window stayed hidden to the renderer); and on Pi a prompt right after `/session`
   reply"); a compaction's summary and a tool-only line are not. Read back, the assistant text right after a recognised
   maintenance prompt is stamped, and the first entry that is not ends the stretch, so a shell, task or interrupt turn that
   follows stays visible. Left open: an assistant entry that holds both text and a question to the user is folded with the
-  warm turn, although the question then takes the turn over.
+  warm turn, although the question then takes the turn over (#855).
 - `maintenance_turn` has no retention and does not move on a re-key, so a fork's copied lines stay unmarked.
 - What Pi's one-off jump in the prompt is, and whether it causes the early misses. How Pi behaves in a real conversation: the
   measurement used small prompts with identical text, at Pi's default thinking setting.

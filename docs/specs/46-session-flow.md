@@ -216,7 +216,7 @@ shell, so closing the viewer in one window must not cancel another's read): `get
   path the hint uses only the descriptor's `contextWindowAsync` (Claude: the settings files through `fs.promises`); a backend without
   one gets no hint, because its plain hook may read files synchronously (Pi's model catalog does). So no synchronous file read
   blocks the main thread. Known gap: the hint is the session's current window and is applied to every checkpoint that fits in it,
-  so a session that switched to a 1M variant halfway reads its early checkpoints against the 1M window.
+  so a session that switched to a 1M variant halfway reads its early checkpoints against the 1M window (#852).
 - **No source path in any answer** (a deep scan in `test/session-flow.test.js`); `sources` stay in main. Tool labels may carry the
   tool's own argument (a file the tool read, for example); instruction files are labelled relative to the project or with `~`.
 
@@ -635,6 +635,8 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files (shown as the limitation `instructions-not-recorded`). The Pi reader shows the active branch only (abandoned steps still count against the caps), and a model missing from Pi's catalog has an unknown window.
 - A Codex sandbox block and every destructive-command match are heuristics and are labelled so.
+- Scrolling a very large snapshot measured 48-55 fps instead of 60 (click test of phase 1, a synthetic session of about 4 000
+  steps); the windowing bounds the cost per frame, not per step (#853).
 - The exports carry no highlight marks: the SVG and the PDF show a flag count per card, Mermaid none, and none of them shows the Events
   lifecycle marks (T24, T25 are the screen only).
 - No reader writes the `attention` axis. "Needs attention" reaches the Flow only through the Events overlay, drawn with the lifecycle
