@@ -77,7 +77,7 @@ test('the answer holds no path', async () => {
 test('an unknown format is refused before any read or dialog', async () => {
   const s = setup();
   try {
-    for (const format of ['mermaid', '', undefined, '__proto__', 'toString']) {
+    for (const format of ['dot', '', undefined, '__proto__', 'toString']) {
       const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format }, null);
       assert.equal(res.ok, false);
       assert.equal(res.canceled, false);
@@ -366,4 +366,20 @@ test('pdf: the print page is written with the exclusive flag into a directory of
   assert.match(src, /mkdtempSync\(/);
   assert.match(src, /flag: 'wx'/);
   assert.match(src, /rmSync\(entry\.dir/);
+});
+
+test('mermaid is a registered format: .mmd file, the same fresh read and label, plain text out', async () => {
+  const s = setup({ pickedName: 'out.mmd' });
+  try {
+    assert.equal(flowExport.FORMATS.mermaid.ext, 'mmd');
+    const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'mermaid', backendLabel: 'Claude Code' }, { sender: { id: 3 } });
+    assert.deepEqual(res, { ok: true, canceled: false, name: 'out.mmd' });
+    assert.equal(s.calls.read.length, 1);
+    assert.match(path.basename(s.calls.dialog[0].defaultPath), /^abcdef12-flow\.mmd$/);
+    assert.deepEqual(s.calls.dialog[0].filters, [{ name: 'Mermaid', extensions: ['mmd'] }]);
+    const text = fs.readFileSync(path.join(s.dir, 'out.mmd'), 'utf8');
+    assert.ok(text.startsWith('%% Session abcdef12 · Claude Code'));
+    assert.ok(text.includes('flowchart TD'));
+    assert.ok(!text.includes('secret-session'));
+  } finally { s.cleanup(); }
 });

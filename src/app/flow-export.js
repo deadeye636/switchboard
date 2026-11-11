@@ -19,6 +19,7 @@
 const path = require('path');
 const sessionFlow = require('./session-flow');
 const { renderFlowSvg } = require('./flow-svg');
+const { renderFlowMermaid } = require('./flow-mermaid');
 const flowPages = require('./flow-pages');
 const flowPdf = require('./flow-pdf');
 const dialogDirs = require('./dialog-dirs');
@@ -48,6 +49,11 @@ const FORMATS = {
     ext: 'svg',
     filterName: 'SVG',
     build: (snapshot, meta) => renderFlowSvg(snapshot, meta),
+  },
+  mermaid: {
+    ext: 'mmd',
+    filterName: 'Mermaid',
+    build: (snapshot, meta) => renderFlowMermaid(snapshot, meta),
   },
   pdf: {
     ext: 'pdf',
