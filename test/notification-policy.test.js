@@ -152,12 +152,98 @@ test('a session that left the set is reported as cleared, even while focused', (
   assert.equal(result.notifications.length, 0);
 });
 
-test('the summary is cleared once nothing is announced any more', () => {
-  const result = decideNotifications({
-    prev: snapshot(['s1']), next: snapshot(), windowFocused: false, settings: {}, now: 1,
+test('the summary is cleared once all its folded sessions have left the sets', () => {
+  const ids = Array.from({ length: FLOOD_MAX + 2 }, (_, i) => `s${i}`);
+  const first = decideNotifications({
+    prev: snapshot(), next: snapshot(ids), windowFocused: false, settings: {}, now: 1,
   });
-  assert.deepEqual(result.cleared, ['s1']);
-  assert.equal(result.clearSummary, true);
+  assert.equal(first.summary.shownCount, 2);
+  // One folded session leaves: the summary stays (it still stands for the other).
+  const partial = decideNotifications({
+    prev: snapshot(ids), next: snapshot(ids.slice(0, -1)), windowFocused: false, settings: {}, now: 2,
+    summary: first.summary,
+  });
+  assert.equal(partial.clearSummary, false);
+  // Everything leaves.
+  const gone = decideNotifications({
+    prev: snapshot(ids.slice(0, -1)), next: snapshot(), windowFocused: false, settings: {}, now: 3,
+    summary: partial.summary,
+  });
+  assert.equal(gone.clearSummary, true);
+  assert.deepEqual(gone.summary.ids, []);
+});
+
+test('the summary survives while only its non-folded sessions leave', () => {
+  const ids = Array.from({ length: FLOOD_MAX + 2 }, (_, i) => `s${i}`);
+  const first = decideNotifications({
+    prev: snapshot(), next: snapshot(ids), windowFocused: false, settings: {}, now: 1,
+  });
+  const result = decideNotifications({
+    prev: snapshot(ids), next: snapshot(ids.slice(FLOOD_MAX)), windowFocused: false, settings: {}, now: 2,
+    summary: first.summary,
+  });
+  assert.equal(result.clearSummary, false);
+  assert.deepEqual(result.summary.ids, ids.slice(FLOOD_MAX));
+});
+
+test('repeated overflow inside one window gives one summary, then the cumulative count', () => {
+  const now = 1000;
+  const ids = Array.from({ length: FLOOD_MAX + 1 }, (_, i) => `s${i}`);
+  const first = decideNotifications({
+    prev: snapshot(), next: snapshot(ids), windowFocused: false, settings: {}, now,
+  });
+  assert.equal(first.notifications.filter((n) => n.summary).length, 1);
+  assert.match(first.notifications[FLOOD_MAX].body, /^1 more session /);
+  const recent = Array.from({ length: FLOOD_MAX }, () => now);
+  // Two more overflow inside the window: no second summary, the count is kept.
+  const more = [...ids, 'x1', 'x2'];
+  const second = decideNotifications({
+    prev: snapshot(ids), next: snapshot(more), windowFocused: false, settings: {}, now: now + 2000,
+    recent, summary: first.summary,
+  });
+  assert.equal(second.notifications.length, 0);
+  assert.deepEqual(second.summary.ids, [ids[FLOOD_MAX], 'x1', 'x2']);
+  assert.equal(second.summary.shownCount, 1);
+  // The window has passed: the next sync shows the cumulative count once, with nothing new pending.
+  const third = decideNotifications({
+    prev: snapshot(more), next: snapshot(more), windowFocused: false, settings: {}, now: now + FLOOD_WINDOW_MS,
+    summary: second.summary,
+  });
+  assert.equal(third.notifications.length, 1);
+  assert.match(third.notifications[0].body, /^3 more sessions /);
+  assert.equal(third.summary.shownCount, 3);
+  // And not again.
+  const fourth = decideNotifications({
+    prev: snapshot(more), next: snapshot(more), windowFocused: false, settings: {}, now: now + FLOOD_WINDOW_MS + 1,
+    summary: third.summary,
+  });
+  assert.equal(fourth.notifications.length, 0);
+});
+
+test('turning notifications off clears what the old settings had announced', () => {
+  const off = decideNotifications({
+    prev: snapshot(['a'], ['r']), next: snapshot(['a'], ['r']), windowFocused: false,
+    settings: { enabled: false, notifyOnReady: true },
+    prevSettings: { enabled: true, notifyOnReady: true }, now: 1,
+  });
+  assert.deepEqual(off.cleared.sort(), ['a', 'r']);
+  const readyOff = decideNotifications({
+    prev: snapshot(['a'], ['r']), next: snapshot(['a'], ['r']), windowFocused: false,
+    settings: { enabled: true, notifyOnReady: false },
+    prevSettings: { enabled: true, notifyOnReady: true }, now: 1,
+  });
+  assert.deepEqual(readyOff.cleared, ['r']);
+});
+
+test('a fresh renderer asks main to clear everything once', () => {
+  const fresh = decideNotifications({
+    prev: snapshot(), next: snapshot(['a']), windowFocused: false, settings: {}, now: 1, fresh: true,
+  });
+  assert.equal(fresh.clearAll, true);
+  const later = decideNotifications({
+    prev: snapshot(), next: snapshot(['a']), windowFocused: false, settings: {}, now: 1,
+  });
+  assert.equal(later.clearAll, false);
 });
 
 test('a ready-only exit does not clear when notifyOnReady is off', () => {

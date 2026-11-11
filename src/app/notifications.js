@@ -134,11 +134,16 @@ function registerIpc(ipc = ipcMain) {
   });
 
   // The user has looked at these sessions (or they are gone): take their notifications out of the OS's
-  // notification centre. `{ sessionIds, summary }` - the renderer never sees the ids main builds.
+  // notification centre. `{ sessionIds, summary, clearAll }` - the renderer never sees the ids main builds.
+  // `clearAll` is a fresh renderer's: it drops every entry a previous renderer left behind.
   ipc.on('notify-clear', (_event, payload) => {
     if (!tracksEntries()) return;
-    const { sessionIds, summary } = payload || {};
+    const { sessionIds, summary, clearAll } = payload || {};
     try {
+      if (clearAll) {
+        for (const id of [...live.keys()]) dropEntry(id);
+        return;
+      }
       if (Array.isArray(sessionIds)) {
         for (const sessionId of sessionIds) {
           if (sessionId) dropEntry(entryId(sessionId, false));

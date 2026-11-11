@@ -30,7 +30,8 @@
 > coalescing throttle are gone. `decideNotifications` now returns one entry per session that entered the
 > attention set (and the ready set with `notifyOnReady`), titled with the session's display name
 > (`cleanDisplayName`) and bodied with the project label (`sessionProjectName`) - never a backend id.
-> It also returns `cleared` (sessions that left the announced set) and `clearSummary`.
+> It also returns `cleared` (sessions that left the announced set, judged under the settings that announced
+> them, so turning notifications off clears what was shown), `clearSummary` and `clearAll`.
 > - **Replace:** `notify` carries the session id; main derives `id = sess:<sessionId>` (hashed past 60
 >   chars, the Windows tag limit) and replaces a live entry of the same id.
 > - **Groups:** `groupId = proj:<hash of project path>`, Windows `groupTitle` = the project label.
@@ -38,10 +39,14 @@
 >   `src/app/notifications.js`) when the diff shows a session left the set - opened, dismissed, or
 >   removed. Win32: `close()` on the kept instance (`Notification.remove` is macOS-only, so main keeps a
 >   `Map<id, Notification>`; click, close, replace and clear all delete from it). macOS:
->   `Notification.remove(id)`. Linux: no id, group or remove; each event stays a plain toast.
+>   `Notification.remove(id)`. Linux: no id, group or remove; the renderer now emits per-session plain
+>   toasts (no id/group/replace), bounded by the same flood guard. A renderer's first sync sends
+>   `notify-clear` with `clearAll`, so main drops entries a previous renderer left (Linux tracks none).
 > - **Flood guard:** at most `FLOOD_MAX` (5) individual notifications per `FLOOD_WINDOW_MS` (10 s,
->   sliding, state kept in `native-notifications.js`); the overflow of a batch folds into ONE summary
->   entry ("3 more sessions need your attention", id `sess-summary`, cleared when nothing is announced).
+>   sliding, state kept in `native-notifications.js`); the overflow folds into ONE summary entry ("3 more
+>   sessions need your attention", id `sess-summary`). Its count is cumulative over every folded session
+>   still announced; it is shown at most once per window (a growing count waits for the next allowed
+>   show) and cleared once all its folded sessions have left the sets.
 >   Chosen over a quiet period because that swallowed whole batches: a session needing you 3 s after
 >   another was never announced; here only the excess is folded and the badge always counts all.
 
@@ -64,24 +69,24 @@ Switchboard's whole value is watching multiple agents for you, but **every atten
 
 ## Scope
 
-**In:** focus tracking, a pure "should notify" decision helper + tests, native `Notification`, dock/taskbar badge, tray icon + menu, coalescing/throttle, Global Settings toggles, click-to-focus.
+**In:** focus tracking, a pure "should notify" decision helper + tests, native `Notification`, dock/taskbar badge, tray icon + menu, per-session notifications with a flood guard, Global Settings toggles, click-to-focus.
 **Out:** sound (Spec 02), the next-attention hotkey (Spec 02), changing *how* attention is detected (Spec 05).
 
 ## Design
 
 ### New pure module: `src/renderer/shell/notification-policy.js` (UMD, Electron-free, tested)
-Decides whether/what to notify based on transitions + focus + settings + coalescing. No DOM, no Electron.
+Decides whether/what to notify based on transitions + focus + settings + the flood guard. No DOM, no Electron.
 
 ```js
 // decideNotifications({ prev, next, windowFocused, settings, now, lastNotifiedAt })
 //   prev/next: { attention: Set|string[], ready: Set|string[] } snapshots
 //   settings:  { enabled, notifyOnReady } (sound handled by spec 02)
-// returns: { notifications: [{ kind:'attention'|'ready', sessionIds:[...], title, body }], badgeCount }
+// returns: { notifications: [{ kind:'attention'|'ready', sessionId, sessionIds:[...], title, body }], cleared, clearSummary, clearAll, summary, badgeCount }
 // Rules:
 //   - only emit for sessions that transitioned INTO attention/ready since prev
 //   - never emit when windowFocused is true (badge still updates)
-//   - coalesce multiple sessionIds of the same kind into one "N sessions need you"
-//   - throttle: skip if now - lastNotifiedAt < COALESCE_WINDOW_MS (e.g. 4000); caller batches
+//   - one notification per session; beyond FLOOD_MAX per FLOOD_WINDOW_MS the rest folds into one summary
+//   - the summary is shown at most once per window and counts every folded session still announced
 //   - badgeCount = enabled ? attention.size + (notifyOnReady ? ready.size : 0) : 0
 //     (the "Enable notifications" toggle governs the badge too — when off there is nothing to show)
 ```
@@ -121,8 +126,8 @@ Add a "Notifications" section: **Enable notifications** (default on), **Notify w
 ## Tests (`test/notification-policy.test.js`)
 - Transition into attention while unfocused → one attention notification, badge=1.
 - Window focused → no notification, badge still reflects count.
-- Two sessions ready at once → coalesced single "2 sessions ready" when `notifyOnReady` on; none when off.
-- Throttle window suppresses a second emit inside `COALESCE_WINDOW_MS`.
+- Two sessions ready at once → two per-session notifications when `notifyOnReady` on; none when off.
+- Flood guard: overflow folds into one summary, shown once per window with a cumulative count.
 - No transition (already in set) → nothing emitted.
 
 ## Acceptance criteria
@@ -134,5 +139,5 @@ Add a "Notifications" section: **Enable notifications** (default on), **Notify w
 
 ## Risks / notes
 - Badge APIs are platform-specific; degrade gracefully (macOS dock is the primary target, then Linux `setBadgeCount`, then Windows overlay/no-op).
-- Don't spam: all emission must go through `decideNotifications` coalescing.
+- Don't spam: all emission must go through `decideNotifications` and its flood guard.
 - Tray needs a correctly-sized icon; reuse an existing build icon.

@@ -40,6 +40,9 @@ let notificationSettings = { enabled: true, notifyOnReady: false };
 let windowFocused = typeof document !== 'undefined' ? document.hasFocus() : true;
 let recentNotifiedAt = []; // flood-guard state: times of recent individual notifications
 let prevNotificationSnapshot = { attention: new Set(), ready: new Set() };
+let prevNotificationSettings = notificationSettings; // what the previous snapshot was announced under
+let notificationSummary = { ids: [], shownCount: 0, shownAt: null }; // flood summary state (policy-owned)
+let notificationsSynced = false; // false until the first sync: that one also clears a previous renderer's entries
 
 // Bridge for settings-panel.js so toggles apply without a restart.
 window._setNotificationSettings = (settings) => {
@@ -94,11 +97,16 @@ function syncNativeNotifications() {
     next,
     windowFocused,
     settings: notificationSettings,
+    prevSettings: prevNotificationSettings,
+    summary: notificationSummary,
+    fresh: !notificationsSynced,
     now,
     recent: recentNotifiedAt,
     describeSession: describeSessionForNotification,
   });
 
+  // A fresh renderer first drops whatever a previous one left in main, then announces its own.
+  if (result.clearAll) window.api.notifyClear({ clearAll: true });
   // One OS notification per session (#847). Main replaces an earlier entry of the same session by id and
   // groups them by project; the session name and project label are all it needs, no backend knowledge.
   for (const notification of result.notifications) {
@@ -121,6 +129,9 @@ function syncNativeNotifications() {
   window.api.setTraySummary(buildTraySummary());
 
   prevNotificationSnapshot = next;
+  prevNotificationSettings = notificationSettings;
+  notificationSummary = result.summary;
+  notificationsSynced = true;
 }
 
 function setWindowFocused(focused) {

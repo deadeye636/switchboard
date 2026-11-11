@@ -92,6 +92,39 @@ test('win32: clear closes the kept object and empties the map', () => {
   } finally { t.restore(); }
 });
 
+test('win32: clearAll closes every kept entry, summary included', () => {
+  const t = load('win32');
+  try {
+    t.notify(payload('s1'));
+    t.notify(payload('s2'));
+    t.notify({ title: 'x', body: 'y', summary: true });
+    t.clear({ clearAll: true });
+    assert.deepEqual(t.made.map((n) => n.closed), [1, 1, 1]);
+    assert.equal(t.mod._liveEntries.size, 0);
+  } finally { t.restore(); }
+});
+
+test('darwin: clearAll removes every kept entry by id', () => {
+  const t = load('darwin');
+  try {
+    t.notify(payload('s1'));
+    t.notify(payload('s2'));
+    t.clear({ clearAll: true });
+    assert.deepEqual(t.removed.sort(), ['sess:s1', 'sess:s2']);
+    assert.equal(t.mod._liveEntries.size, 0);
+  } finally { t.restore(); }
+});
+
+test('linux: clearAll is a no-op', () => {
+  const t = load('linux');
+  try {
+    t.notify(payload('s1'));
+    t.clear({ clearAll: true });
+    assert.deepEqual(t.removed, []);
+    assert.equal(t.made[0].closed, 0);
+  } finally { t.restore(); }
+});
+
 test('darwin: clear uses Notification.remove with the entry id', () => {
   const t = load('darwin');
   try {

@@ -195,7 +195,7 @@ chart rather than a row of zeroes.
 - **Staged prompts** — queue the next instruction for a session that cannot take it yet; it goes in when
   the session is ready, one per turn. A chip on the row counts what is waiting, opens it for reading and
   discards it, and says when your own unsent prompt line is holding delivery up
-- **Native notifications** — OS toasts, dock/taskbar badge, tray icon; coalesced and throttled
+- **Native notifications** — OS toasts, dock/taskbar badge, tray icon; one per session, flood-guarded
 - **Usage in the tray** — an optional second tray icon showing one backend's worst usage window as a
   ring or a badge, fixed or rotating through the backends the status bar shows. Off by default, and it
   polls nothing of its own
