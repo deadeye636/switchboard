@@ -5688,6 +5688,11 @@ mark.jsonl-search-hit-active {
 #flow-spacer { position: relative; max-width: 900px; margin: 0 auto; }
 #flow-slice { position: absolute; left: 0; right: 0; }
 .flow-rail { position: absolute; left: 21px; width: 2px; background: rgba(128,136,255,0.28); }
+.flow-rail-waiting { background: none; border-left: 2px dashed rgba(128,136,255,0.5); box-sizing: border-box; }
+.flow-edge { position: absolute; background: rgba(128,136,255,0.5); }
+.flow-edge-return { background: rgba(79,195,247,0.55); }
+.flow-lane-tag { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 7px; border: 1px solid rgba(128,136,255,0.45); border-radius: 8px; color: #c0c4ff; font-size: 10px; cursor: pointer; }
+.flow-lane-tag:hover { color: #fff; border-color: rgba(128,136,255,0.8); }
 .flow-row {
   position: relative;
   display: flex;
@@ -5695,7 +5700,7 @@ mark.jsonl-search-hit-active {
   gap: 8px;
   height: var(--flow-row-h, 40px);
   box-sizing: border-box;
-  padding: 0 10px 0 36px;
+  padding: 0 10px 0 var(--flow-gutter, 38px); /* the graph gutter (rails, dots, bars) is to the left of every card */
   border: 1px solid transparent;
   border-radius: 7px;
   color: #d8d8e8;
@@ -5705,10 +5710,10 @@ mark.jsonl-search-hit-active {
 .flow-row:hover { background: rgba(255,255,255,0.03); }
 .flow-row.selected { background: rgba(128,136,255,0.14); border-color: rgba(128,136,255,0.35); }
 .flow-row-group, .flow-row-lane { cursor: pointer; }
-.flow-row-member { padding-left: 56px; }
+.flow-row-member { padding-left: calc(var(--flow-gutter, 38px) + 20px); }
 .flow-row-turn-start { border-top-color: rgba(255,255,255,0.1); }
 .flow-dot { position: absolute; left: 18px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: #8088ff; }
-.flow-row-member .flow-dot { left: 38px; background: #6a6a80; }
+.flow-row-member .flow-dot { left: calc(var(--flow-gutter, 38px) + 2px); background: #6a6a80; }
 .flow-badge {
   flex-shrink: 0;
   padding: 1px 7px;

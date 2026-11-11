@@ -194,3 +194,69 @@ test('isCancelledAnswer: only an answer with no steps whose limitation is read-c
   assert.equal(FlowView.isCancelledAnswer({ steps: [], limitations: [{ id: 'worker-timeout', text: 'x' }] }), false);
   assert.equal(FlowView.isCancelledAnswer(null), false);
 });
+
+test('row lookup by id and ordinal on a layout whose rows are not in ordinal order (T12)', () => {
+  // Snapshot order: main steps, then the child's; the layout puts the child between the spawn row and the next main step.
+  const snap = mkSnap([
+    mkStep(0, { kind: 'prompt', detail: {} }),
+    mkStep(1, { kind: 'agent', detail: {} }),
+    mkStep(2, { kind: 'output', detail: {} }),
+    mkStep(3, { laneId: 'c', kind: 'prompt', detail: {} }),
+    mkStep(4, { laneId: 'c' }),
+    mkStep(5, { laneId: 'c' }),
+    mkStep(6, { laneId: 'c' }),
+  ]);
+  snap.lanes.push({ id: 'c', parentLaneId: 'main', depth: 1, label: 'helper', kind: 'agent', spawnAnchor: { laneId: 'main', stepId: 's1' }, returnAnchor: null });
+  const lay = FlowLayout.layout(snap, FlowLayout.emptyCollapseState());
+  assert.deepEqual(lay.rows.map((r) => r.laneId), ['main', 'main', 'c', 'c', 'main']);
+  // A collapsed group of the child: its hidden members follow the group in ROW order, not in snapshot order.
+  const map = FlowView.buildStepRowMap(snap, lay.rows, lay.order);
+  assert.equal(map.get('s2'), 4);
+  assert.equal(map.get('s3'), 2);
+  assert.equal(map.get('s4'), 3);
+  assert.equal(map.get('s5'), 3);
+  assert.equal(map.get('s6'), 3);
+  // A vanished step falls back to the nearest surviving ordinal and is then looked up by id.
+  assert.equal(FlowView.resolveRowForStep(snap, map, 'gone', 5), 3);
+  assert.equal(FlowView.resolveRowForStep(snap, map, 'gone', 99), 3);
+  assert.equal(FlowView.resolveRowForStep(snap, map, 's2', null), 4);
+  // A lane summary row stands for every step of its collapsed lane.
+  const folded = FlowLayout.layout(snap, FlowLayout.setLaneExpanded(null, 'c', false));
+  const m2 = FlowView.buildStepRowMap(snap, folded.rows, folded.order);
+  assert.equal(folded.rows[2].kind, 'lane');
+  for (const id of ['s3', 's4', 's5', 's6']) assert.equal(m2.get(id), 2);
+});
+
+test('laneTagInfo: depth in words above 1, the parent named in the title (T12)', () => {
+  const columns = [
+    { laneId: 'main', label: 'Main', depth: 0, parentLaneId: null },
+    { laneId: 'a', label: 'Survey tests', depth: 1, parentLaneId: 'main' },
+    { laneId: 'n', label: 'Nested probe', depth: 2, parentLaneId: 'a' },
+  ];
+  assert.deepEqual(FlowView.laneTagInfo(columns, 'a'), { text: '▾ Survey tests', title: 'Started by Main. Click to collapse this lane.' });
+  const n = FlowView.laneTagInfo(columns, 'n');
+  assert.equal(n.text, '▾ depth 2 · Nested probe');
+  assert.match(n.title, /Started by Survey tests/);
+  assert.match(FlowView.laneTagInfo([{ laneId: 'z', label: '', depth: 1, parentLaneId: null }], 'z').title, /Started by main/);
+  assert.equal(FlowView.laneTagInfo([], 'q').text, '▾ agent');
+});
+
+test('a step of a lane below a collapsed lane maps to the summary and never uses up a main group (G2)', () => {
+  const lane = (id, parent, anchorStep, ret) => ({ id, parentLaneId: parent, depth: parent === 'main' ? 1 : 2, label: id, kind: 'agent', spawnAnchor: { laneId: parent, stepId: anchorStep }, returnAnchor: ret ? { laneId: parent, stepId: ret } : null });
+  const snap = mkSnap([
+    mkStep(0, { kind: 'agent', detail: {}, ts: 1 }),
+    mkStep(1, { laneId: 'a', kind: 'prompt', detail: {}, ts: 2 }),
+    mkStep(2, { laneId: 'a', kind: 'agent', detail: {}, ts: 3 }),
+    mkStep(3, { ts: 4, detail: { tool: 'Read' } }),
+    mkStep(4, { laneId: 'n', kind: 'output', detail: {}, ts: 5 }),
+    mkStep(5, { ts: 6, detail: { tool: 'Read' } }),
+    mkStep(6, { laneId: 'n', kind: 'output', detail: {}, ts: 7 }),
+    mkStep(7, { ts: 8, detail: { tool: 'Read' } }),
+  ]);
+  snap.lanes.push(lane('a', 'main', 's0', 's0'), lane('n', 'a', 's2', null));
+  const lay = FlowLayout.layout(snap, FlowLayout.emptyCollapseState());
+  assert.deepEqual(lay.rows.map((r) => r.kind), ['step', 'lane', 'group']);
+  const map = FlowView.buildStepRowMap(snap, lay.rows, lay.order);
+  for (const id of ['s1', 's2', 's4', 's6']) assert.equal(map.get(id), 1, id);
+  for (const id of ['s3', 's5', 's7']) assert.equal(map.get(id), 2, id);
+});

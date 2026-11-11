@@ -266,8 +266,37 @@ expand by click, Enter/Space or the arrow keys.
   show "New steps available"; one automatic refresh follows the end of the session.
 - **Instruction cards.** A step with its own token figure and no checkpoint shows `4.8k chars · ~1.2k tokens · estimated` (dashed like other estimates). Children of the start step (`parentStepId`) are drawn indented directly under START.
 - **Limitations banner.** Collapsed by default to one line, `N limitations`, plus the context-window limitation when it is short (90 characters or less); a click or Enter on that line opens the full list. The state is per session, in memory, held in the same LRU entry as the collapse state (so it survives Refresh). No animation.
-- **Measuring.** `FlowView.debugStats()` returns `{open, tab, steps, rows, nodes, cached, timerArmed, observers, lastLayoutMs}` for the
+- **Measuring.** `FlowView.debugStats()` returns `{open, tab, steps, rows, cols, nodes, cached, timerArmed, observers, lastLayoutMs}` for the
   B1-B7 checks of the plan.
+
+**Lanes, as built (T12).** The header of `src/shared/flow-layout.js` is the authority; the decisions:
+
+- **A graph gutter on the left, one card per row on the right (the `git log --graph` shape).** A row belongs to exactly one lane. Every rail, dot and
+  spawn/return bar lives in one gutter, `FlowLayout.gutterWidth(cols)` = `cols * 18 + 20` px wide, set once per layout as `--flow-gutter`; a row's dot sits at its
+  lane's column inside it and the card starts right of the gutter, never shifted per column. The lane stays readable through the dot position and the lane tag
+  (text). There is no per-column DOM, so the node count follows the row window, not the lane count, and no column virtualisation is needed (lane cap 200;
+  a very wide graph widens the spacer and scrolls sideways). The bars come from the capped `connectorsForRows` list through `connectorRects`.
+- **Row order is a merge, not the snapshot order** (`orderSteps`). A lane starts when its spawn step has been emitted; among the started lanes the next step
+  with the smaller `ts` goes first, and with no `ts` on either side the lane started last goes first (a child finishes before its parent resumes).
+  Order inside a lane is never changed. A lane whose spawn step is missing is appended after the others. The row lookup by step id is
+  `buildStepRowMap(snapshot, rows, lay.order)`, built once per layout and lazily; the ordinal fallback of `resolveRowForStep` still searches the snapshot's
+  monotonic ordinals and only maps the landing step to its row.
+- **Columns.** The lowest column at least one right of the parent's that is free over the lane's span; the span runs to the last row of the lane or of its
+  last descendant. Sequential agents share a column, overlapping ones sit side by side.
+- **Connectors** are boxes inside the gutter and in the gap between two rows (`gapRow`), so none can enter a card (`connectorRects`, tested for rails and
+  edges against a card box that covers everything right of the gutter): a spawn leaves the parent's rail and turns above the child's first row, a return turns
+  below the child's last row and runs up or down the parent's rail. Claude's spawn and return anchor are one step, so its return runs upward to the spawn row.
+  When the cap (200) bites, spawn and return edges are kept and rails are dropped first; `debugStats().connectorsTruncated` and `data-truncated` on the rails layer say so.
+- **Turn bands belong to the main lane.** A child lane's rows take the band they sit in (`row.turn`); `step.turn` keeps the lane's own number.
+- **Collapse.** A finished lane is one summary row at its first row; an expanded lane shows its name (`flow-lane-tag`, text, not colour) on its first row,
+  and a click on the tag or Left folds it again. State is per session in memory with the groups.
+- **Anchors never group.** A step that is any lane's spawn or return anchor never joins an equivalence run, so two adjacent spawn calls stay two rows,
+  each with its own connector (requirement 7; the click test found them folded into "2 × Agent").
+- **Nesting reads without colour.** A sibling one column to the right looks like a child, so the lane tag leads with `depth N ·` above depth 1 (the depth
+  first, so the tag's ellipsis cuts the label, not the depth), and its title and accessible name say which lane started it (`laneTagInfo`).
+- **Waiting.** `lane.waiting === true` draws the rail dashed. It is a reserved field: no reader emits it yet and it is not in the `FlowSnapshot` shape; add it there (and to `validateSnapshot`) when a reader emits an explicit wait event. No lane is dashed today.
+- **Row lookup.** A step below a collapsed lane maps to its nearest collapsed ancestor's summary row (walking `parentLaneId`) and never uses up a hidden group's count; two root lanes keep snapshot order.
+- **Lane tag on a group row.** Left folds the group there; the row's accessible name carries the tag text and the "Started by" relation, and a click on the tag folds the lane.
 
 ## Highlights (a later phase, built on flags the shape already carries)
 
@@ -371,6 +400,11 @@ line is `JSON.parse`d (lines over the cap excepted), no cheap-prefix shortcut wa
 - A Claude background subagent (`async_launched`) is never shown as ended: the parent records its launch, and the end arrives as a later notification line the reader does not read, so its lane stays open.
 - A subagent file written after the Flow tab last read it is not noticed by `status`, which fingerprints the main transcript only; Refresh reads it.
 - Pi subagent steps and Pi nesting cannot be drawn (no child transcript).
+- Lane layout: the merge scans the active lanes per step, so 20 000 steps with 200 lanes active at once measure about 50-100 ms on a loaded
+  machine, over the 16 ms budget (guard ceiling 250 ms). One lane measures 12-15 ms alone and about 16 ms under the suite's concurrency (guard
+  ceiling 80 ms, so only a large regression fails it). Real sessions have far fewer overlapping agents; a heap or a worker is the answer if one is
+  measured over.
+- Lane layout: with `ts` on only some steps the merge compares by `ts` only where both sides have one, so such a mix can order two lanes inconsistently.
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files.
 - A Codex sandbox block and every destructive-command match are heuristics and are labelled so.

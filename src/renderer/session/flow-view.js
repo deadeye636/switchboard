@@ -17,6 +17,11 @@
 //   - The slice is built in a DocumentFragment and swapped with replaceChildren; the DOM holds ~2 x overscan + a
 //     viewport of rows however many steps there are. `contain: layout paint` on the scroller (style.css).
 //   - Connectors only through `FlowLayout.connectorsForRows` for the visible range; one lane = one rail element.
+//   - Lanes (T12): git-log-graph shape. Rails, dots and spawn / return bars live in ONE gutter on the left
+//     (`FlowLayout.gutterWidth`, set once per layout as `--flow-gutter`); a row holds ONE card, which starts right of
+//     the gutter and is never shifted per column. There is no per-column DOM, so the node count follows the row window
+//     and not the lane count. The bars are absolutely placed boxes from `FlowLayout.connectorRects`, drawn from the same
+//     capped connector list.
 //   - No CSS animation or transition anywhere in the Flow styles (#519: motion is paid by the frame).
 //   - At most CACHE_MAX snapshots are held (a small LRU) and all are dropped when the viewer closes.
 //   - The viewport height comes from a ResizeObserver that exists only while the viewer is open.
@@ -43,6 +48,7 @@
   const POLL_MS = 5000;
   const CACHE_MAX = 2;
   const CONNECTOR_CAP = 200;
+  const MIN_CARD_W = 420; // the cards keep at least this much room to the right of the gutter
   const FALLBACK_VIEWPORT_H = 600;
 
   // Neutral vocabulary: what a capability id is called in the banner.
@@ -78,13 +84,27 @@
    * (they map to the row that stands for them). `rows` is FlowLayout's row list for the same snapshot.
    * A step with a row of its own maps to it; the first step of a collapsed group to the group row; the rest of a
    * collapsed group (the next `count - 1` steps without a row of their own) to the same group row; a step of a
-   * collapsed lane to that lane's summary row.
+   * collapsed lane, or of a lane below one, to the summary row of the nearest collapsed ancestor (it never uses up a group's count).
    */
-  function buildStepRowMap(snapshot, rows) {
+  function buildStepRowMap(snapshot, rows, order) {
     const map = new Map();
-    const steps = (snapshot && snapshot.steps) || [];
+    // Row order, not snapshot order: with child lanes interleaved, a hidden group member follows its group in the
+    // layout's order. FlowLayout hands that order back as `lay.order`.
+    const steps = order || (snapshot && snapshot.steps) || [];
     const byKey = new Map();
     for (let i = 0; i < rows.length; i++) byKey.set(rows[i].key, i);
+    // A step of a lane under a collapsed ancestor stands for that ancestor's summary row, found by walking parents.
+    const parentOf = new Map();
+    for (const l of (snapshot && snapshot.lanes) || []) parentOf.set(l.id, l.parentLaneId);
+    const summaryOf = (laneId) => {
+      let id = laneId;
+      for (let hops = 0; id != null && hops <= parentOf.size; hops++) {
+        const i = byKey.get('l:' + id);
+        if (i !== undefined) return i;
+        id = parentOf.get(id);
+      }
+      return undefined;
+    };
     let group = -1;
     let remaining = 0;
     for (const s of steps) {
@@ -97,7 +117,7 @@
         remaining = Math.max(0, rows[idx].count - 1);
         continue;
       }
-      idx = byKey.get('l:' + s.laneId);
+      idx = summaryOf(s.laneId);
       if (idx !== undefined) { map.set(s.id, idx); continue; }
       if (remaining > 0 && group >= 0) { map.set(s.id, group); remaining--; continue; }
     }
@@ -117,7 +137,12 @@
     return { stepId: row.firstStepId, ordinal, offset: clamp((scrollTop || 0) - idx * rowH, 0, rowH - 1) };
   }
 
-  /** The row index a step-id (or, failing that, its nearest surviving ordinal) sits on in the new layout, or -1. */
+  /**
+   * The row index a step-id (or, failing that, its nearest surviving ordinal) sits on in the new layout, or -1.
+   * The id lookup is the `stepRows` map built once per layout (O(1)); the ordinal search runs over the SNAPSHOT's
+   * steps, whose ordinals are monotonic, and only maps the step it lands on to its row, so it stays correct
+   * although the rows are no longer in ordinal order.
+   */
   function resolveRowForStep(snapshot, stepRows, stepId, ordinal) {
     if (stepId != null && stepRows.has(stepId)) return stepRows.get(stepId);
     const steps = (snapshot && snapshot.steps) || [];
@@ -230,6 +255,21 @@
     return row.count + ' steps' + (col && col.label ? ' in ' + col.label : '');
   }
 
+  /**
+   * The lane tag in words: `{ text, title }`. The depth shows when it is more than 1 and the title names the lane
+   * that started this one, so nesting and siblings read apart without colour or column position.
+   */
+  function laneTagInfo(columns, laneId) {
+    const list = columns || [];
+    const col = list.find((c) => c.laneId === laneId);
+    if (!col) return { text: '▾ agent', title: 'Collapse this lane' };
+    const parent = col.parentLaneId != null ? list.find((c) => c.laneId === col.parentLaneId) : null;
+    const parentLabel = parent ? (parent.label || parent.laneId) : 'main';
+    // The depth leads, so the tag's ellipsis cuts the label rather than the depth.
+    const depth = col.depth > 1 ? 'depth ' + col.depth + ' · ' : '';
+    return { text: '▾ ' + depth + (col.label || 'agent'), title: 'Started by ' + parentLabel + '. Click to collapse this lane.' };
+  }
+
   function rowBadge(row) {
     if (row.kind === 'step') return row.step.kind;
     return row.kind === 'group' ? 'tool' : 'agent';
@@ -245,6 +285,7 @@
   let mo = null; // MutationObserver on the viewer's style, only while open
   let visHandler = null;
   let lastLayoutMs = 0;
+  let connectorsTruncated = false; // the last window had more connectors than CONNECTOR_CAP (no silent drop: debugStats says so)
 
   const $ = (id) => document.getElementById(id);
   const api = () => (typeof window !== 'undefined' ? window.api : null);
@@ -268,7 +309,7 @@
   }
 
   function stepRowsOf(entry) {
-    if (!entry.stepRows) entry.stepRows = buildStepRowMap(entry.snapshot, entry.lay.rows);
+    if (!entry.stepRows) entry.stepRows = buildStepRowMap(entry.snapshot, entry.lay.rows, entry.lay.order);
     return entry.stepRows;
   }
 
@@ -394,6 +435,7 @@
 
     const dot = document.createElement('span');
     dot.className = 'flow-dot';
+    if (!isChild) dot.style.left = FlowLayout.dotX(row.col) + 'px'; // members sit in the card area, their dot is styled in css
     const badge = document.createElement('span');
     badge.className = 'flow-badge';
     badge.textContent = rowBadge(row);
@@ -402,7 +444,20 @@
     const text = (row.kind === 'group' ? (row.expanded ? '▾ ' : '▸ ') : row.kind === 'lane' ? '▸ ' : '') + rowText(row, lay.columns);
     label.textContent = text;
     el.title = text;
-    el.append(dot, badge, label);
+    el.append(dot, badge);
+    if (row.laneStart) {
+      // The lane's name in words (colour is never the only signal), and the way to fold it again.
+      const tag = document.createElement('span');
+      tag.className = 'flow-lane-tag';
+      const info = laneTagInfo(lay.columns, row.laneId);
+      tag.textContent = info.text;
+      tag.title = info.title;
+      tag.setAttribute('aria-label', info.title);
+      el.appendChild(tag);
+      // The row's own label carries the lane tag and who started the lane, so a group row (whose keys fold the group) still says it.
+      el.setAttribute('aria-label', text + '. ' + info.text + '. ' + info.title);
+    }
+    el.appendChild(label);
 
     if (entry.turnStarts.has(index) && row.turn != null) {
       const t = document.createElement('span');
@@ -441,15 +496,21 @@
   function drawRails(entry, start, end) {
     const box = $('flow-rails');
     if (!box) return;
-    const { connectors } = FlowLayout.connectorsForRows(entry.lay, start, Math.max(start, end - 1), CONNECTOR_CAP);
+    const { connectors, truncated } = FlowLayout.connectorsForRows(entry.lay, start, Math.max(start, end - 1), CONNECTOR_CAP);
+    connectorsTruncated = truncated;
+    box.dataset.truncated = truncated ? '1' : '0';
     let n = 0;
     for (const c of connectors) {
-      if (c.type !== 'rail') continue; // spawn / return edges belong to the lane phase
-      let rail = box.children[n];
-      if (!rail) { rail = document.createElement('div'); rail.className = 'flow-rail'; box.appendChild(rail); }
-      rail.style.top = c.fromRow * ROW_H + 'px';
-      rail.style.height = (c.toRow - c.fromRow + 1) * ROW_H + 'px';
-      n++;
+      for (const r of FlowLayout.connectorRects(c, ROW_H)) {
+        let el = box.children[n];
+        if (!el) { el = document.createElement('div'); box.appendChild(el); }
+        n++;
+        el.className = r.kind === 'rail' ? (r.waiting ? 'flow-rail flow-rail-waiting' : 'flow-rail') : 'flow-edge flow-edge-' + r.kind;
+        el.style.left = r.x + 'px';
+        el.style.top = r.y + 'px';
+        el.style.width = r.w + 'px';
+        el.style.height = r.h + 'px';
+      }
     }
     while (box.children.length > n) box.removeChild(box.lastChild);
   }
@@ -524,7 +585,13 @@
     relayout(entry);
     const rows = entry.lay.rows;
     const spacer = $('flow-spacer');
-    if (spacer) spacer.style.height = rows.length * ROW_H + 'px';
+    if (spacer) {
+      spacer.style.height = rows.length * ROW_H + 'px';
+      // The gutter is sized once per layout from the widest column in use; no DOM read, nothing changes while scrolling.
+      const gutter = FlowLayout.gutterWidth(entry.lay.stats.cols);
+      spacer.style.setProperty('--flow-gutter', gutter + 'px');
+      spacer.style.minWidth = gutter + MIN_CARD_W + 'px'; // a very wide graph scrolls sideways
+    }
     const sel = currentRowIndex(entry);
     if (sel >= 0) entry.selectedKey = rows[sel].key; else { entry.selectedKey = null; }
     const top = anchor ? restoreAnchor(entry.snapshot, rows, stepRowsOf(entry), anchor, ROW_H) : null;
@@ -551,6 +618,17 @@
     }
   }
 
+  /** Fold the lane whose first row this is (the row keeps the selection through the summary that replaces it). */
+  function collapseLane(index) {
+    const entry = cur && cur.entry;
+    const row = entry && entry.lay && entry.lay.rows[index];
+    if (!row || !row.laneStart) return;
+    entry.selectedKey = row.key;
+    entry.selectedStepId = row.firstStepId;
+    entry.collapse = FlowLayout.setLaneExpanded(entry.collapse, row.laneId, false);
+    relayoutKeepingPlace();
+  }
+
   function ensureVisible(index) {
     const top = index * ROW_H;
     if (top < cur.scrollTop) setScroll(top);
@@ -560,6 +638,7 @@
   function onClick(ev) {
     const el = ev.target.closest && ev.target.closest('.flow-row');
     if (!el) return;
+    if (ev.target.closest('.flow-lane-tag')) { collapseLane(Number(el.dataset.index)); return; }
     select(Number(el.dataset.index), true);
   }
 
@@ -583,7 +662,10 @@
       case 'ArrowLeft': {
         if (at < 0) return;
         const row = rows[at];
-        if (row.kind === 'step') return;
+        if (row.kind === 'step') {
+          if (row.laneStart && ev.key === 'ArrowLeft') { ev.preventDefault(); collapseLane(at); }
+          return;
+        }
         const wantOpen = ev.key === 'ArrowLeft' ? false : ev.key === 'ArrowRight' ? true : !(row.kind === 'group' && row.expanded);
         // A lane summary is only ever collapsed, so Left has nothing to do there; a group is left alone when it already is as asked.
         if ((row.kind === 'group' && row.expanded === wantOpen) || (row.kind === 'lane' && !wantOpen)) { ev.preventDefault(); return; }
@@ -822,6 +904,8 @@
       tab: cur ? cur.tab : null,
       steps: cur && cur.entry && cur.entry.snapshot ? cur.entry.snapshot.steps.length : 0,
       rows: cur && cur.entry && cur.entry.lay ? cur.entry.lay.rows.length : 0,
+      cols: cur && cur.entry && cur.entry.lay ? cur.entry.lay.stats.cols : 0,
+      connectorsTruncated,
       nodes: view ? view.getElementsByTagName('*').length : 0,
       cached: cache.size,
       timerArmed: !!(cur && cur.timer),
@@ -833,7 +917,7 @@
   return Object.freeze({
     ROW_H, OVERSCAN, POLL_MS, CACHE_MAX,
     computeSlice, buildStepRowMap, captureAnchor, resolveRowForStep, restoreAnchor,
-    shouldPoll, statusMeansNewSteps, isCancelledAnswer, bannerItems, bannerSummary, checkpointInfo, rowText,
+    laneTagInfo, shouldPoll, statusMeansNewSteps, isCancelledAnswer, bannerItems, bannerSummary, checkpointInfo, rowText,
     attach, refresh, notifyRunningChanged, debugStats,
   });
 });

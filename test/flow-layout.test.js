@@ -275,6 +275,179 @@ test('an empty snapshot lays out to nothing', () => {
   assert.deepEqual(FL.connectorsForRows(lay, 0, 10), { connectors: [], truncated: false });
 });
 
+// --- lane columns, row order, connectors (T12) -------------------------------
+
+const laneOf = (id, parent, spawn, ret, depth) => ({
+  id, parentLaneId: parent, depth: depth || 1, label: id, kind: 'agent',
+  spawnAnchor: { laneId: parent, stepId: spawn.id }, returnAnchor: ret ? { laneId: parent, stepId: ret.id } : null,
+  summaryOnly: false, sessionRef: null,
+});
+const withTs = (s, ts) => Object.assign(s, { ts });
+const colsOf = (lay) => Object.fromEntries(lay.columns.map((c) => [c.laneId, c.col]));
+
+/** Two agents spawned one after the other whose steps overlap in time, under one main turn. */
+function parallelSnapshot({ finished = false } = {}) {
+  seq = 0;
+  const p = withTs(step('prompt'), 1);
+  const s1 = withTs(step('agent', { label: 'spawn a' }), 2);
+  const s2 = withTs(step('agent', { label: 'spawn b' }), 3);
+  const a1 = withTs(step('prompt', { laneId: 'a', turn: 1 }), 4);
+  const b1 = withTs(step('prompt', { laneId: 'b', turn: 1 }), 5);
+  const a2 = withTs(step('output', { laneId: 'a', turn: 1 }), 6);
+  const b2 = withTs(step('output', { laneId: 'b', turn: 1 }), 7);
+  const after = withTs(step('output', { turn: 2 }), 20);
+  const lanes = [MAIN, laneOf('a', 'main', s1, finished ? s1 : null), laneOf('b', 'main', s2, finished ? s2 : null)];
+  return { snapshot: snap([p, s1, s2, after, a1, a2, b1, b2], lanes), ids: { p, s1, s2, a1, a2, b1, b2, after } };
+}
+
+test('rows interleave: a child lane sits between its spawn row and the parent next step', () => {
+  const { snapshot, ids } = parallelSnapshot();
+  const lay = FL.layout(snapshot, FL.emptyCollapseState());
+  const keys = lay.rows.map((r) => r.key);
+  assert.deepEqual(keys, [ids.p, ids.s1, ids.s2, ids.a1, ids.b1, ids.a2, ids.b2, ids.after].map((s) => s.id));
+  // Ordinal stays the order inside each lane.
+  for (const lane of ['main', 'a', 'b']) {
+    const ords = lay.rows.filter((r) => r.laneId === lane).map((r) => r.step.ordinal);
+    assert.deepEqual(ords, ords.slice().sort((x, y) => x - y));
+  }
+  assert.equal(lay.order.length, snapshot.steps.length);
+});
+
+test('without timestamps a child runs to its end right after its spawn row', () => {
+  const lay = FL.layout(laneSnapshot(), FL.setLaneExpanded(null, 'a1', true));
+  assert.deepEqual(lay.rows.map((r) => r.laneId), ['main', 'main', 'a1', 'a1', 'a1', 'main', 'main']);
+});
+
+test('a child lane does not open or split a turn band', () => {
+  const { snapshot } = parallelSnapshot();
+  const lay = FL.layout(snapshot, FL.emptyCollapseState());
+  assert.deepEqual(lay.turns.map((t) => t.turn), [1, 2]);
+  assert.ok(lay.rows.filter((r) => r.laneId !== 'main').every((r) => r.turn === 1), 'child rows take the band they sit in');
+  assert.equal(lay.rows.find((r) => r.laneId === 'a').step.turn, 1, 'the step keeps its own number');
+});
+
+test('two overlapping agents sit side by side, right of their parent', () => {
+  const { snapshot } = parallelSnapshot();
+  const lay = FL.layout(snapshot, FL.emptyCollapseState());
+  assert.deepEqual(colsOf(lay), { main: 0, a: 1, b: 2 });
+  assert.equal(lay.stats.cols, 3);
+  assert.equal(lay.rows.filter((r) => r.laneStart).length, 2, 'one header row per child lane');
+});
+
+test('sequential agents share a column (a free column is reused)', () => {
+  seq = 0;
+  const s1 = step('agent');
+  const x1 = step('output', { laneId: 'a' });
+  const s2 = step('agent');
+  const x2 = step('output', { laneId: 'b' });
+  const lay = FL.layout(snap([s1, x1, s2, x2], [MAIN, laneOf('a', 'main', s1), laneOf('b', 'main', s2)]));
+  assert.deepEqual(colsOf(lay), { main: 0, a: 1, b: 1 });
+});
+
+test('nesting two deep: each lane one column right of its parent', () => {
+  seq = 0;
+  const s1 = step('agent');
+  const x = step('prompt', { laneId: 'a1' });
+  const s2 = step('agent', { laneId: 'a1' });
+  const y = step('output', { laneId: 'a2' });
+  const z = step('output', { laneId: 'a1' });
+  const lay = FL.layout(snap([s1, x, s2, y, z], [MAIN, laneOf('a1', 'main', s1), laneOf('a2', 'a1', s2, null, 2)]));
+  assert.deepEqual(colsOf(lay), { main: 0, a1: 1, a2: 2 });
+  assert.deepEqual(lay.rows.map((r) => r.laneId), ['main', 'a1', 'a1', 'a2', 'a1']);
+  assert.equal(lay.rows[3].col, 2);
+});
+
+test('a finished parallel pair collapses to one summary row each', () => {
+  const { snapshot } = parallelSnapshot({ finished: true });
+  const lay = FL.layout(snapshot, FL.emptyCollapseState());
+  assert.equal(lay.rows.filter((r) => r.kind === 'lane').length, 2);
+  assert.deepEqual(lay.rows.map((r) => r.kind), ['step', 'step', 'step', 'lane', 'lane', 'step']);
+  assert.equal(lay.stats.hiddenSteps, 4);
+});
+
+// Graph shape: rails, dots and bars live in the gutter on the left (x < gutterWidth(cols)); every card is the box to
+// the right of it, one per row. A connector touches no card when every box it is drawn as ends inside the gutter, and
+// that holds for the rails as well as the edges. The turn of a spawn / return is in the gap just outside a row.
+const ROW = 40;
+function cardRects(lay) {
+  const x = FL.gutterWidth(lay.stats.cols);
+  return lay.rows.map((r, i) => ({ x, y: i * ROW, w: 100000, h: ROW }));
+}
+const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+function crossings(lay) {
+  const cards = cardRects(lay);
+  const bad = [];
+  const gutter = FL.gutterWidth(lay.stats.cols);
+  const all = FL.connectorsForRows(lay, 0, lay.rows.length, 100000);
+  assert.equal(all.truncated, false);
+  for (const c of all.connectors) {
+    for (const r of FL.connectorRects(c, ROW)) {
+      if (r.x < 0 || r.x + r.w > gutter) bad.push({ c: c.type + ':' + c.laneId, why: 'outside the gutter', r });
+      for (const card of cards) if (overlaps(r, card)) { bad.push({ c: c.type + ':' + c.laneId, why: 'over a card', r }); break; }
+    }
+  }
+  for (const e of lay.edges) {
+    if (e.kind === 'spawn') assert.equal(e.gapRow, e.toRow);
+    else assert.equal(e.gapRow, e.fromRow + 1);
+  }
+  return bad;
+}
+
+test('no rail or connector touches a card (parallel, nested and sequential layouts)', () => {
+  const { snapshot } = parallelSnapshot();
+  const lay0 = FL.layout(snapshot);
+  assert.ok(FL.connectorsForRows(lay0, 0, 99).connectors.some((c) => c.type === 'rail'), 'rails are checked too');
+  assert.deepEqual(crossings(lay0), []);
+  const nested = laneSnapshot({ returned: false });
+  assert.deepEqual(crossings(FL.layout(nested)), []);
+  const open = laneSnapshot();
+  assert.deepEqual(crossings(FL.layout(open, FL.setLaneExpanded(null, 'a1', true))), []);
+  seq = 0;
+  const sp = withTs(step('agent'), 1);
+  const other = withTs(step('agent', { laneId: 'o' }), 2);
+  const c1 = withTs(step('output', { laneId: 'c' }), 3);
+  const o2 = withTs(step('output', { laneId: 'o' }), 4);
+  const lanes = [MAIN, laneOf('o', 'main', sp), laneOf('c', 'main', sp)];
+  const lay = FL.layout(snap([sp, other, c1, o2], lanes));
+  assert.deepEqual(crossings(lay), []);
+  assert.equal(new Set(lay.columns.map((c) => c.col)).size, 3);
+});
+
+test('the checker really sees a card hit (a connector moved into the card area)', () => {
+  const { snapshot } = parallelSnapshot();
+  const lay = FL.layout(snapshot);
+  const rect = FL.connectorRects(FL.connectorsForRows(lay, 0, 9).connectors.find((c) => c.type === 'rail'), ROW)[0];
+  const moved = Object.assign({}, rect, { x: FL.gutterWidth(lay.stats.cols) + 4 });
+  assert.ok(cardRects(lay).some((card) => overlaps(moved, card)));
+});
+
+test('connectors in a window: a long vertical that passes through is still listed', () => {
+  const { snapshot } = parallelSnapshot();
+  const lay = FL.layout(snapshot);
+  const ret = FL.connectorsForRows(lay, 5, 5).connectors; // no return edge on open lanes; spawn edges end at rows 3 and 4
+  assert.deepEqual(ret.filter((c) => c.type !== 'rail'), []);
+  const spawns = FL.connectorsForRows(lay, 2, 2).connectors.filter((c) => c.type === 'spawn');
+  assert.equal(spawns.length, 2, 'spawn b starts here; spawn a runs down the parent gutter through here');
+});
+
+test('a lane is waiting only when the snapshot says so', () => {
+  const { snapshot } = parallelSnapshot();
+  assert.ok(FL.layout(snapshot).rails.every((r) => !('waiting' in r)));
+  snapshot.lanes[1].waiting = true;
+  const lay = FL.layout(snapshot);
+  assert.equal(lay.rails.find((r) => r.laneId === 'a').waiting, true);
+  assert.equal(FL.connectorsForRows(lay, 0, 9).connectors.find((c) => c.type === 'rail' && c.laneId === 'a').waiting, true);
+});
+
+test('a lane whose spawn step is missing is appended, not lost', () => {
+  seq = 0;
+  const a = step('prompt');
+  const lost = step('agent'); // not in the snapshot
+  const x = step('output', { laneId: 'o' });
+  const lay = FL.layout(snap([a, x], [MAIN, laneOf('o', 'main', lost)]));
+  assert.deepEqual(lay.rows.map((r) => r.laneId), ['main', 'o']);
+});
+
 // --- performance ----------------------------------------------------------
 
 test('layout of 20 000 steps stays far inside a generous ceiling', () => {
@@ -302,5 +475,77 @@ test('layout of 20 000 steps stays far inside a generous ceiling', () => {
   runs.sort((a, b) => a - b);
   console.log(`flow-layout: ${steps.length} steps -> ${lay.rows.length} rows; layout min ${runs[0].toFixed(2)} ms, median ${runs[3].toFixed(2)} ms, max ${runs[6].toFixed(2)} ms; connectorsForRows ${conn.toFixed(3)} ms`);
   assert.ok(lay.rows.length < steps.length, 'runs collapsed');
-  assert.ok(runs[3] < 200, `median layout ${runs[3]} ms`);
+  assert.ok(runs[3] < 80, `median layout ${runs[3]} ms`); // measured about 12 ms; the ceiling catches a real regression, not load noise
+});
+
+test('layout of 200 overlapping lanes (20 000 steps) stays inside the ceiling', () => {
+  seq = 0;
+  const lanes = [MAIN];
+  const steps = [];
+  const spawns = [];
+  for (let i = 0; i < 200; i++) { const sp = withTs(step('agent'), i); spawns.push(sp); steps.push(sp); }
+  for (let i = 0; i < 200; i++) {
+    lanes.push(laneOf('c' + i, 'main', spawns[i], i % 2 ? spawns[i] : null));
+    for (let k = 0; k < 99; k++) steps.push(withTs(step(k % 3 ? 'tool' : 'output', { laneId: 'c' + i, tool: 'Read' }), 1000 + k * 7 + i));
+  }
+  const s = snap(steps, lanes);
+  const runs = [];
+  let lay;
+  for (let i = 0; i < 5; i++) {
+    const t0 = process.hrtime.bigint();
+    lay = FL.layout(s, FL.emptyCollapseState());
+    runs.push(Number(process.hrtime.bigint() - t0) / 1e6);
+  }
+  runs.sort((a, b) => a - b);
+  console.log(`flow-layout: ${steps.length} steps, 200 parallel lanes -> ${lay.rows.length} rows, ${lay.stats.cols} columns; layout min ${runs[0].toFixed(2)} ms, median ${runs[2].toFixed(2)} ms`);
+  assert.equal(lay.order.length, steps.length);
+  assert.ok(runs[2] < 250, `median layout ${runs[2]} ms`); // measured about 50 ms with 200 lanes active at once
+});
+
+test('two adjacent spawn calls stay two rows, each with its own connector (never a run)', () => {
+  seq = 0;
+  const s1 = tool('Agent');
+  const s2 = tool('Agent');
+  const x1 = step('output', { laneId: 'a' });
+  const x2 = step('output', { laneId: 'b' });
+  const lay = FL.layout(snap([s1, s2, x1, x2], [MAIN, laneOf('a', 'main', s1), laneOf('b', 'main', s2)]));
+  assert.deepEqual(kinds(lay), ['step', 'step', 'step', 'step']);
+  const spawns = lay.edges.filter((e) => e.kind === 'spawn');
+  assert.equal(spawns.length, 2);
+  assert.notEqual(spawns[0].fromRow, spawns[1].fromRow);
+  // A return anchor is never grouped either, and plain equivalent calls around them still are.
+  const t1 = tool('Read');
+  const t2 = tool('Read');
+  const r = tool('Agent');
+  const r2 = tool('Agent');
+  const c = step('output', { laneId: 'c' });
+  const lay2 = FL.layout(snap([t1, t2, r, r2, c], [MAIN, laneOf('c', 'main', r, r2)]));
+  assert.deepEqual(kinds(lay2), ['group', 'step', 'lane', 'step']); // the finished lane is one summary between its two anchors
+});
+
+test('a capped window keeps the spawn and return edges and drops rails first', () => {
+  const { snapshot } = parallelSnapshot({ finished: false });
+  const lay = FL.layout(snapshot);
+  const all = FL.connectorsForRows(lay, 0, 99, 1000);
+  const edges = all.connectors.filter((c) => c.type !== 'rail').length;
+  const capped = FL.connectorsForRows(lay, 0, 99, edges);
+  assert.equal(capped.truncated, true);
+  assert.equal(capped.connectors.filter((c) => c.type !== 'rail').length, edges);
+  assert.equal(capped.connectors.filter((c) => c.type === 'rail').length, 0);
+});
+
+test('a second root lane keeps snapshot order and does not jump before main', () => {
+  seq = 0;
+  const a = step('prompt');
+  const b = step('output');
+  const x = step('prompt', { laneId: 'r2' });
+  const root2 = { id: 'r2', parentLaneId: null, depth: 0, label: 'r2', kind: 'session', spawnAnchor: null, returnAnchor: null, summaryOnly: false, sessionRef: null };
+  const lay = FL.layout(snap([a, b, x], [MAIN, root2]));
+  assert.deepEqual(lay.rows.map((r) => r.laneId), ['main', 'main', 'r2']);
+});
+
+test('gutter geometry: one column per lane in use, the dot on the rail', () => {
+  assert.equal(FL.gutterWidth(1), FL.COL_W + 20);
+  assert.equal(FL.gutterWidth(3), 3 * FL.COL_W + 20);
+  assert.equal(FL.railX(2) - FL.dotX(2), 3); // an 8 px dot is centred on a 2 px rail
 });
