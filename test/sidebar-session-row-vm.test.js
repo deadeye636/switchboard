@@ -65,6 +65,9 @@ function setup(backend = {}) {
   window._showAllBadges = backend.showAllBadges ?? false;
   window.getBackend = backend.getBackend || (() => null);
   window.backendMonogram = (id) => id.slice(0, 2).toUpperCase();
+  // dialogs/dialogs.js `sessionBadgeBackendId` (not loaded here): the pair's owner when a view is passed, else the stamped
+  // backend. Same answer as the real one for the `view` this test can produce (`sessionViewOf` is absent, so it is null).
+  window.sessionBadgeBackendId = (s, view) => (view ? view.pair.terminal.id : window.sessionBackendId(s));
 
   // Real a11y-utils and the real icon helper, so `ariaButton` and `setIcon` resolve exactly as in the
   // browser — `setIcon` hands out clones of a once-parsed node (#520), and a stub that just assigned

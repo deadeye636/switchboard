@@ -256,7 +256,14 @@ test('pdf: the bytes are written as they are, the window is destroyed, the temp 
     assert.deepEqual(fs.readdirSync(s.tempDir), []);
     assert.deepEqual(fs.readdirSync(s.dir), ['out.pdf'], 'no temp file is left beside the result');
     const html = fake.made[0].html;
-    assert.ok(!/<script|\son[a-z]+\s*=|href\s*=/i.test(html));
+    // Inert, asked of a parser rather than a pattern (as the SVG test does; test/page-scripts.test.js refuses a tag pattern).
+    const { JSDOM } = require('jsdom');
+    const doc = new JSDOM(html).window.document;
+    assert.equal(doc.querySelectorAll('script').length, 0);
+    assert.equal(doc.querySelectorAll('[href]').length, 0);
+    for (const el of doc.querySelectorAll('*')) {
+      for (const a of el.getAttributeNames()) assert.ok(!/^on/i.test(a), `no event attribute (${a} on ${el.tagName})`);
+    }
     assert.ok(html.includes('Session abcdef12'));
     assert.equal(fake.made[0].opts.pageSize, 'A4');
     assert.equal(fake.made[0].opts.printBackground, true);
