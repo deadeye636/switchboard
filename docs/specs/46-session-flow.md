@@ -315,8 +315,9 @@ pattern matched). Markers are separate facts that coexist on a step: a blocked d
 `outcome` marker. Only a structured outcome says whether a call ran.
 
 *As built (T21, Claude).* Neutral matcher `src/backends/flow-patterns.js` (`matchPatterns(list, command)`: entries `{ id, test, reason, view? }`,
-no backend knowledge); Claude's list, flag builders and result texts in `src/backends/claude/flow-flags.js`; the reader calls them.
-T22 (Codex) and T23 (Pi) add only their own list and flag builders. Flags per step:
+no backend knowledge); the command list in `src/backends/flow-command-patterns.js` (`PATTERNS`, `commandRiskFlags(command, dialect)`; moved out of
+Claude's folder in T22, because `rm` and `git` are command-line language, not a transcript format); Claude's flag builders and result texts in
+`src/backends/claude/flow-flags.js`; the reader calls them. T22 (Codex) and T23 (Pi) add only how they find a command and their own flag builders. Flags per step:
 - `risk`, heuristic, code `destructive:<id>`: a `Bash` or `PowerShell` call whose `command` matches the list; why is the pattern's reason plus the matched
   simple command (cut to 80 characters). `risk`, structured, `mode-bypass-permissions` and `mode-accept-edits` (milder: only edits skip the
   prompt; there is no severity field, the code and the sentence carry it): on the `mode` step only, never repeated on later tool steps; a session
@@ -345,6 +346,39 @@ Claude's list (all heuristic; a recursive delete is flagged only at a BROAD targ
 `mkfs`, `redirect-to-device` (`> /dev/sdX`), `pipe-to-shell` (`curl|wget ... | sh|bash`), `pipe-to-iex` (`iwr|irm ... | iex`), `remove-item-recurse` (`Remove-Item` and its aliases `rm`, `del`, `erase`, `rd`, `rmdir` with `-r` or `-Recurse`, any order with `-Force`, at a drive, home, `.`, `..`, `*` or a top-level directory of a drive), `cmd-recursive-delete` (`del|erase|rd|rmdir /s` at the same targets), `format-drive`
 (`format X:`, `Format-Volume`), `sql-drop` (`DROP TABLE|DATABASE|SCHEMA`, `TRUNCATE TABLE` in a `psql`, `mysql`, `mariadb`, `sqlite3`, `sqlcmd`, `duckdb` or
 `clickhouse-client` command). Bound measured by `test/flow-patterns.test.js`: pathological 8 KB inputs against the whole list finish in well under 250 ms.
+
+*As built (T22, Codex).* `src/backends/codex/flow-flags.js` holds Codex's part (the format, reflex 5); the reader calls it per tool call and per
+`turn_context`. Tests: `test/flow-codex-flags.test.js` on `fixtures/flow/codex-flags.jsonl` and its guardian rollout `codex-flags-guardian.jsonl`.
+- **Finding the command.** The shell is `custom_tool_call` `exec`, whose `input` is a script calling `tools.exec_command({ ... })` (also
+  `shell`, `shell_command`, `local_shell`). The object literal is read without evaluating anything: JSON and the JavaScript spelling (unquoted keys,
+  single quotes, templates). Only a plain string `cmd` (or `command`) counts; a template with `${}`, a concatenation or a variable is an UNKNOWN
+  command, neither matched nor paired with a verdict. At most 8 calls from the first 64 KB of a script. A shell `function_call` (`exec_command`,
+  `shell`, ...) carries the same object as JSON; an argv `command` gives its last element. The dialect is PowerShell when the command looks like it
+  (`$env:`, a `Verb-Noun` word, `pwsh`), else POSIX: a call does not say which shell runs it.
+- `risk`, structured, `escalation-requested`: the call carries `sandbox_permissions: "require_escalated"`; why quotes the `justification` and says it
+  was ASKED, not that it ran. `risk`, heuristic, `destructive:<id>`: the shared list on the command.
+- `risk`, structured, `mode-danger-full-access`: a `turn_context` whose `sandbox_policy.type` is `danger-full-access`, on the `mode` step only, or on
+  the start step for a session that starts so. `never` with a sandbox is not flagged: a blocked action fails inside the command, so the sandbox still
+  confines the session.
+- `outcome`, heuristic, `access-denied`: a call with a non-zero exit code whose output names an access error (`Access to the path ... is denied`,
+  `Permission denied`, `Operation not permitted`, `Read-only file system`, `Access is denied`), not for an escalated call and not without a sandbox.
+  A sandbox block has no event of its own, so this is a guess from the text; it sits beside `tool-error`, it does not replace it.
+- **The guardian.** The scan that finds child rollouts also keeps a rollout whose header has `thread_source: "guardian_review"` and a
+  `parent_thread_id` naming the session or a child found (a guardian starts at its parent's first escalated call, so in name order the parent
+  usually comes first; names carry only seconds and a uuid, so one whose parent is not known yet waits and is resolved when the scan ends;
+  another session's guardian is not read). At most 200 are kept; past that the limitation `guardian-cap`.
+  After the lanes are read, each kept rollout whose lane has an escalated call is read for its turns (at most 2 000 turns per lane, and as many
+  escalated calls), and its file joins the files reported for the staleness check. The request is the LAST JSON object in a turn's user message
+  that holds `command` and `sandbox_permissions` (earlier ones are the parent's transcript, quoted): the key is searched from the end, an
+  occurrence inside a string is skipped, and the object around it is found by a string-aware walk back, so braces inside the command do not
+  matter. The verdict is the turn's last assistant JSON (short `{"outcome"}` or full, a code fence allowed). The turns are paired with the lane's
+  escalated calls BY ORDER, CONFIRMED BY COMMAND TEXT (whitespace folded): each turn, in order, goes to the next call after the last one paired
+  that has the same command text. A call with no review is passed over and keeps no verdict, and a review whose command no later call has (one
+  built in code) pairs with nothing; neither moves a verdict onto another command. Flags from a verdict, all structured: `guardian-risk-<level>`
+  (`risk`) for a `risk_level` other than `low`, `guardian-allowed` (`outcome`) for `allow`, `guardian-refused` (`outcome`) for anything else. No
+  `deny` has been measured; the test for it is synthetic and says so. A guardian rollout that cannot be read adds `guardian-read-failed`, a line
+  of one over the line cap `guardian-line-skipped`; a read cancelled before or during the guardians flags nothing from them and marks the
+  snapshot cancelled. An `exec` script is searched for at most 16 shell-call literals, read or not, so a script of unreadable ones stays bounded.
 
 ## Exports
 
@@ -478,8 +512,8 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
 - **Interrupt.** `turn_aborted` becomes an `interrupt` step (`reason`, `durationMs`).
 - **Mode.** `turn_context` `approval_policy` and `sandbox_policy.type`, joined as `on-request, workspace-write`; the first is the start step's `detail.mode`, a `mode`
   step appears only when the pair changes. `detail.model` of the start step and the checkpoints' `model` come from `turn_context.model`.
-- **Capabilities answered:** `agents` `partial` (`agents-partial`), `instructionFiles` `block` (`instructions-block`), `contextCheckpoints` `yes`, `permissionMode` `yes`, `approvals` `no`
-  (a rollout records no ask/allow; the guardian's verdict is in another rollout), `compaction` `yes`, `interrupt` `yes`, `destructivePatterns` `no` (later), `timestamps` `yes`.
+- **Capabilities answered:** `agents` `partial` (`agents-partial`), `instructionFiles` `block` (`instructions-block`), `contextCheckpoints` `yes`, `permissionMode` `yes`, `approvals` `partial`
+  (`approvals-guardian`: a rollout records no ask/allow; since T22 the guardian's verdict on an escalated call is read from its own rollout), `compaction` `yes`, `interrupt` `yes`, `destructivePatterns` `yes` (`patterns-heuristic`, T22), `timestamps` `yes`.
   The `sessionFlow` row of Codex stays `limited`. The session settings' window hint is not used: the rollout reports the window.
 
 - **Finding the children (T15, O2).** `sessionFlow(row)` adds a source with the role `rollout-scan` naming the parent rollout's folder (a string join; no fs call in
@@ -488,7 +522,7 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
   (`rollout-YYYY-MM-DDTHH-MM-SS-<id>.jsonl`, measured against the header's UTC timestamp), and Codex files it under `<root>/<year>/<month>/<day>/`. So it builds the day
   folders of the window from the calendar (no listing of the store; a missing folder reads as empty), lists each, and opens only a rollout whose name time lies in the
   window. Opening one reads the first 4 KB: in a header `source` comes BEFORE the very large `base_instructions` (measured: `source` at about byte 470-590, `base_instructions`
-  at 540-910, the line about 19 KB), so a head that shows `source` without `thread_spawn` (an ordinary session, a guardian's `source.subagent.other`) is dropped
+  at 540-910, the line about 19 KB), so a head that shows `source` without `thread_spawn` or `guardian_review` (an ordinary session; a guardian is read on since T22, for its parent link) is dropped
   there; only a candidate is read on, in steps up to 64 KB and to the end of its line. A first line longer than that (or one that does not parse) is not dropped: `id` and the flat `thread_spawn` object are taken from the bytes already read by a bounded pattern match, since `source` precedes `base_instructions`; if even that fails for a header that names a `thread_spawn`, the snapshot is `complete: false` with `agent-header-unreadable`. The name filter looks one hour further back than the window (names are local time, so the autumn clock change can put a name an hour off); that costs a few extra 4 KB heads. **A child that ran longer than the parent widens the window:** after the children found are read, the upper bound moves to the latest last line among them (plus the slack) and only the new range is searched, up to 4 rounds, so a grandchild spawned by a long-running child is found. A header with `thread_spawn.parent_thread_id` naming the session or a child already found is a
   child, so one pass in name order finds a whole tree. Without a timestamp to build a window from, only the parent's folder is read, after the parent. Bounds:
   2 000 rollouts opened, 31 calendar days over all widening rounds, 200 lanes, 4 widening rounds (running out of rounds with time still unsearched counts); reaching one is `complete: false` with `agent-scan-cap`, otherwise the search is complete (the earlier
@@ -548,6 +582,10 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files (shown as the limitation `instructions-not-recorded`). The Pi reader shows the active branch only (abandoned steps still count against the caps), and a model missing from Pi's catalog has an unknown window.
 - A Codex sandbox block and every destructive-command match are heuristics and are labelled so.
+- Codex (T22): a command built in code (a template with `${}`, a variable) is neither matched nor paired with a guardian verdict, so its step shows
+  the escalation request alone. A call the guardian did not review and the answer of a person in the terminal show no verdict. When an unreviewed call is
+  followed by a reviewed one with the same command text, the first takes the verdict; and a review of a call built in code whose literal text
+  happens to equal a later call's would pair with that later call. The shell dialect is guessed from the command.
 - Codex (T15): a header whose fields cannot be read at all (a `thread_spawn` seen, no `id` in the first 64 KB) is reported as `agent-header-unreadable`, not dropped; a first line over 64 KB whose `source` object and `id` lie inside those bytes is read by pattern, not by a full parse.
 - Codex (T15): a child lane exists only if its rollout starts within the parent's first-to-last-line window (plus 2 minutes) and the search bound (2 000 rollouts opened, 31 days, 200 lanes, 4 widening rounds) was not hit; a parent that is still running has a window that ends at its last written line; the spawn-to-lane link rests on the task name matching the child's path (a repeated task name pairs calls and children in order); the child's result is the first message from its path, so a continued or second result is not a second return.
 - Codex (T14): a failed call is recognised only from an `Exit code: N` head or an `exit_code=N` last line, neither of which was seen in a local rollout (the code-mode `exec` prints no exit code), so failures are probably under-marked. `turn_aborted` was not in the local rollouts either. Codex shows one AGENTS.md block, never per file, and no subagent lane until T15.

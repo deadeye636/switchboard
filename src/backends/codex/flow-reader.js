@@ -26,6 +26,7 @@ const {
   MAX_STEPS, MAX_LINE_BYTES, MAX_SNAPSHOT_BYTES, LABEL_CHARS, DETAIL_CHARS, STEP_OVERHEAD,
   trunc, firstLine, isObject, readLines, detailSize, evidence, flagSize,
 } = require('../flow-lines');
+const cflags = require('./flow-flags');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
 
 const LANE_ID = 'main';
@@ -37,6 +38,8 @@ const NAME_WIDEN_MS = 60 * 60 * 1000;   // names are local time: an hour back co
 const MAX_SCAN_ROUNDS = 4;               // a child that ran longer than the window widens it; so does the child of that child
 const NAME_TIME = /^rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-/;
 const MAX_AGENT_LANES = 200;
+const MAX_GUARDIANS = 200;
+const MAX_GUARDIAN_TURNS = 2000;
 const MAX_SCAN_DIRS = 31;      // calendar days of a parent's window listed
 const MAX_SCAN_FILES = 2000;   // rollouts opened
 const MAX_LANE_DEPTH = 8;
@@ -113,6 +116,9 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
   let firstTs = null;
   let lastTs = null;   // the first and the last timestamp this rollout shows: the window its children were spawned in
   let openWait = null;   // the call id of the last wait call, until it is answered, a turn is aborted or a new turn begins
+  let sandbox = '';   // the sandbox policy type of the last turn_context
+  const escalations = [];   // the calls that asked to leave the sandbox, in order: { step, command }
+  const escalatedSteps = new Set();
   let pendingTrigger = false;   // the last `inter_agent_communication_metadata` said the next message starts a turn
   const messagesFrom = new Map();   // an agent's path -> the first step in this lane that carries its message
 
@@ -126,6 +132,13 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     shared.size += n;
     if (shared.size > limits.maxBytes) shared.stopReason = shared.stopReason || 'bytes';
   };
+
+  // One flag per code on a step; its sentence counts toward the snapshot's size estimate like the rest of a step.
+  function addFlag(step, f) {
+    if (step.flags.some((x) => x.code === f.code)) return;
+    step.flags.push(f);
+    grow(flagSize(f));
+  }
 
   // `ctx` is one line: { lineNo, offset, part, ts }. A line may yield several steps; `part` keeps their ids apart.
   function addStep(ctx, kind, label, detail, extra) {
@@ -177,17 +190,21 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     };
   }
 
-  function noteMode(next, ctx) {
+  function noteMode(next, ctx, flag) {
     if (!next) return;
     if (mode === null) {
       mode = next;
-      if (startStep) startStep.detail.mode = next;
+      if (startStep) {
+        startStep.detail.mode = next;
+        if (flag) addFlag(startStep, flag);   // a session that STARTS without a sandbox has no mode step to carry it
+      }
       return;
     }
     if (next === mode) return;
     const from = mode;
     mode = next;
-    addStep(ctx, 'mode', `Mode: ${next}`, { from, to: next });
+    const step = addStep(ctx, 'mode', `Mode: ${next}`, { from, to: next });
+    if (step && flag) addFlag(step, flag);   // on the mode step only
   }
 
   function onTurnContext(p, ctx) {
@@ -195,8 +212,9 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
       model = p.model;
       if (startStep && !firstRequestSeen) startStep.detail.model = model;
     }
-    const parts = [typeof p.approval_policy === 'string' ? p.approval_policy : '', sandboxOf(p.sandbox_policy)].filter(Boolean);
-    noteMode(parts.join(', '), ctx);
+    const approval = typeof p.approval_policy === 'string' ? p.approval_policy : '';
+    sandbox = sandboxOf(p.sandbox_policy);
+    noteMode([approval, sandbox].filter(Boolean).join(', '), ctx, cflags.modeFlag(approval, sandbox));
   }
 
   function onInstructions(text, ctx) {
@@ -257,6 +275,19 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     try { const a = JSON.parse(raw); return isObject(a) ? a : null; } catch { return null; }
   }
 
+  // The shell calls in this tool call: destructive-command marks and the escalation request go on the step; an escalated call
+  // is kept, in order, to be paired with the guardian's verdict once the guardian's rollout has been read.
+  function noteShellCalls(step, p, name) {
+    const calls = cflags.shellCallsOf(p.type, name, p.type === 'custom_tool_call' ? p.input : p.arguments);
+    for (const call of calls) {
+      for (const f of cflags.callFlags(call)) addFlag(step, f);
+      if (call.escalated) {
+        escalatedSteps.add(step);
+        if (escalations.length < MAX_GUARDIAN_TURNS) escalations.push({ step, command: call.command });
+      }
+    }
+  }
+
   function onToolCall(p, brief, ctx) {
     const name = typeof p.name === 'string' && p.name ? p.name : 'tool';
     let kind = 'tool';
@@ -269,6 +300,7 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
       label = `Message to ${to || 'an agent'}${brief ? ': ' + firstLine(brief) : ''}`;
     }
     const step = addStep(ctx, kind, label, { tool: trunc(name, 100), input: trunc(brief, DETAIL_CHARS) });
+    if (step) noteShellCalls(step, p, name);
     if (step && name === 'spawn_agent' && args && typeof args.task_name === 'string' && args.task_name && shared.spawns.length < MAX_AGENT_LANES * 4) {
       shared.spawns.push({ laneId, ownPath, taskName: args.task_name, step, used: false });
     }
@@ -292,11 +324,9 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     if (code !== null) step.detail.exitCode = code;
     // A failed call carries an outcome flag so a run of equivalent calls never swallows it (the layout keys on `detail.tool`).
     // Codex has no structured status, so the evidence is `heuristic`: the code is read out of the output text.
-    if (code !== null && code !== 0) {
-      const flag = { axis: 'outcome', code: 'tool-error', why: 'the output reports a non-zero exit code', evidence: 'heuristic' };
-      step.flags.push(flag);
-      grow(flagSize(flag));
-    }
+    if (code !== null && code !== 0) addFlag(step, { axis: 'outcome', code: 'tool-error', why: 'the output reports a non-zero exit code', evidence: 'heuristic' });
+    const denied = cflags.accessDeniedFlag(raw, code, { escalated: escalatedSteps.has(step), sandbox });
+    if (denied) addFlag(step, denied);
     grow(40 + result.length);
   }
 
@@ -441,7 +471,7 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
   }
 
   return {
-    onLine, onOversize, close, steps, hasStart: () => startStep !== null, isWaiting, messagesFrom,
+    onLine, onOversize, close, steps, hasStart: () => startStep !== null, isWaiting, messagesFrom, escalations, addFlag,
     threadId: () => threadId, ownPath: () => ownPath, window: () => (firstTs !== null && lastTs !== null ? { lo: firstTs - WINDOW_SLACK_MS, hi: lastTs + WINDOW_SLACK_MS } : null),
   };
 }
@@ -530,7 +560,7 @@ async function readHeader(file, stats) {
       if (bytesRead < want) { end = have.length; break; }   // the end of the file
       if (limit === HEAD_BYTES) {
         const head = have.toString('utf8');
-        if (head.includes('"source"') && !head.includes('"thread_spawn"')) return null;
+        if (head.includes('"source"') && !head.includes('"thread_spawn"') && !head.includes('"guardian_review"')) return null;
       }
     }
     if (end === -1) return headerFallback(have);   // a first line longer than HEADER_BYTES
@@ -547,7 +577,7 @@ async function readHeader(file, stats) {
 function newScan(mainFile, mainThreadId, signal, stats) {
   return {
     mainName: pathMod.basename(mainFile), dir: pathMod.dirname(mainFile), known: new Set([mainThreadId]), children: [],
-    capped: false, unreadable: false, aborted: false, scannedHi: null, signal, stats,
+    capped: false, unreadable: false, aborted: false, scannedHi: null, signal, stats, guardians: [], guardiansCapped: false, pendingGuardians: [],
   };
 }
 
@@ -556,8 +586,8 @@ function newScan(mainFile, mainThreadId, signal, stats) {
  * child is spawned by a call of the parent, so its rollout starts while the parent runs: the date folders of the range are
  * built from the calendar and listed, and only a rollout named inside the range is opened. A rollout is a child when
  * `source.subagent.thread_spawn.parent_thread_id` names the session or a child already found; a parent always precedes its
- * children, so one pass in name order finds a whole tree. Everything else, a guardian's review included
- * (`source.subagent.other`), is skipped. The caller widens `hi` and calls again for a child that ran longer than the parent.
+ * children, so one pass in name order finds a whole tree. A guardian's review (`thread_source: "guardian_review"`) of a known
+ * thread is kept in `sc.guardians`, never as a child; everything else is skipped. The caller widens `hi` and calls again for a child that ran longer than the parent.
  */
 async function scanRange(sc, lo, hi) {
   const range = lo === null ? null : { lo, hi };
@@ -581,6 +611,18 @@ async function scanRange(sc, lo, hi) {
       if (sc.stats.read >= MAX_SCAN_FILES || sc.children.length >= MAX_AGENT_LANES) { sc.capped = true; break; }
       const h = await readHeader(pathMod.join(plan.dirs[i], name), sc.stats);
       if (h === UNREADABLE) { sc.unreadable = true; continue; }
+      // A guardian's rollout is never a lane, but it is the verdict on its parent's escalated calls: kept to be read for them.
+      // Only one whose parent is this session or a child found: a guardian starts at its parent's first escalated call, so in
+      // name order its parent comes first, and another session's guardian never takes a place under the cap. Names carry
+      // seconds and a uuid, so a child and its guardian started in the same second can sort the other way: a guardian whose
+      // parent is not known YET waits in `pendingGuardians` and is resolved once the scan is done (`resolveGuardians`).
+      if (isObject(h) && h.thread_source === 'guardian_review' && typeof h.parent_thread_id === 'string') {
+        const g = { file: pathMod.join(plan.dirs[i], name), parentThreadId: h.parent_thread_id };
+        if (!sc.known.has(h.parent_thread_id)) { if (sc.pendingGuardians.length < MAX_GUARDIANS) sc.pendingGuardians.push(g); continue; }
+        if (sc.guardians.length < MAX_GUARDIANS) sc.guardians.push(g);
+        else sc.guardiansCapped = true;
+        continue;
+      }
       const spawn = h && isObject(h.source) && isObject(h.source.subagent) ? h.source.subagent.thread_spawn : null;
       if (!isObject(spawn) || typeof spawn.parent_thread_id !== 'string' || !sc.known.has(spawn.parent_thread_id)) continue;
       if (typeof h.id !== 'string' || !h.id || sc.known.has(h.id)) continue;
@@ -597,6 +639,83 @@ async function scanRange(sc, lo, hi) {
     }
   }
   sc.scannedHi = hi;
+}
+
+// --- The guardian's verdicts (spec 46, #826) ---
+
+// Moves the waiting guardians whose parent the scan has found by now into `sc.guardians`, in name order; the rest belong to
+// another session and are dropped.
+function resolveGuardians(sc) {
+  for (const g of sc.pendingGuardians) {
+    if (!sc.known.has(g.parentThreadId)) continue;
+    if (sc.guardians.length < MAX_GUARDIANS) sc.guardians.push(g);
+    else sc.guardiansCapped = true;
+  }
+  sc.pendingGuardians = [];
+  sc.guardians.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+}
+
+// A guardian's rollout, read for its turns: `{ command, verdict }` each, the call it reviewed and its last JSON answer. Bounded:
+// lines over the cap are skipped, and so is everything past MAX_GUARDIAN_TURNS turns.
+function guardianCollector(turns) {
+  let cur = null;
+  const flush = () => { if (cur && (cur.command !== null || cur.verdict !== null) && turns.length < MAX_GUARDIAN_TURNS) turns.push(cur); cur = null; };
+  const onLine = (text) => {
+    let o;
+    try { o = JSON.parse(text); } catch { return false; }
+    if (!isObject(o) || !isObject(o.payload)) return false;
+    if (o.type === 'turn_context') { flush(); cur = { command: null, verdict: null }; return false; }
+    const p = o.payload;
+    if (o.type !== 'response_item' || p.type !== 'message' || !Array.isArray(p.content)) return false;
+    const body = p.content.map((x) => (isObject(x) && typeof x.text === 'string' ? x.text : '')).join('\n');
+    if (!cur) cur = { command: null, verdict: null };
+    if (p.role === 'user') {
+      const req = cflags.guardianRequestOf(body);
+      if (req) cur.command = req.command;
+    } else if (p.role === 'assistant') {
+      const v = cflags.guardianVerdictOf(body);
+      if (v) cur.verdict = v;
+    }
+    return turns.length >= MAX_GUARDIAN_TURNS;
+  };
+  return { onLine, finish: flush };
+}
+
+/**
+ * Reads the guardian rollouts found by the scan and gives each escalated call of the lane they belong to its verdict's flags.
+ * A guardian is matched to a lane by `parent_thread_id`; its turns to the lane's escalated calls by order and command text
+ * (`matchVerdicts`). A rollout that cannot be read, or a line of it over the line cap, leaves calls without a verdict and
+ * says so. Each guardian file read is added to `files`, so the staleness check sees it too. Answers `true` when the read was
+ * cancelled; nothing is flagged then.
+ */
+async function readGuardians(guardians, builders, readOpts, limitation, files) {
+  const lanes = new Map();
+  for (const b of builders) if (b.escalations.length && b.threadId()) lanes.set(b.threadId(), b);
+  const turnsOf = new Map();
+  let oversize = false;
+  for (const g of guardians) {
+    if (!lanes.has(g.parentThreadId)) continue;
+    if (readOpts.signal && readOpts.signal.aborted) return true;
+    const turns = turnsOf.get(g.parentThreadId) || [];
+    turnsOf.set(g.parentThreadId, turns);
+    const c = guardianCollector(turns);
+    try {
+      const st = await fs.promises.stat(g.file);
+      files.push({ file: g.file, size: st.size });
+      const r = await readLines(g.file, readOpts, c.onLine, () => { oversize = true; return false; });
+      if (r && r.aborted) return true;
+      c.finish();
+    } catch {
+      limitation('guardian-read-failed', 'A guardian rollout could not be read, so some escalated calls show no verdict.');
+    }
+  }
+  if (oversize) limitation('guardian-line-skipped', 'A guardian rollout has a line over the line cap; the call it reviewed shows no verdict.');
+  for (const [id, turns] of turnsOf) {
+    const b = lanes.get(id);
+    const verdicts = cflags.matchVerdicts(b.escalations, turns);
+    verdicts.forEach((v, i) => { for (const f of cflags.verdictFlags(v)) b.addFlag(b.escalations[i].step, f); });
+  }
+  return false;
 }
 
 /**
@@ -713,6 +832,9 @@ async function readSessionFlow(sources, opts = {}) {
         if (sc.children.length === before && !sc.aborted) break;
       }
       if (sc.aborted) aborted = true;
+      resolveGuardians(sc);
+      if (!aborted && sc.guardians.length && await readGuardians(sc.guardians, [main].concat(read.map(a => a.builder)), readOpts, limitation, files)) aborted = true;
+      if (sc.guardiansCapped) limitation('guardian-cap', `More than ${MAX_GUARDIANS} guardian rollouts belong to this session; the calls the rest reviewed show no verdict.`);
       if (typeof opts.onScan === 'function') { try { opts.onScan(stats); } catch { /* the caller's problem */ } }
       if (sc.capped) {
         agentsIncomplete = true;

@@ -151,8 +151,8 @@ test('mode: the first policy is the start step\'s, a step appears on change only
 test('capabilities are declared truthfully and every non-full one names a limitation', async () => {
   const snap = await read(FIXTURE);
   assert.equal(snap.capabilities.agents.state, 'partial');
-  assert.equal(snap.capabilities.approvals.state, 'no');
-  assert.equal(snap.capabilities.destructivePatterns.state, 'no');
+  assert.equal(snap.capabilities.approvals.state, 'partial');
+  assert.equal(snap.capabilities.destructivePatterns.state, 'yes');
   for (const c of Object.values(snap.capabilities)) {
     if (c.limitationId) assert.ok(snap.limitations.some(l => l.id === c.limitationId));
   }
@@ -452,9 +452,10 @@ test('the rollouts read are reported by file and size, and no path is in the sna
   try {
     let reported = null;
     const snap = await readTree(t, { onFiles: (l) => { reported = l; } });
-    assert.equal(reported.length, 1);
-    assert.ok(reported[0].file.endsWith(path.basename(rel(T0 + 1000, CHILD_ID))));
-    assert.equal(reported[0].size, fs.statSync(reported[0].file).size);
+    // The child, and the guardian rollout read for the parent's escalated call (T22), so the staleness check sees both.
+    assert.deepEqual(reported.map(r => path.basename(r.file)).sort(),
+      [rel(T0 + 1000, CHILD_ID), rel(T0 + 10000, '00000000-0000-4000-8000-000000000004')].map(r => path.basename(r)).sort());
+    for (const r of reported) assert.equal(r.size, fs.statSync(r.file).size);
     assert.ok(!JSON.stringify(snap).includes(t.root));
   } finally { t.cleanup(); }
 });

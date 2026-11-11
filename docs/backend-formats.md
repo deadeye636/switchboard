@@ -450,7 +450,10 @@ Measured on cli 0.166.0 with `codex exec` (gpt-5.6-luna) and read back from exis
 - **Permissions per turn.** `turn_context` carries `approval_policy`, `approvals_reviewer` (`auto_review`),
   `sandbox_policy`, `permission_profile` and `active_permission_profile`.
 - **Escalation is in the call.** A call that wants out of the sandbox carries `sandbox_permissions:
-  "require_escalated"` and a `justification` in its `exec` input.
+  "require_escalated"` and a `justification` in its `exec` input. That input is script source calling
+  `tools.exec_command({ cmd, workdir, yield_time_ms, max_output_tokens, sandbox_permissions, justification })`;
+  the object is written as JSON in most scripts and as a JavaScript literal (unquoted keys, template strings,
+  `${}`) in some, so a command can be built in code. How the flow reads it: spec 46 "As built (T22, Codex)".
 - **The guardian's verdict.** With `approvals_reviewer: auto_review`, each escalated call is judged by the
   guardian (see the trap above): one guardian rollout per session, one turn per escalated call. Its last
   assistant message is JSON, either the short `{"outcome":"allow"}` or the full
