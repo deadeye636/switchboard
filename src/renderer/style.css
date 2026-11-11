@@ -5741,6 +5741,9 @@ mark.jsonl-search-hit-active {
 .flow-flag-risk { border-color: rgba(240,160,80,0.6); color: #f0c090; }
 .flow-flag-outcome { border-color: rgba(128,136,255,0.55); color: #c0c4ff; }
 .flow-flag-more { flex-shrink: 0; color: #9a9ab8; font-size: 10px; }
+/* Lifecycle marks from the Events record (T25): drawn apart from the transcript's own flags. */
+.flow-events { flex-shrink: 0; display: flex; }
+.flow-flag-lifecycle { border-color: rgba(79,195,247,0.55); color: #a8dcf4; }
 #flow-highlights-btn { padding: 3px 12px; font-size: 12px; }
 #flow-highlights-btn[aria-pressed="true"] { border-color: #7c8cff; color: #e0e0ec; }
 #flow-detail {

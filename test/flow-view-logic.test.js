@@ -395,6 +395,65 @@ test('highlights only: a selected step resolves to its quiet group, and back to 
   assert.equal(off.rows[back].key, 's3', 'off again: the step itself, not the group key that no longer exists');
 });
 
+test('placeEvents (T25): Events lifecycle marks go to the last main-lane step written before them, others are ignored', () => {
+  const T = Date.parse('2026-01-01T12:00:00Z');
+  const steps = [mkStep(1, { ts: T, kind: 'start' }), mkStep(2, { ts: T + 1000 }), mkStep(3, { ts: T + 5000 }),
+    mkStep(4, { ts: T + 2000, laneId: 'agent:x' })];
+  const snap = mkSnap(steps);
+  const events = [
+    { kind: 'stopped', label: 'Session stopped', detail: 'user', at: T + 6000 },
+    { kind: 'needs-attention', label: 'Needs human attention', at: new Date(T + 1500).toISOString() },
+    { kind: 'forked', label: 'Session forked', at: T - 9999 },
+    { kind: 'busy', label: 'Agent working', at: T + 1200 },
+    { kind: 'stopped', label: 'bad time', at: 'not a date' },
+  ];
+  const placed = FlowView.placeEvents(snap, events);
+  assert.deepEqual(placed.map((m) => [m.kind, m.stepId]), [['forked', 's1'], ['needs-attention', 's2'], ['stopped', 's3']]);
+  assert.equal(placed[1].word, 'needs attention');
+  assert.equal(placed[2].detail, 'user');
+  // A child lane's step is never the anchor, and an untimed snapshot places nothing.
+  assert.ok(!placed.some((m) => m.stepId === 's4'));
+  assert.deepEqual(FlowView.placeEvents(mkSnap([mkStep(1)]), events), []);
+  assert.deepEqual(FlowView.placeEvents(snap, []), []);
+  // The snapshot is not touched: the sources stay apart.
+  assert.ok(snap.steps.every((s) => s.flags.length === 0));
+});
+
+test('placeEvents edge cases: equal and unsorted ts, before every step, an empty label, the cap, no main lane kind', () => {
+  const T = Date.parse('2026-01-01T12:00:00Z');
+  // Out of order on the main lane, and two steps with the same ts: the later ordinal wins among equals.
+  const steps = [mkStep(1, { ts: T + 3000 }), mkStep(2, { ts: T + 1000 }), mkStep(3, { ts: T + 1000 })];
+  const snap = mkSnap(steps);
+  const one = (at, extra) => FlowView.placeEvents(snap, [Object.assign({ kind: 'stopped', label: 'Session stopped', at }, extra || {})])[0];
+  assert.equal(one(T + 1000).stepId, 's3');
+  assert.equal(one(T + 2000).stepId, 's3');
+  assert.equal(one(T + 9000).stepId, 's1', 'newer than the snapshot: the last timed step');
+  const early = one(T - 1);
+  assert.equal(early.stepId, 's2');
+  assert.equal(early.before, true);
+  assert.equal(one(T + 1000).before, false);
+  assert.equal(one(T + 1000, { label: '' }).label, 'stopped', 'an empty label falls back to the word');
+  // At most 200, the newest kept.
+  const many = [];
+  for (let i = 0; i < 250; i++) many.push({ kind: 'needs-attention', label: 'n', at: T + i });
+  const capped = FlowView.placeEvents(snap, many);
+  assert.equal(capped.length, 200);
+  assert.equal(capped[0].at, T + 50);
+  // A snapshot whose lanes name no `main` kind falls back to its first lane.
+  const alt = mkSnap([mkStep(1, { ts: T })]);
+  alt.lanes[0].kind = 'agent';
+  assert.equal(FlowView.placeEvents(alt, [{ kind: 'forked', label: 'f', at: T }]).length, 1);
+});
+
+test('detailOf carries the Events marks it is given, apart from the flags', () => {
+  const lay = FlowLayout.layout(mkSnap([mkStep(1)]), FlowLayout.emptyCollapseState());
+  const marks = [{ stepId: 's1', kind: 'stopped', word: 'stopped', label: 'Session stopped', detail: '', at: 1 }];
+  const d = FlowView.detailOf(lay.rows[0], lay.columns, marks);
+  assert.deepEqual(d.events, marks);
+  assert.deepEqual(d.flags, []);
+  assert.deepEqual(FlowView.detailOf(lay.rows[0], lay.columns).events, []);
+});
+
 test('detailOf: a long value is cut; a lane summary lists its count and the flags it inherited with their counts', () => {
   const long = mkStep(1, { detail: { result: 'x'.repeat(5000) } });
   const lay = FlowLayout.layout(mkSnap([long]), FlowLayout.emptyCollapseState());

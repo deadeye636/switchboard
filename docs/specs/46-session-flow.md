@@ -414,9 +414,19 @@ Claude's list (all heuristic; a recursive delete is flagged only at a BROAD targ
 - **No "Open in messages" (O6).** The messages view addresses an entry by its position after merging and filtering
   (`dataset.entryIndex` in `src/renderer/jsonl/jsonl-viewer.js`) or by a tool-use id; a flow step carries a file line and byte offset, and no
   reader puts a tool-use id into the snapshot. There is no stable mapping, so the button is not offered.
+- **Lifecycle from Events (T25, E5).** `needs-attention`, `stopped` and `forked` from the Events record (`src/app/timeline.js`, read through
+  the renderer's copy, `getTimelineEvents`) are an OVERLAY on the Flow, never merged into the snapshot or the layout: `FlowView.placeEvents`
+  (pure) puts each on the last main-lane step whose `ts` is at or before the event, or on the first timed step when the event is earlier
+  than every step (the panel says which), and the mark sits on the row standing for that step (a quiet group or a lane summary when it is
+  folded; the nearest row by ordinal when the step has none). It is a `◆` lifecycle chip apart from the transcript's flags, the latest event's word with `+N`, and its
+  title and the panel say "from Events", with the time, the label, the detail and how it was placed. At most 200 events per session;
+  computed once per layout and on every open of the viewer, so an event that arrives while the tab is open shows after a Refresh or a
+  reopen. A snapshot with no timed main-lane
+  step shows none. Highlights only, the exports and the step ids are untouched.
 - Click test (demo, 2026-11-11): the Codex flags fixture shows every mark kind with the guardian's verdicts and the mode mark; a Claude
   session with subagents compacts `2 × Bash` into a quiet group with anchors and lane summaries kept; End, Enter and Tab reach the quiet group
-  and the panel; switching the mode off restores the ordinary rows; no console error.
+  and the panel; switching the mode off restores the ordinary rows; no console error. T25 (same day): a session with attention, fork and
+  stop events shows each on the step written before it, and the panel names it as from Events.
 
 ## Exports
 
@@ -620,6 +630,12 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files (shown as the limitation `instructions-not-recorded`). The Pi reader shows the active branch only (abandoned steps still count against the caps), and a model missing from Pi's catalog has an unknown window.
 - A Codex sandbox block and every destructive-command match are heuristics and are labelled so.
+- Lifecycle marks from Events (T25) are placed by time only: an event lands on the last main-lane step written before it, so a session whose
+  clock and the app's disagree, or a step with no `ts`, can put it a row off. Events that arrive while the Flow tab is open show after a
+  Refresh or a reopen. **A `forked` mark can stand for any re-key**: the Events record writes `forked` / "Session forked" in `applyRekey`
+  (`src/session/session-transitions.js`) for a `/clear`, a plan accept, a Pi session adopting its own id and a real fork alike, and Flow
+  shows what the record says. Telling them apart is a change to the Events record (and its tab), not to Flow; not decided.
+  No "Open in messages" (O6, T24): the messages view has no anchor a step can address.
 - Codex (T22): a command built in code (a template with `${}`, a variable) is neither matched nor paired with a guardian verdict, so its step shows
   the escalation request alone. A call the guardian did not review and the answer of a person in the terminal show no verdict. When an unreviewed call is
   followed by a reviewed one with the same command text, the first takes the verdict; and a review of a call built in code whose literal text

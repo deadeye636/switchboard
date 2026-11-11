@@ -32,7 +32,7 @@
 // the next is armed after the previous call returned, so calls cannot overlap. Everything is stopped on a tab
 // switch, on close and on a session change.
 //
-// Free globals it reaches for (all at call time): app.js `activePtyIds`; backends/backend-registry.js
+// Free globals it reaches for (all at call time): app.js `activePtyIds` and `sessionTimelineStore`; session/session-timeline.js `getTimelineEvents` (T25, both feature-detected); backends/backend-registry.js
 // `sessionBackendId` and `window._backendsById`; `window.api.getSessionFlow / cancelSessionFlow / getSessionFlowStatus / exportSessionFlow` (feature-detected); `showControlDialog`, `showControlToast` (dialogs/control-dialogs.js); `sessionBadgeBackendId` (dialogs/dialogs.js, the backend the sidebar badge names);
 // FlowLayout (shared/flow-layout.js); loads AFTER shared/flow-text.js; FlowText (shared/flow-text.js, a parameter of the factory: the checkpoint figure, banner items, lane tag and row text, shared with the SVG export; `flagChips` and `flagLines` for the marks and the detail panel, used by this tab only).
 //
@@ -42,6 +42,14 @@
 // memory, like the other collapse state. The detail panel (`#flow-detail`, a focusable region under the list) shows the
 // selected row through `detailOf`: its fields, `step.detail`'s key/value rows and every flag with its sentence and
 // evidence. It is rebuilt only when the selection or the layout changes, never on scroll. No "Open in messages" (O6).
+//
+// LIFECYCLE FROM EVENTS (T25, E5). `needs-attention`, `stopped` and `forked` from the app's Events record are drawn as an
+// OVERLAY: `placeEvents` puts each on the last main-lane step written before it, and the mark sits on the row standing for that
+// step, apart from the transcript's own flags and with "from Events" in its title and in the panel. Nothing is added to the
+// snapshot or the layout, so Highlights only, the exports and the step ids are untouched. Recomputed once per layout and on
+// every open of the viewer (a Refresh or a reopen picks up events that arrived since); a snapshot with no timed step shows none.
+// The Events record writes `forked` on every re-key (a `/clear`, a plan accept, an adopted id as well as a fork), so the mark
+// says what the record says; see spec 46, Known gaps.
 //
 // Callers: session/timeline-view.js (`FlowView.attach` from showTimelineViewer).
 
@@ -189,6 +197,48 @@
   /** Does a status answer mean "there is more to read". */
   function statusMeansNewSteps(status) { return status === 'grew' || status === 'rewritten'; }
 
+  // The Events kinds Flow shows (E5), from the app's own lifecycle record (src/app/timeline.js), in its own words.
+  const EVENT_MARK_KINDS = Object.freeze({ 'needs-attention': 'needs attention', stopped: 'stopped', forked: 'forked' });
+  const MAX_EVENT_MARKS = 200;
+
+  const eventTime = (at) => (typeof at === 'number' ? at : Date.parse(at));
+
+  /**
+   * Where the Events record's lifecycle events (E5: needs-attention, stopped, forked) sit in the flow, WITHOUT merging the two
+   * sources: nothing is added to the snapshot or the layout. Each event goes to the last main-lane step whose `ts` is at or
+   * before the event's time, or to the first such step when it is earlier than all of them (`before: true`). `[{ stepId,
+   * ordinal, kind, word, before, label, detail, at }]` in time order, the label falling back to the word; `[]` when the snapshot has no timed main-lane step (then there is nothing to place against).
+   * Pure; at most MAX_EVENT_MARKS.
+   */
+  function placeEvents(snapshot, events) {
+    const lanes = (snapshot && snapshot.lanes) || [];
+    const main = lanes.find((l) => l.kind === 'main') || lanes[0];
+    if (!main || !Array.isArray(events) || !events.length) return [];
+    const timed = ((snapshot && snapshot.steps) || []).filter((s) => s.laneId === main.id && Number.isFinite(s.ts));
+    if (!timed.length) return [];
+    timed.sort((a, b) => a.ts - b.ts || a.ordinal - b.ordinal);
+    const picked = [];
+    for (const e of events) {
+      if (!e || !Object.prototype.hasOwnProperty.call(EVENT_MARK_KINDS, e.kind)) continue;
+      const t = eventTime(e.at);
+      if (Number.isFinite(t)) picked.push({ e, t });
+    }
+    picked.sort((a, b) => a.t - b.t);
+    const out = [];
+    for (const { e, t } of picked.slice(-MAX_EVENT_MARKS)) {
+      let lo = 0;
+      let hi = timed.length;   // first step with ts > t
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (timed[mid].ts <= t) lo = mid + 1; else hi = mid; }
+      const step = timed[Math.max(0, lo - 1)];
+      out.push({
+        stepId: step.id, ordinal: step.ordinal, kind: e.kind, word: EVENT_MARK_KINDS[e.kind], before: lo === 0,
+        label: typeof e.label === 'string' && e.label ? e.label : EVENT_MARK_KINDS[e.kind],
+        detail: typeof e.detail === 'string' ? e.detail : '', at: t,
+      });
+    }
+    return out;
+  }
+
   function detailValue(v) {
     let s;
     if (v == null) return '';
@@ -204,7 +254,13 @@
    * a group or a lane summary lists its count, and a summary its inherited flags. `columns` names the lanes. Pure.
    * There is no "Open in messages": O6 found no stable anchor in the messages view (see spec 46).
    */
-  function detailOf(row, columns) {
+  function detailOf(row, columns, eventMarks) {
+    const d = detailCore(row, columns);
+    if (d) d.events = Array.isArray(eventMarks) ? eventMarks : [];
+    return d;
+  }
+
+  function detailCore(row, columns) {
     if (!row) return null;
     const fields = [];
     const lane = (columns || []).find((c) => c.laneId === row.laneId);
@@ -279,9 +335,35 @@
   function relayout(entry) {
     const t0 = performance.now();
     entry.lay = FlowLayout.layout(entry.snapshot, entry.collapse);
-    entry.stepRows = null; // built on first use (selection / anchor); a plain scroll never needs it
+    entry.stepRows = null; // built on first use (selection, anchor, or placing Events marks); a scroll never rebuilds it
     entry.turnStarts = new Set(entry.lay.turns.map((t) => t.startRow));
+    entry.eventMarks = null;
     lastLayoutMs = performance.now() - t0;
+  }
+
+  /** The Events record of the session on screen (session/session-timeline.js, already fetched by showTimelineViewer). */
+  function timelineEventsOf(sessionId) {
+    if (typeof getTimelineEvents !== 'function' || typeof sessionTimelineStore === 'undefined') return [];
+    try { return getTimelineEvents(sessionTimelineStore, sessionId) || []; } catch { return []; }
+  }
+
+  /** row index -> the Events marks placed on it (`placeEvents`), once per layout; hidden steps land on the row standing for them. */
+  function eventMarksOf(entry) {
+    if (entry.eventMarks) return entry.eventMarks;
+    const map = new Map();
+    const placed = cur ? placeEvents(entry.snapshot, timelineEventsOf(cur.sessionId)) : [];
+    if (placed.length) {
+      const rows = stepRowsOf(entry);
+      for (const m of placed) {
+        // A step with no row of its own in the map falls back to the row of the nearest step by ordinal, never dropped.
+        const idx = resolveRowForStep(entry.snapshot, rows, m.stepId, m.ordinal);
+        if (idx < 0) continue;
+        const list = map.get(idx);
+        if (list) list.push(m); else map.set(idx, [m]);
+      }
+    }
+    entry.eventMarks = map;
+    return map;
   }
 
   /** Is Flow offered for this session, and if not, why. Answered from the backend's capability row, never a read. */
@@ -386,7 +468,7 @@
     if (!el) return;
     const entry = cur && cur.entry;
     const idx = entry && entry.lay ? currentRowIndex(entry) : -1;
-    const d = idx >= 0 ? detailOf(entry.lay.rows[idx], entry.lay.columns) : null;
+    const d = idx >= 0 ? detailOf(entry.lay.rows[idx], entry.lay.columns, eventMarksOf(entry).get(idx)) : null;
     if (!d) { el.replaceChildren(); el.hidden = true; syncViewportHeight(); return; }
     const kids = [];
     const h = document.createElement('div');
@@ -405,6 +487,24 @@
         const why = document.createElement('span');
         why.className = 'flow-detail-flag-why';
         why.textContent = f.why;
+        line.append(head, why);
+        list.appendChild(line);
+      }
+      kids.push(list);
+    }
+    if (d.events.length) {
+      const list = document.createElement('div');
+      list.className = 'flow-detail-flags flow-detail-events';
+      for (const m of d.events) {
+        const line = document.createElement('div');
+        line.className = 'flow-detail-flag flow-flag-lifecycle';
+        const head = document.createElement('span');
+        head.className = 'flow-detail-flag-head';
+        head.textContent = '◆ lifecycle · ' + m.word + ' · from Events · ' + new Date(m.at).toLocaleString();
+        const why = document.createElement('span');
+        why.className = 'flow-detail-flag-why';
+        why.textContent = m.label + (m.detail ? ': ' + m.detail : '')
+          + (m.before ? ' (earlier than every step, so placed at the first one)' : ' (placed at the last step written before it)');
         line.append(head, why);
         list.appendChild(line);
       }
@@ -527,6 +627,19 @@
       }
       el.appendChild(box);
       el.setAttribute('aria-label', (el.getAttribute('aria-label') || text) + '. ' + chips.map((c) => c.text.replace(/^\S+\s~?/, '') + ' (' + c.title.split(':')[0] + ')').join('; ') + (more ? '; and ' + more + ' more' : ''));
+    }
+    const evs = eventMarksOf(entry).get(index);
+    if (evs) {
+      // From the Events record, drawn apart from the transcript's own flags (E5: the sources are not merged).
+      const box = document.createElement('span');
+      box.className = 'flow-events';
+      const chip = document.createElement('span');
+      chip.className = 'flow-flag flow-flag-lifecycle flow-event';
+      chip.textContent = '◆ ' + evs[evs.length - 1].word + (evs.length > 1 ? ' +' + (evs.length - 1) : '');
+      chip.title = 'From Events: ' + evs.map((m) => m.label + ' at ' + new Date(m.at).toLocaleTimeString()).join('; ');
+      box.appendChild(chip);
+      el.appendChild(box);
+      el.setAttribute('aria-label', (el.getAttribute('aria-label') || text) + '. From Events: ' + evs.map((m) => m.word).join(', '));
     }
     const cp = row.kind === 'step' ? checkpointInfo(row.step) : null;
     if (cp) {
@@ -963,6 +1076,8 @@
     if (!viewer || !$('flow-view')) return;
     if (cur && cur.sessionId !== session.sessionId) teardownSession();
     if (cur) cur.session = session;   // the row the export reads the badge's backend from
+    // Opening the viewer re-reads the Events record (showTimelineViewer), so the marks are placed again on every open.
+    if (cur && cur.entry) cur.entry.eventMarks = null;
     if (!cur) {
       const id = session.sessionId;
       cur = {
@@ -970,7 +1085,7 @@
         entry: cache.get(id) || null, gen: 0, loading: false, polling: false, timer: 0, raf: 0,
         wasRunning: false, hint: false, scrollTop: 0, viewportH: FALLBACK_VIEWPORT_H, rendered: null,
       };
-      if (cur.entry) { touch(id, cur.entry); cur.scrollTop = cur.entry.scrollTop || 0; }
+      if (cur.entry) { touch(id, cur.entry); cur.scrollTop = cur.entry.scrollTop || 0; cur.entry.eventMarks = null; }
       // The previous session's rows, rails and offset must not show while this one is read.
       const slice = $('flow-slice');
       const rails = $('flow-rails');
@@ -1034,7 +1149,7 @@
   return Object.freeze({
     ROW_H, OVERSCAN, POLL_MS, CACHE_MAX,
     computeSlice, buildStepRowMap, resolveSelection, captureAnchor, resolveRowForStep, restoreAnchor,
-    laneTagInfo, shouldPoll, statusMeansNewSteps, isCancelledAnswer, bannerItems, bannerSummary, checkpointInfo, rowText, detailOf,
+    laneTagInfo, shouldPoll, statusMeansNewSteps, isCancelledAnswer, bannerItems, bannerSummary, checkpointInfo, rowText, detailOf, placeEvents,
     attach, refresh, notifyRunningChanged, debugStats,
   });
 });
