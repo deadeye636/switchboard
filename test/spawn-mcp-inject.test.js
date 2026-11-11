@@ -91,7 +91,10 @@ function setup({ backend = fakeBackend(), userEnv = {}, sessions = [], quitting 
   return ctx;
 }
 
-const CWD = process.cwd();
+// A directory of its own, never `process.cwd()`: a checkout under `.claude/worktrees/` is a worktree of the main one,
+// so `settingsOwnerPath` files its settings under the main checkout and `project:<CWD>` would name nothing.
+const CWD = require('node:fs').mkdtempSync(path.join(require('node:os').tmpdir(), 'sb-spawn-mcp-'));
+require('node:test').after(() => require('node:fs').rmSync(CWD, { recursive: true, force: true }));
 const injection = () => {
   const rec = { released: 0 };
   return { rec, value: { args: ['--mcp', 'cfg'], env: { MCP_X: 'injected', SHARED: 'injected' }, release: () => { rec.released++; } } };
