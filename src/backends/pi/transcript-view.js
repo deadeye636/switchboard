@@ -9,6 +9,7 @@
 const { TRANSPORT_MARKER_TYPE } = require('./transport-marker');
 const { isPartialArgs } = require('../../shared/partial-args');
 const path = require('path');
+const { activeChain } = require('./active-branch');
 const { documentElement, isDocumentElement, kindOfPath } = require('../document-ref');
 
 function activeEntries(entries) {
@@ -24,13 +25,7 @@ function activeEntries(entries) {
   }
   if (!leaf) return header ? [header, ...body] : body.slice();
 
-  const path = [];
-  const seen = new Set();
-  for (let cur = leaf; cur && cur.id && !seen.has(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : null) {
-    seen.add(cur.id);
-    path.push(cur);
-  }
-  path.reverse();
+  const path = activeChain((id) => { const e = byId.get(id); return e && e.parentId && byId.has(e.parentId) ? e.parentId : null; }, leaf.id).map((id) => byId.get(id));
   return header ? [header, ...path] : path;
 }
 

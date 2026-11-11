@@ -42,7 +42,7 @@ const PINNED = {
     review: 'no',     // spec 39: no pipe driver
     task: 'no',     // spec 41: no pipe driver
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
-    sessionFlow: 'limited', // spec 46: reader not built yet
+    sessionFlow: 'limited', // spec 46: main plus child lanes; no approval record
     turnDigest: 'yes',   // #507: a bounded tail read of its rollout
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -82,7 +82,7 @@ const PINNED = {
     review: 'no',     // spec 39: a review runs on a pipe; Pi's pipe driver is pi-native
     task: 'no',     // spec 41: a task runs on a pipe; Pi's pipe driver is pi-native
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is pi-native
-    sessionFlow: 'limited', // spec 46: reader not built yet
+    sessionFlow: 'limited', // spec 46: one lane, agents as a summary step, no approval step in a terminal
     turnDigest: 'yes',   // #507: a bounded tail read of its session file
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',

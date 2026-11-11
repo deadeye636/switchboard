@@ -24,7 +24,7 @@ const pathMod = require('node:path');
 const { flowStepId } = require('../../shared/flow-snapshot');
 const {
   MAX_STEPS, MAX_LINE_BYTES, MAX_SNAPSHOT_BYTES, LABEL_CHARS, DETAIL_CHARS, STEP_OVERHEAD,
-  trunc, firstLine, isObject, readLines, detailSize, evidence,
+  instructionLabel, trunc, firstLine, isObject, readLines, detailSize, evidence,
 } = require('../flow-lines');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
 const { resolveClaudeVariant } = require('./model-windows');
@@ -67,30 +67,6 @@ function textOfResult(content) {
     }
   }
   return out;
-}
-
-// An instruction file's label (spec 46): relative to the session's working directory when the file lies inside it
-// (`CLAUDE.md`, `.claude/rules/x.md`), else relative to the home directory as `~/...`, else the last two segments
-// behind an ellipsis. Never a drive letter or a leading root, and the full path is not kept anywhere in the snapshot.
-const WIN_ABS = /^(?:[A-Za-z]:[\\/]|\\\\)/;
-const SLASHES = /\\/g;
-
-function instructionLabel(file, cwd, home) {
-  if (typeof file !== 'string' || !file) return 'Instruction file';
-  const winShaped = WIN_ABS.test(file);
-  const pm = winShaped ? pathMod.win32 : pathMod.posix;
-  if (!pm.isAbsolute(file)) return file.replace(SLASHES, '/');
-  const inside = (base) => {
-    if (typeof base !== 'string' || !base || WIN_ABS.test(base) !== winShaped || !pm.isAbsolute(base)) return null;
-    const rel = pm.relative(base, file);
-    return rel && !rel.startsWith('..') && !pm.isAbsolute(rel) ? rel.replace(SLASHES, '/') : null;
-  };
-  const inCwd = inside(cwd);
-  if (inCwd) return inCwd;
-  const inHome = inside(home);
-  if (inHome) return '~/' + inHome;
-  const parts = file.split(/[\\/]+/).filter((x) => x && !/^[A-Za-z]:$/.test(x));
-  return '\u2026/' + parts.slice(-2).join('/');
 }
 
 // One lane's builder. `shared` is the snapshot-wide state every lane writes to, so the caps apply to the whole snapshot

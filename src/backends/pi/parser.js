@@ -24,6 +24,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 const { transportFromEntry } = require('./transport-marker');
+const { activeChain } = require('./active-branch');
 
 //   v2: the parse state carries per-(date, model) metrics (#154)
 //   v3: per-(date, HOUR, model), bucketed in LOCAL time, with cost booked on the turn that spent it (#159)
@@ -173,13 +174,7 @@ function activeEntries(entries) {
     leaf = entry;
   }
   if (!leaf) return entries.slice();   // legacy v1-ish fixtures: linear entries without tree ids
-  const out = [];
-  const seen = new Set();
-  for (let cur = leaf; cur && cur.id && !seen.has(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : null) {
-    seen.add(cur.id);
-    out.push(cur);
-  }
-  return out.reverse();
+  return activeChain((id) => { const e = byId.get(id); return e && e.parentId && byId.has(e.parentId) ? e.parentId : null; }, leaf.id).map((id) => byId.get(id));
 }
 
 function applyEntry(st, entry) {

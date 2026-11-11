@@ -163,8 +163,6 @@ test('a step source carries no path, links point at real lanes and steps, limita
 });
 
 test('shared constants handed out are frozen', () => {
-  const hook = require('../src/backends/flow-hook');
-  assert.ok(Object.isFrozen(hook.NOT_BUILT_LIMITATION));
   assert.ok(Object.isFrozen(flow));
   assert.ok(Object.isFrozen(flow.FLOW_STEP_KINDS));
 });
@@ -185,17 +183,17 @@ test('the vocabulary names the four evidence bases and the four flag axes of the
   assert.equal(flow.FLOW_SCHEMA_VERSION, 1);
 });
 
-test('requiring the backend registry loads no flow reader (spec 46: lazy, never at descriptor load)', () => {
+test('requiring the backend registry loads no flow reader (spec 46: lazy, never at descriptor load)', async () => {
   const backends = require('../src/backends');
   backends.list();
   const loaded = Object.keys(require.cache).map(f => f.split(path.sep).join('/'));
-  const readers = loaded.filter(f => /\/src\/backends\/(?:[^/]+\/)?flow-(?:reader|stub|lines|capabilities)[^/]*\.js$/.test(f));
+  const readers = loaded.filter(f => /\/src\/backends\/(?:[^/]+\/)?flow-(?:reader|lines|capabilities)[^/]*\.js$/.test(f));
   assert.deepEqual(readers, [], 'a flow reader module was loaded with the registry');
   // …and the hook does load it, on use.
-  const pi = backends.get('pi'); // still on the stub; Claude's and Codex's readers are covered by their own tests
-  const snap = pi.readSessionFlow([], {});
+  const pi = backends.get('pi'); // any reader proves the lazy load; each is covered by its own test
+  const snap = await pi.readSessionFlow([], {});
   assert.equal(flow.validateSnapshot(snap).ok, true);
-  assert.ok(Object.keys(require.cache).some(f => /flow-stub\.js$/.test(f)), 'the first call should load the reader');
+  assert.ok(Object.keys(require.cache).some(f => /flow-reader\.js$/.test(f)), 'the first call should load the reader');
 });
 
 test('sessionFlow is never called from the scan, the watchers or the workers', () => {

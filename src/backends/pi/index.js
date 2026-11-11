@@ -532,15 +532,14 @@ module.exports = {
   // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer; the pipe driver is pi-native.
   idleMaintenance: () => null,
   // The session's flow (spec 46, #826): the session file is the row's `filePath`, so the cheap half touches no disk. The
-  // reader is required on first use, never at load. A stub until Pi's reader is built.
+  // reader is required on first use, never at load. Both halves take their capabilities from `flow-capabilities.js`, so they
+  // cannot disagree. One lane: a delegated agent writes no session file (spec 46, T16). pi-native resolves through these.
   sessionFlow: (row) => {
     const hook = require('../flow-hook');
-    return hook.singleFileFlowAnswer(row, row && row.filePath, {
-      capabilities: hook.stubFlowCapabilities('perFile'),
-      limitations: [hook.NOT_BUILT_LIMITATION],
-    });
+    const answer = require('./flow-capabilities');
+    return hook.singleFileFlowAnswer(row, row && row.filePath, { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
   },
-  readSessionFlow: (sources, opts) => require('../flow-stub').readSessionFlow(sources, opts, 'perFile'),
+  readSessionFlow: (sources, opts) => require('./flow-reader').readSessionFlow(sources, opts),
   // External MCP servers (spec 36): through the resources extension's MCP section, stdio only, no `cwd`
   // (`./session-resources.js`); there is no quartet, so this is the only place the channel is declared.
   externalMcpTakes: { transports: ['stdio'], cwd: false },
@@ -628,7 +627,7 @@ module.exports = {
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is pi-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is pi-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is pi-native' },
-    sessionFlow: { state: 'limited', note: 'reader not built yet, so the Flow tab shows no steps (spec 46)' },
+    sessionFlow: { state: 'limited', note: 'one lane: a delegated agent writes no session file, so it is one summary step; no permission mode, no approval step in a terminal, no risk marks yet (spec 46)' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },

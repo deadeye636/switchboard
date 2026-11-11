@@ -32,18 +32,4 @@ function singleFileFlowAnswer(row, file, { capabilities, limitations }) {
   };
 }
 
-// The answer of a backend whose reader is not built yet (plan T3): every capability `partial` with the one
-// limitation that says so, and the way its instruction files will be shown once they are read. Drop a
-// backend's use of this when its real reader lands and it can state what it measures.
-const NOT_BUILT_LIMITATION = Object.freeze({ id: 'reader-not-built', text: 'The flow reader for this backend is not built yet, so no steps are shown.' });
-
-function stubFlowCapabilities(instructionFiles) {
-  const caps = {};
-  for (const id of ['agents', 'contextCheckpoints', 'permissionMode', 'approvals', 'compaction', 'interrupt', 'destructivePatterns', 'timestamps']) {
-    caps[id] = flowCap('partial', NOT_BUILT_LIMITATION.id);
-  }
-  caps.instructionFiles = flowCap(instructionFiles, NOT_BUILT_LIMITATION.id);
-  return caps;
-}
-
-module.exports = { flowCap, singleFileFlowAnswer, stubFlowCapabilities, NOT_BUILT_LIMITATION };
+module.exports = { flowCap, singleFileFlowAnswer };

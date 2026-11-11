@@ -8,6 +8,7 @@
 // Extracted from Claude's reader when Codex's was written (T14), so the two cannot drift on a cap or a line rule.
 
 const fs = require('node:fs');
+const pathMod = require('node:path');
 
 const CHUNK_BYTES = 64 * 1024;
 const MAX_LINE_BYTES = 4 * 1024 * 1024;
@@ -39,9 +40,25 @@ function firstLine(value) {
 
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
+const HEAD_BYTES = 512;
+
+// The first HEAD_BYTES bytes of a line that is being skipped: what `pieces` already hold, then the part of this chunk.
+function headOf(pieces, rest) {
+  const parts = [];
+  let have = 0;
+  for (const piece of pieces.concat([rest])) {
+    if (have >= HEAD_BYTES) break;
+    const take = piece.subarray(0, HEAD_BYTES - have);
+    parts.push(take);
+    have += take.length;
+  }
+  return Buffer.concat(parts, have).toString('utf8');
+}
+
 /**
  * Reads `file` as lines. `onLine(text, lineNo, byteOffset)` returns true to stop; `onOversize(lineNo, byteOffset,
- * bytes)` is called for a line over the cap, which was never held in memory beyond one chunk. Resolves
+ * bytes, head)` is called for a line over the cap, which was never held in memory beyond one chunk; `head` is its first
+ * 512 bytes as text (bytes already in hand, so no extra read), for a reader that needs a field the format writes first. Resolves
  * `{ aborted }`. Rejects on a read error.
  */
 async function readLines(file, { maxLineBytes, signal }, onLine, onOversize) {
@@ -50,6 +67,7 @@ async function readLines(file, { maxLineBytes, signal }, onLine, onOversize) {
   let pieceBytes = 0;
   let skipping = false;
   let skippedBytes = 0;
+  let skipHead = '';
   let lineNo = 0;
   let lineStart = 0;
   let chunkPos = 0;
@@ -59,7 +77,7 @@ async function readLines(file, { maxLineBytes, signal }, onLine, onOversize) {
     lineNo += 1;
     let stop = false;
     if (skipping) {
-      stop = onOversize(lineNo, lineStart, skippedBytes) === true;
+      stop = onOversize(lineNo, lineStart, skippedBytes, skipHead) === true;
     } else if (pieceBytes > 0) {
       const text = pieces.length === 1 ? pieces[0].toString('utf8') : Buffer.concat(pieces, pieceBytes).toString('utf8');
       stop = onLine(text, lineNo, lineStart) === true;
@@ -68,6 +86,7 @@ async function readLines(file, { maxLineBytes, signal }, onLine, onOversize) {
     pieceBytes = 0;
     skipping = false;
     skippedBytes = 0;
+    skipHead = '';
     return stop;
   };
 
@@ -83,6 +102,7 @@ async function readLines(file, { maxLineBytes, signal }, onLine, onOversize) {
           skippedBytes += len;
         } else if (pieceBytes + len > maxLineBytes) {
           skipping = true;
+          skipHead = headOf(pieces, chunk.subarray(start, end));
           skippedBytes = pieceBytes + len;
           pieces = [];
           pieceBytes = 0;
@@ -116,7 +136,32 @@ function detailSize(detail) {
 function evidence(value, unit, basis, note) {
   return { value, unit, basis, note: note || '' };
 }
+// Shared since the Pi reader (T16): Claude and Pi both name instruction files by path.
+// An instruction file's label (spec 46): relative to the session's working directory when the file lies inside it
+// (`CLAUDE.md`, `.claude/rules/x.md`), else relative to the home directory as `~/...`, else the last two segments
+// behind an ellipsis. Never a drive letter or a leading root, and the full path is not kept anywhere in the snapshot.
+const WIN_ABS = /^(?:[A-Za-z]:[\\/]|\\\\)/;
+const SLASHES = /\\/g;
+
+function instructionLabel(file, cwd, home) {
+  if (typeof file !== 'string' || !file) return 'Instruction file';
+  const winShaped = WIN_ABS.test(file);
+  const pm = winShaped ? pathMod.win32 : pathMod.posix;
+  if (!pm.isAbsolute(file)) return file.replace(SLASHES, '/');
+  const inside = (base) => {
+    if (typeof base !== 'string' || !base || WIN_ABS.test(base) !== winShaped || !pm.isAbsolute(base)) return null;
+    const rel = pm.relative(base, file);
+    return rel && !rel.startsWith('..') && !pm.isAbsolute(rel) ? rel.replace(SLASHES, '/') : null;
+  };
+  const inCwd = inside(cwd);
+  if (inCwd) return inCwd;
+  const inHome = inside(home);
+  if (inHome) return '~/' + inHome;
+  const parts = file.split(/[\\/]+/).filter((x) => x && !/^[A-Za-z]:$/.test(x));
+  return '\u2026/' + parts.slice(-2).join('/');
+}
+
 module.exports = {
   CHUNK_BYTES, MAX_LINE_BYTES, MAX_STEPS, MAX_SNAPSHOT_BYTES, LABEL_CHARS, DETAIL_CHARS, STEP_OVERHEAD,
-  trunc, firstLine, isObject, readLines, detailSize, evidence,
+  trunc, firstLine, isObject, readLines, detailSize, evidence, instructionLabel,
 };
