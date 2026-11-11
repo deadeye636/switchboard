@@ -42,7 +42,7 @@ test('the rows: a total, then each process with its depth; a session with nothin
     { pid: 10, name: 'pwsh.exe', depth: 0, cpu: 0.5, memory: 40 * MB },
     { pid: 11, name: 'claude.exe', depth: 1, cpu: 2, memory: 300 * MB },
   ]), 's1');
-  assert.deepEqual(model.total, { main: 'Total · 2 processes', meta: '2.5 % · 340 MB' });
+  assert.deepEqual(model.total.map((t) => [t.main, t.meta]), [['Processes', '2'], ['CPU', '2.5 %'], ['Memory', '340 MB']]);
   assert.deepEqual(model.rows.map((r) => [r.key, r.main, r.depth]), [['10', 'pwsh.exe', 0], ['11', 'claude.exe', 1]]);
   assert.equal(processRows({ ok: true, supported: true, sessions: { s1: { running: false } } }, 's1').note, 'This session has no running process.');
   assert.equal(processRows({ ok: true, supported: false, message: 'Not installed.' }, 's1').note, 'Not installed.');
@@ -55,7 +55,10 @@ test('the open group reads once for its session and draws the tree', async () =>
   await flush(); await flush();
   assert.deepEqual(h.calls.usage, [['s1']]);
   const body = h.slot('processes').querySelector('.ssb-group-body');
-  assert.equal(body.querySelector('.ssb-proc-total').textContent, 'Total · 2 processes4.0 % · 30.0 MB');
+  assert.deepEqual([...body.querySelectorAll('.ssb-proc-total')].map((r) => r.textContent), ['Processes2', 'CPU4.0 %', 'Memory30.0 MB']);
+  const tree = body.querySelector('details.ssb-proc-tree');
+  assert.equal(tree.open, false, '#845: the tree is folded by default');
+  assert.equal(tree.querySelector('summary').textContent, 'Process tree2');
   assert.deepEqual([...body.querySelectorAll('.ssb-proc-row')].map((r) => r.dataset.pid), ['10', '11']);
   const pad = (i) => parseInt(body.querySelectorAll('.ssb-proc-row')[i].style.paddingLeft, 10);
   assert.ok(pad(1) > pad(0), 'a child sits in from its parent');
@@ -74,7 +77,7 @@ test('a tick patches only what changed: a row that stays keeps its element, a go
   assert.equal(bash.querySelector('.ssb-row-meta').textContent, bashMeta);
   assert.equal(body.querySelector('[data-pid="11"]'), null);
   assert.deepEqual([...body.querySelectorAll('.ssb-proc-row')].map((r) => r.dataset.pid), ['10', '12']);
-  assert.match(body.querySelector('.ssb-proc-total').textContent, /Total · 2 processes/);
+  assert.equal(body.querySelector('.ssb-proc-total[data-total="count"] .ssb-row-meta').textContent, '2');
 });
 
 test('nothing is measured while the window is hidden or the sidebar is out of view; a closed or hidden group ends the poll', async () => {
@@ -211,4 +214,42 @@ test('a collapsed Processes group shown again after being hidden starts its poll
   await new Promise((r) => setTimeout(r, 5)); await flush();
   assert.equal(h.calls.usage.length, before + 1);
   assert.equal(section.querySelector('summary > .ssb-group-figure').textContent, '5.0 %');
+});
+
+test('#845: the opened tree stays open through a tick, a change of shape and a reload, and its count follows', async () => {
+  let answer = answerFor([{ pid: 10, name: 'bash', depth: 0, cpu: 1, memory: MB }]);
+  const h = setupSessionSidebar({ processUsage: () => answer });
+  await flush(); await flush();
+  const body = () => h.slot('processes').querySelector('.ssb-group-body');
+  const tree = () => body().querySelector('details.ssb-proc-tree');
+  tree().open = true;
+  answer = answerFor([{ pid: 10, name: 'bash', depth: 0, cpu: 2, memory: MB }, { pid: 11, name: 'node', depth: 1, cpu: 1, memory: MB }]);
+  await h.run('sidebarTickProcesses(__entry)');
+  assert.equal(tree().open, true, 'a tick');
+  assert.equal(tree().querySelector('summary .ssb-row-meta').textContent, '2');
+  assert.equal(body().querySelector('.ssb-proc-total[data-total="cpu"] .ssb-row-meta').textContent, '3.0 %');
+  answer = { ok: true, supported: true, sessions: { s1: { running: false } } };
+  await h.run('sidebarTickProcesses(__entry)');
+  assert.equal(tree(), null, 'nothing running: a note');
+  answer = answerFor([{ pid: 12, name: 'git', depth: 0, cpu: 0, memory: MB }]);
+  await h.run('sidebarTickProcesses(__entry)');
+  assert.equal(tree().open, false, 'after a note there is no fold to remember');
+  tree().open = true;
+  h.run('loadOpenSidebarGroups(__entry, true)');
+  await flush(); await flush();
+  assert.equal(tree().open, true, 'a reload keeps it');
+});
+
+test('#845: a folded tree is patched too, and a cut list says of how many', async () => {
+  let answer = answerFor([{ pid: 10, name: 'bash', depth: 0, cpu: 1, memory: MB }]);
+  const h = setupSessionSidebar({ processUsage: () => answer });
+  await flush(); await flush();
+  const tree = () => h.slot('processes').querySelector('details.ssb-proc-tree');
+  assert.equal(tree().open, false);
+  answer = answerFor([{ pid: 10, name: 'bash', depth: 0, cpu: 1, memory: MB }, { pid: 11, name: 'node', depth: 1, cpu: 1, memory: MB }],
+    { truncated: true, total: { cpu: 2, memory: 2 * MB, count: 40 } });
+  await h.run('sidebarTickProcesses(__entry)');
+  assert.deepEqual([...tree().querySelectorAll('.ssb-proc-row')].map((r) => r.dataset.pid), ['10', '11'], 'rows follow while folded');
+  assert.equal(tree().querySelector('summary .ssb-row-meta').textContent, '2 of 40');
+  assert.ok(tree().querySelector(':scope > .ssb-note'), 'the cut note sits in the fold');
 });

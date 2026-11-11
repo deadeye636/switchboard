@@ -308,11 +308,17 @@ function processRows(answer, sessionId) {
   const s = answer.sessions && answer.sessions[sessionId];
   if (!s || !s.running) return { note: 'This session has no running process.' };
   const meta = (cpu, memory) => [sidebarCpu(cpu), sidebarBytes(memory)].filter(Boolean).join(' · ');
-  const count = s.total.count === 1 ? '1 process' : `${s.total.count} processes`;
   return {
-    total: { main: `Total · ${count}`, meta: meta(s.total.cpu, s.total.memory) },
+    // The overview: the three figures a glance wants, one row each (#845). The tree sits folded below it.
+    total: [
+      { key: 'count', main: 'Processes', meta: String(s.total.count) },
+      { key: 'cpu', main: 'CPU', meta: sidebarCpu(s.total.cpu) },
+      { key: 'memory', main: 'Memory', meta: sidebarBytes(s.total.memory) },
+    ],
     rows: s.rows.map((r) => ({ key: String(r.pid), main: r.name, meta: meta(r.cpu, r.memory), title: `pid ${r.pid}`, depth: Math.min(r.depth, 8) })),
     truncated: s.truncated === true,
+    // Beside the fold: the rows it holds, and of how many when the list is cut, so it agrees with the overview.
+    treeCount: s.truncated === true ? `${s.rows.length} of ${s.total.count}` : String(s.rows.length),
   };
 }
 
@@ -320,12 +326,17 @@ function processRowHtml(row) {
   return `<div class="ssb-row ssb-row-info ssb-proc-row" data-pid="${escapeHtml(row.key)}" title="${escapeHtml(row.title)}" style="padding-left:${4 + row.depth * 10}px">`
     + `<span class="ssb-row-main">${escapeHtml(row.main)}</span><span class="ssb-row-meta">${escapeHtml(row.meta)}</span></div>`;
 }
-function processesHtml(model) {
+// The overview first, then the tree in a fold of the Context breakdown's kind (`.ssb-sublist`), closed unless `treeOpen`:
+// a redraw passes the state the fold had, so a poll or a reload never closes a tree the user opened.
+function processesHtml(model, treeOpen = false) {
   if (model.note) return sidebarNote(model.note);
-  return `<div class="ssb-row ssb-row-info ssb-proc-total"><span class="ssb-row-main">${escapeHtml(model.total.main)}</span>`
-    + `<span class="ssb-row-meta">${escapeHtml(model.total.meta)}</span></div>`
+  return model.total.map((t) => `<div class="ssb-row ssb-row-info ssb-proc-total" data-total="${t.key}">`
+    + `<span class="ssb-row-main">${escapeHtml(t.main)}</span><span class="ssb-row-meta">${escapeHtml(t.meta)}</span></div>`).join('')
+    + `<details class="ssb-sublist ssb-proc-tree" data-list="processes"${treeOpen ? ' open' : ''}>`
+    + `<summary><span class="ssb-row-main">Process tree</span><span class="ssb-row-meta">${escapeHtml(model.treeCount)}</span></summary>`
     + `<div class="ssb-proc-list">${model.rows.map(processRowHtml).join('')}</div>`
-    + (model.truncated ? sidebarNote('Only the first processes are listed.') : '');
+    + (model.truncated ? sidebarNote('Only the first processes are listed.') : '')
+    + '</details>';
 }
 
 // The figure a collapsed group shows in its header (#840): the session's total CPU, the share of the context window in
@@ -663,7 +674,7 @@ const SESSION_SIDEBAR_GROUPS = [
         sidebarSetHeadFigure(entry, 'processes', processHeadFigure(answer, sessionId));
         sidebarScheduleProcesses(entry);
       }
-      return processesHtml(processRows(answer, sessionId));
+      return processesHtml(processRows(answer, sessionId), sidebarProcessTreeOpen(entry));
     },
   },
   {
@@ -873,19 +884,27 @@ async function sidebarTickProcesses(entry) {
   sidebarScheduleProcesses(entry);
 }
 
-// Only what changed is touched: the total's figures, a row whose text moved, a row that came or went. A change of
-// shape (a note instead of rows, or back) redraws the body.
+// Is the Processes group's tree fold open now (#845)? Read from the DOM, so every redraw keeps what the user chose.
+function sidebarProcessTreeOpen(entry) {
+  const section = sidebarProcessSection(entry);
+  return !!(section && section.querySelector('.ssb-proc-tree[open]'));
+}
+
+// Only what changed is touched: the overview's figures, the tree's count, a row whose text moved, a row that came or
+// went. A change of shape (a note instead of rows, or back) redraws the body, with the fold as it was.
 function sidebarPatchProcesses(body, model) {
   const list = body && body.querySelector('.ssb-proc-list');
   if (!body || model.note || !list) {
-    const html = processesHtml(model);
+    const html = processesHtml(model, !!(body && body.querySelector('.ssb-proc-tree[open]')));
     if (body && body.innerHTML !== html) body.innerHTML = html;
     return;
   }
-  const total = body.querySelector('.ssb-proc-total .ssb-row-meta');
-  if (total && total.textContent !== model.total.meta) total.textContent = model.total.meta;
-  const totalMain = body.querySelector('.ssb-proc-total .ssb-row-main');
-  if (totalMain && totalMain.textContent !== model.total.main) totalMain.textContent = model.total.main;
+  for (const t of model.total) {
+    const meta = body.querySelector(`.ssb-proc-total[data-total="${t.key}"] .ssb-row-meta`);
+    if (meta && meta.textContent !== t.meta) meta.textContent = t.meta;
+  }
+  const count = body.querySelector('.ssb-proc-tree > summary .ssb-row-meta');
+  if (count && count.textContent !== model.treeCount) count.textContent = model.treeCount;
   const old = new Map([...list.children].map((el) => [el.dataset.pid, el]));
   let at = list.firstElementChild;
   for (const row of model.rows) {
@@ -908,8 +927,9 @@ function sidebarPatchProcesses(body, model) {
     else at = at.nextElementSibling;
   }
   for (const el of old.values()) el.remove();
-  const cut = body.querySelector(':scope > .ssb-note');
-  if (model.truncated && !cut) body.insertAdjacentHTML('beforeend', sidebarNote('Only the first processes are listed.'));
+  const tree = body.querySelector('.ssb-proc-tree');
+  const cut = tree && tree.querySelector(':scope > .ssb-note');
+  if (model.truncated && tree && !cut) tree.insertAdjacentHTML('beforeend', sidebarNote('Only the first processes are listed.'));
   else if (!model.truncated && cut) cut.remove();
 }
 

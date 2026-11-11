@@ -187,8 +187,13 @@ one global setting, `sessionSidebarOrder`, and every session sidebar in every wi
 ## Processes (#834)
 
 What the session costs the machine: its process tree from its root (the terminal's shell, or the pipe child of a
-backend driven over a runtime protocol; both are `session.pty.pid`), each process with its name, CPU and memory, and a
-total at the top. Closed by default, between Repository and Context (#841).
+backend driven over a runtime protocol; both are `session.pty.pid`), each process with its name, CPU and memory. Closed
+by default, between Repository and Context (#841).
+
+- **An overview first, the tree folded below it (#845).** The open group shows three rows, process count, CPU and
+  memory, and under them a "Process tree" fold of the Context breakdown's kind (`.ssb-sublist`) with the row count beside
+  it, `M of N` when the list is cut at `MAX_ROWS` (the note saying so sits inside the fold). The fold is closed by default; a redraw (a tick that changes shape, a reload) reads its state from the DOM first,
+  so it stays as the user left it while the sidebar is open. It is not stored: a new sidebar starts folded.
 
 - **Owner decision (way a):** Windows measures through `@vscode/windows-process-tree`, a native module (N-API, so no
   rebuild per Electron version). It is in `optionalDependencies`, required lazily, and unpacked from the asar; a machine
@@ -207,7 +212,8 @@ total at the top. Closed by default, between Repository and Context (#841).
   at once, while a window shown again waits for the next tick (up to one interval); a hidden group, a closed sidebar
   or a removed session ends the poll, and the next read starts it again. Nothing in main runs on its own.
 - **Only what changed is redrawn.** Rows are keyed by pid: a row whose figures did not move is not touched, a row that
-  came or went is inserted or removed, and the total updates its text. No animation.
+  came or went is inserted or removed, and the overview and the tree's count update their text. The rows are patched
+  while the fold is closed too, so opening it shows the last sample at once. No animation.
 - **The answer is neutral:** per session `running`, a total `{ cpu, memory, count }` and at most `MAX_ROWS` rows
   `{ pid, name, depth, cpu, memory }`. No command line, no path, no backend id.
 - A process that ends between two samples drops out; a session whose root is not running says it has no running process.
