@@ -2405,7 +2405,7 @@ const flowRead = require('./app/session-flow');
 flowRead.init({ getCachedSession, getSetting, getAppQuitting: () => appQuitting, log });
 flowRead.registerIpc(ipcMain);
 const flowExport = require('./app/flow-export');
-flowExport.init({ dialog, getParentWindow: (sender) => BrowserWindow.fromWebContents(sender) || mainWindow, getAppVersion: () => app.getVersion(), log });
+flowExport.init({ BrowserWindow, dialog, getParentWindow: (sender) => BrowserWindow.fromWebContents(sender) || mainWindow, getAppVersion: () => app.getVersion(), log });
 flowExport.registerIpc(ipcMain);
 
 const spawn = require('./app/terminal/spawn');
@@ -2620,6 +2620,7 @@ const lifecycleCtx = {
   terminateScanWorker: () => sessionCache.terminateScanWorker(),
   terminateIndexWorker: () => indexWorker.terminate(),
   terminateSessionFlow: () => flowRead.terminateAll(),
+  destroyFlowPdf: () => require('./app/flow-pdf').destroyPending(),
   shutdownSearchClient: () => searchClient.shutdown(),
   // Both viewer-side watches (#452): the per-file ones the panels hold and the plans-directory one
   // that keeps the list live.

@@ -185,12 +185,36 @@ function writeTextFile(file, content, { expectPrevious = null, mustExist = true,
   return { ok: true, content: text, mtimeMs, verdict };
 }
 
+/**
+ * Write raw bytes to the file, atomically (temp file in the same directory, then the rename with its retry). For a file the
+ * app owns outright and nobody else reads while it is written: a PDF export. No baseline compare, no encoding rules,
+ * no text; a Buffer or Uint8Array goes to disk byte for byte (#826). Returns { ok: true } or { ok: false, code: 'failed', cause }.
+ */
+function writeBinaryFile(file, bytes, { rename = fs.renameSync } = {}) {
+  const target = path.resolve(file);
+  let st = null;
+  try { st = fs.statSync(target); } catch { st = null; }
+  if (st && st.isDirectory()) return failed(Object.assign(new Error('EISDIR: illegal operation on a directory'), { code: 'EISDIR' }));
+  const dir = path.dirname(target);
+  const tmp = path.join(dir, '.' + path.basename(target) + '.sb-' + process.pid + '-' + Date.now() + '.tmp');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(tmp, bytes);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* nothing to clean up */ }
+    return failed(err);
+  }
+  const renameErr = renameWithRetry(tmp, target, rename);
+  if (renameErr) return failed(renameErr);
+  return { ok: true };
+}
+
 // `renameWithRetry` is exported under its own name because a second caller earned it: the transcript
 // rewrite in `backends/rewrite-cwd.js` cannot use `writeTextFile` (it is append-aware and keeps each
 // line's own EOL — #557) but hits the SAME Windows rename-over-target failure, and a copy of these
 // delays living in the backends folder is how two answers to one question start drifting. The
 // underscore alias stays for `test/safe-write.test.js`.
 module.exports = {
-  writeTextFile, encodingOf, applyEncoding, stripBom,
+  writeTextFile, writeBinaryFile, encodingOf, applyEncoding, stripBom,
   renameWithRetry, _renameWithRetry: renameWithRetry,
 };

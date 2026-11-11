@@ -75,6 +75,58 @@ function textEl(x, y, size, fill, content, extra) {
   return `<text x="${x}" y="${y}" font-size="${size}" fill="${fill}"${extra || ''}>${esc(content)}</text>`;
 }
 
+const colorOfCol = (col) => LANE_COLORS[col % LANE_COLORS.length];
+
+/**
+ * Rails, bars, dots and cards for rows [from, to] pushed onto `out`; row `from` sits at y 0. `connectors` come from
+ * `connectorsForRows` with their rows already counted from `from` (the page renderer shifts them; the whole-file
+ * render passes from = 0). A row that opens its page shows its turn even when the turn began on an earlier page.
+ */
+function drawBody(out, lay, from, to, gutter, connectors) {
+  const rows = lay.rows;
+  // The graph: one rect per rail and per spawn / return bar (a handful, never one per step).
+  for (const c of connectors) {
+    for (const r of FlowLayout.connectorRects(c, ROW_H)) {
+      const fill = r.kind === 'rail' ? colorOfCol(c.col) : BAR_COLOR[r.kind];
+      out.push(`<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${fill}"${r.waiting ? ' opacity="0.45"' : ''}/>\n`);
+    }
+  }
+
+  const turnStarts = new Set(lay.turns.map(t => t.startRow));
+  for (let i = from; i <= to; i++) {
+    const row = rows[i];
+    const y0 = (i - from) * ROW_H;
+    const isChild = row.depth || (row.kind === 'step' && row.step.parentStepId);
+    const cx = gutter + (isChild ? INDENT : 0);
+    const cw = CARD_W - (isChild ? INDENT : 0);
+    out.push(`<circle cx="${FlowLayout.dotX(row.col) + 4}" cy="${y0 + ROW_H / 2}" r="4" fill="${colorOfCol(row.col)}"/>\n`);
+    out.push(`<rect x="${cx}" y="${y0 + 3}" width="${cw}" height="${ROW_H - 6}" rx="5" fill="#f8fafc" stroke="#cbd5e1"/>\n`);
+    const meta1 = [];
+    if ((turnStarts.has(i) || i === from) && row.turn != null) meta1.push('turn ' + row.turn);
+    if (row.laneStart) meta1.push(FlowText.laneTagInfo(lay.columns, row.laneId).text.replace(/^▾ /, 'lane: '));
+    if (row.flags && row.flags.length) meta1.push(row.flags.length + (row.flags.length === 1 ? ' flag' : ' flags'));
+    out.push(textEl(cx + 10, y0 + 16, 9, '#1d4ed8', FlowText.rowBadge(row).toUpperCase(), ' font-weight="bold"'), '\n');
+    const cp = row.kind === 'step' ? FlowText.checkpointInfo(row.step) : null;
+    if (meta1.length) {
+      // The first line shares its width with the right-anchored checkpoint text: the meta gets what is left (about 5 px a character at 9 px).
+      const room = Math.floor((cw - 86 - 10 - (cp ? cp.text.length * 5 + 12 : 0)) / 5);
+      out.push(textEl(cx + 86, y0 + 16, 9, '#6b7280', cut(meta1.join('  ·  '), Math.max(4, room))), '\n');
+    }
+    if (cp) {
+      out.push(textEl(cx + cw - 10, y0 + 16, 9, '#374151', cp.text, ' text-anchor="end"'), '\n');
+      if (cp.pct != null) {
+        const bx = cx + cw - 90;
+        out.push(`<rect x="${bx}" y="${y0 + 22}" width="80" height="5" fill="#e5e7eb"${cp.estimated ? ' stroke="#374151" stroke-dasharray="3 2"' : ''}/>`
+          + `<rect x="${bx}" y="${y0 + 22}" width="${(cp.pct * 0.8).toFixed(1)}" height="5" fill="${cp.estimated ? '#9ca3af' : '#4b5563'}"/>\n`);
+      }
+    }
+    const full = (row.kind === 'group' ? '▾ ' : row.kind === 'lane' ? '▸ ' : '') + FlowText.rowText(row, lay.columns);
+    const shown = cut(full, MAX_LABEL);
+    const label = textEl(cx + 10, y0 + 32, 12, '#111827', shown);
+    out.push(shown !== squash(full) ? `<g>${label}<title>${esc(cut(full, MAX_TITLE))}</title></g>\n` : label + '\n');
+  }
+}
+
 /**
  * @param {object} snapshot a validated FlowSnapshot
  * @param {{ sessionId?: string, backendLabel?: string, exportedAt?: string, appVersion?: string }} [meta]
@@ -124,51 +176,10 @@ function renderFlowSvg(snapshot, meta) {
   out.push(head.join('\n'), '\n');
   out.push(`<g transform="translate(0 ${headerH})">\n`);
 
-  // The graph: one rect per rail and per spawn / return bar (a handful, never one per step).
-  const colorOfCol = (col) => LANE_COLORS[col % LANE_COLORS.length];
   const { connectors } = FlowLayout.connectorsForRows(lay, 0, Math.max(0, rows.length - 1), 1e6);
-  for (const c of connectors) {
-    for (const r of FlowLayout.connectorRects(c, ROW_H)) {
-      const fill = r.kind === 'rail' ? colorOfCol(c.col) : BAR_COLOR[r.kind];
-      out.push(`<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${fill}"${r.waiting ? ' opacity="0.45"' : ''}/>\n`);
-    }
-  }
-
-  const turnStarts = new Set(lay.turns.map(t => t.startRow));
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const y0 = i * ROW_H;
-    const isChild = row.depth || (row.kind === 'step' && row.step.parentStepId);
-    const cx = gutter + (isChild ? INDENT : 0);
-    const cw = CARD_W - (isChild ? INDENT : 0);
-    out.push(`<circle cx="${FlowLayout.dotX(row.col) + 4}" cy="${y0 + ROW_H / 2}" r="4" fill="${colorOfCol(row.col)}"/>\n`);
-    out.push(`<rect x="${cx}" y="${y0 + 3}" width="${cw}" height="${ROW_H - 6}" rx="5" fill="#f8fafc" stroke="#cbd5e1"/>\n`);
-    const meta1 = [];
-    if (turnStarts.has(i) && row.turn != null) meta1.push('turn ' + row.turn);
-    if (row.laneStart) meta1.push(FlowText.laneTagInfo(lay.columns, row.laneId).text.replace(/^▾ /, 'lane: '));
-    if (row.flags && row.flags.length) meta1.push(row.flags.length + (row.flags.length === 1 ? ' flag' : ' flags'));
-    out.push(textEl(cx + 10, y0 + 16, 9, '#1d4ed8', FlowText.rowBadge(row).toUpperCase(), ' font-weight="bold"'), '\n');
-    const cp = row.kind === 'step' ? FlowText.checkpointInfo(row.step) : null;
-    if (meta1.length) {
-      // The first line shares its width with the right-anchored checkpoint text: the meta gets what is left (about 5 px a character at 9 px).
-      const room = Math.floor((cw - 86 - 10 - (cp ? cp.text.length * 5 + 12 : 0)) / 5);
-      out.push(textEl(cx + 86, y0 + 16, 9, '#6b7280', cut(meta1.join('  ·  '), Math.max(4, room))), '\n');
-    }
-    if (cp) {
-      out.push(textEl(cx + cw - 10, y0 + 16, 9, '#374151', cp.text, ' text-anchor="end"'), '\n');
-      if (cp.pct != null) {
-        const bx = cx + cw - 90;
-        out.push(`<rect x="${bx}" y="${y0 + 22}" width="80" height="5" fill="#e5e7eb"${cp.estimated ? ' stroke="#374151" stroke-dasharray="3 2"' : ''}/>`
-          + `<rect x="${bx}" y="${y0 + 22}" width="${(cp.pct * 0.8).toFixed(1)}" height="5" fill="${cp.estimated ? '#9ca3af' : '#4b5563'}"/>\n`);
-      }
-    }
-    const full = (row.kind === 'group' ? '▾ ' : row.kind === 'lane' ? '▸ ' : '') + FlowText.rowText(row, lay.columns);
-    const shown = cut(full, MAX_LABEL);
-    const label = textEl(cx + 10, y0 + 32, 12, '#111827', shown);
-    out.push(shown !== squash(full) ? `<g>${label}<title>${esc(cut(full, MAX_TITLE))}</title></g>\n` : label + '\n');
-  }
+  drawBody(out, lay, 0, rows.length - 1, gutter, connectors);
   out.push('</g>\n</svg>\n');
   return out.join('');
 }
 
-module.exports = { renderFlowSvg, esc, ROW_H, CARD_W };
+module.exports = { renderFlowSvg, drawBody, expandedState, colorOfCol, textEl, wrap, cut, esc, ROW_H, CARD_W, FONT, BAR_COLOR, WRAP, HEAD_WRAP };

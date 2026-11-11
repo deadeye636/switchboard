@@ -353,6 +353,8 @@ function registerQuitHandlers(ctx) {
     try { ctx.terminateIndexWorker(); } catch {}
     // The Flow tab's reader workers (#826): terminated here so no reply is delivered after closeDb().
     try { ctx.terminateSessionFlow?.(); } catch {}
+    // A hidden PDF print window still alive at quit (#826): destroyed here, or it holds the app open.
+    try { ctx.destroyFlowPdf?.(); } catch {}
     // Terminate the search worker gracefully before closing the DB, so the
     // worker's read-only connection is released before the WAL checkpoint.
     // shutdown() suppresses the restart logic before calling terminate().

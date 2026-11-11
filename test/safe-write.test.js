@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { writeTextFile, encodingOf, applyEncoding } = require('../src/app/safe-write');
+const { writeTextFile, writeBinaryFile, encodingOf, applyEncoding } = require('../src/app/safe-write');
 
 const BOM = '﻿';
 
@@ -189,4 +189,18 @@ test('a successful write returns the validator\'s verdict, and null without one'
   assert.equal(result.verdict, verdict);
   assert.equal(calls, 1);
   assert.equal(writeTextFile(file, '{"a":3}\n').verdict, null);
+});
+
+test('writeBinaryFile writes the bytes as they are, atomically, and leaves no temp file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-bin-'));
+  try {
+    const file = path.join(dir, 'x.pdf');
+    const bytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0x0d, 0x0a]);
+    assert.deepEqual(writeBinaryFile(file, bytes), { ok: true });
+    assert.deepEqual(fs.readFileSync(file), bytes);
+    assert.deepEqual(fs.readdirSync(dir), ['x.pdf']);
+    const dirAsFile = path.join(dir, 'd');
+    fs.mkdirSync(dirAsFile);
+    assert.equal(writeBinaryFile(dirAsFile, bytes).ok, false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

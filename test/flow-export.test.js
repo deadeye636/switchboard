@@ -77,7 +77,7 @@ test('the answer holds no path', async () => {
 test('an unknown format is refused before any read or dialog', async () => {
   const s = setup();
   try {
-    for (const format of ['pdf', 'mermaid', '', undefined, '__proto__', 'toString']) {
+    for (const format of ['mermaid', '', undefined, '__proto__', 'toString']) {
       const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format }, null);
       assert.equal(res.ok, false);
       assert.equal(res.canceled, false);
@@ -208,4 +208,162 @@ test('the backend label from the view is sanitised; a missing or non-string labe
 test('main derives no backend label itself', () => {
   const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'flow-export.js'), 'utf8'));
   assert.doesNotMatch(src, /openerFor|backendLabelOf|transcriptsOf/);
+});
+
+// ----- PDF (plan T19): an injected window factory stands in for the hidden BrowserWindow -----
+
+function fakeWindowFactory({ pdf = Buffer.from('%PDF-1.4 fake'), loadFile, print } = {}) {
+  const made = [];
+  const create = () => {
+    const w = {
+      destroyed: false,
+      html: null,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      async loadFile(file) { this.file = file; this.html = fs.readFileSync(file, 'utf8'); if (loadFile) await loadFile(this); },
+      webContents: { printToPDF: async (opts) => { w.opts = opts; if (print) return print(w); return pdf; } },
+    };
+    made.push(w);
+    return w;
+  };
+  return { create, made };
+}
+
+function setupPdf(fake, extra = {}) {
+  const s = setup({ pickedName: 'out.pdf' });
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-pdf-tmp-'));
+  flowExport.init({
+    log, getAppVersion: () => '9.9.9', getParentWindow: () => null,
+    readFlow: async () => snapshotWithStep(),
+    createPdfWindow: fake.create, tempDir,
+    dialog: { showSaveDialog: async (parent, opts) => { s.calls.dialog.push(opts); return { canceled: false, filePath: path.join(s.dir, 'out.' + opts.filters[0].extensions[0]) }; } },
+    ...extra,
+  });
+  return { ...s, tempDir, cleanup: () => { s.cleanup(); fs.rmSync(tempDir, { recursive: true, force: true }); } };
+}
+
+test('pdf: the bytes are written as they are, the window is destroyed, the temp file is gone, the HTML holds no script', async () => {
+  const fake = fakeWindowFactory();
+  const s = setupPdf(fake);
+  try {
+    assert.equal(flowExport.FORMATS.pdf.ext, 'pdf');
+    const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'pdf' }, { sender: { id: 3 } });
+    assert.deepEqual(res, { ok: true, canceled: false, name: 'out.pdf' });
+    assert.deepEqual(fs.readFileSync(path.join(s.dir, 'out.pdf')), Buffer.from('%PDF-1.4 fake'));
+    assert.deepEqual(s.calls.dialog[0].filters, [{ name: 'PDF', extensions: ['pdf'] }]);
+    assert.equal(fake.made.length, 1);
+    assert.equal(fake.made[0].destroyed, true);
+    assert.deepEqual(fs.readdirSync(s.tempDir), []);
+    assert.deepEqual(fs.readdirSync(s.dir), ['out.pdf'], 'no temp file is left beside the result');
+    const html = fake.made[0].html;
+    assert.ok(!/<script|\son[a-z]+\s*=|href\s*=/i.test(html));
+    assert.ok(html.includes('Session abcdef12'));
+    assert.equal(fake.made[0].opts.pageSize, 'A4');
+    assert.equal(fake.made[0].opts.printBackground, true);
+  } finally { s.cleanup(); }
+});
+
+test('pdf: a cancelled dialog builds nothing and opens no window', async () => {
+  const fake = fakeWindowFactory();
+  const s = setupPdf(fake, { dialog: { showSaveDialog: async () => ({ canceled: true }) } });
+  try {
+    const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'pdf' }, null);
+    assert.deepEqual(res, { ok: false, canceled: true });
+    assert.equal(fake.made.length, 0);
+  } finally { s.cleanup(); }
+});
+
+test('pdf: a failed print answers a sentence without a path, writes nothing and still destroys the window', async () => {
+  const fake = fakeWindowFactory({ print: async () => { throw new Error('boom ' + os.tmpdir()); } });
+  const s = setupPdf(fake);
+  try {
+    const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'pdf' }, null);
+    assert.equal(res.ok, false);
+    assert.equal(res.canceled, false);
+    assert.ok(!JSON.stringify(res).includes(os.tmpdir()));
+    assert.equal(fake.made[0].destroyed, true);
+    assert.deepEqual(fs.readdirSync(s.dir), []);
+    assert.deepEqual(fs.readdirSync(s.tempDir), []);
+  } finally { s.cleanup(); }
+});
+
+test('pdf: a print that never ends is stopped at the timeout and the window is destroyed', async () => {
+  const fake = fakeWindowFactory({ loadFile: () => new Promise(() => {}) });
+  const s = setupPdf(fake, { pdfTimeoutMs: 40 });
+  try {
+    const res = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'pdf' }, null);
+    assert.equal(res.ok, false);
+    assert.match(res.error, /too long/);
+    assert.equal(fake.made[0].destroyed, true);
+    assert.deepEqual(fs.readdirSync(s.tempDir), []);
+  } finally { s.cleanup(); }
+});
+
+test('pdf: a second export while one runs is refused with a sentence; the gate opens again afterwards', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const fake = fakeWindowFactory({ loadFile: () => gate });
+  const s = setupPdf(fake);
+  try {
+    const first = flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'pdf' }, null);
+    await new Promise((r) => setTimeout(r, 20));
+    const second = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'pdf' }, null);
+    assert.equal(second.ok, false);
+    assert.match(second.error, /still running/);
+    // A text format is not held back by the running PDF.
+    const svg = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'svg' }, null);
+    assert.equal(svg.ok, true);
+    assert.ok(fs.existsSync(path.join(s.dir, 'out.svg')));
+    release();
+    assert.equal((await first).ok, true);
+    const third = await flowExport.exportFlow({ sessionId: 'abcdef123456', format: 'pdf' }, null);
+    assert.equal(third.ok, true);
+  } finally { release(); s.cleanup(); }
+});
+
+test('pdf: the hidden window is built with a locked-down webPreferences and no preload', () => {
+  const flowPdf = require('../src/app/flow-pdf');
+  let seen = null;
+  const wc = { openHandler: null, listeners: {}, setWindowOpenHandler(fn) { this.openHandler = fn; }, on(ev, fn) { this.listeners[ev] = fn; } };
+  function FakeWindow(opts) { seen = opts; this.webContents = wc; }
+  flowPdf.makeWindowFactory(FakeWindow)();
+  assert.deepEqual(wc.openHandler({ url: 'https://example.invalid' }), { action: 'deny' });
+  let prevented = false;
+  wc.listeners['will-navigate']({ preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(seen.show, false);
+  assert.deepEqual(seen.webPreferences, { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false, webSecurity: true });
+  assert.ok(!('preload' in seen.webPreferences));
+});
+
+test('pdf: destroyPending destroys a window still alive at quit', async () => {
+  const flowPdf = require('../src/app/flow-pdf');
+  let release;
+  const fake = fakeWindowFactory({ loadFile: () => new Promise((r) => { release = r; }) });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-pdf-q-'));
+  try {
+    const run = flowPdf.htmlToPdf('<p>x</p>', { createWindow: fake.create, tempDir: dir, timeoutMs: 5000 });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(fs.readdirSync(dir).length, 1, 'the temp directory exists while the print runs');
+    flowPdf.destroyPending();
+    assert.equal(fake.made[0].destroyed, true);
+    assert.deepEqual(fs.readdirSync(dir), [], 'destroyPending removes the temp directory synchronously');
+    release();
+    await run.catch(() => {});
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('no source file of the Flow export holds a raw control byte (the label filter is written with escapes)', () => {
+  for (const f of ['flow-export.js', 'flow-pages.js', 'flow-pdf.js', 'flow-svg.js']) {
+    const bytes = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', f));
+    const bad = Array.from(bytes).filter(c => c < 9 || (c > 13 && c < 32) || c === 127);
+    assert.equal(bad.length, 0, f);
+  }
+});
+
+test('pdf: the print page is written with the exclusive flag into a directory of its own', () => {
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'flow-pdf.js'), 'utf8'));
+  assert.match(src, /mkdtempSync\(/);
+  assert.match(src, /flag: 'wx'/);
+  assert.match(src, /rmSync\(entry\.dir/);
 });
