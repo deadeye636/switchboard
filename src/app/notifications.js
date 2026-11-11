@@ -54,8 +54,9 @@ function updateTrayTooltip() {
 // event stays a plain fire-and-forget toast and nothing below tracks it.
 //
 // `live` exists for Windows: the Action Center entry can only be removed through the instance's
-// `close()` (`Notification.remove` is macOS-only), so the objects are kept. It holds only entries that
-// are still on screen - 'click' and 'close' delete, a replace deletes before it re-adds, a clear
+// `close()` (`Notification.remove` is macOS-only), so the objects are kept. It holds the entries that
+// are on screen OR in the Action Center - 'click' and a 'close' the user caused ('userCanceled') delete,
+// a timed-out toast stays (it moved into the Action Center), a replace deletes before it re-adds, a clear
 // deletes - and is keyed by session, so its size is bounded by the number of sessions.
 const live = new Map();
 const SUMMARY_ID = 'sess-summary';
@@ -115,9 +116,14 @@ function registerIpc(ipc = ipcMain) {
           win.webContents.send('focus-session', sessionId);
         }
       });
-      // The user (or the OS) took it away: forget it. Compared by identity - closing a replaced entry
-      // reports its 'close' after the new one is already registered under the same id.
-      notification.on('close', () => {
+      // Forget it only when the USER took it away. On Windows 'close' also fires when the toast times out
+      // and moves into the Action Center ('timedOut'); the entry is still there, and only `close()` on this
+      // kept object removes it once the session is read. Measured: dropping it on every 'close' left both
+      // entries in the Action Center after the clear (#847). Compared by identity - closing a replaced
+      // entry reports its 'close' after the new one is already registered under the same id.
+      notification.on('close', (details) => {
+        const reason = details && details.reason;
+        if (reason !== 'userCanceled') return;
         if (id && live.get(id) === notification) live.delete(id);
       });
       if (id) live.set(id, notification);

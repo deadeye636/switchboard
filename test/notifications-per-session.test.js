@@ -115,15 +115,31 @@ test('linux: plain toast without id or group, clear does nothing', () => {
   } finally { t.restore(); }
 });
 
-test('click and close forget the entry; click still focuses the session', () => {
+test('click and a close the user caused forget the entry; click still focuses the session', () => {
   const t = load('win32');
   try {
     t.notify(payload('s1'));
     t.notify(payload('s2'));
     t.made[0].handlers.click();
-    t.made[1].handlers.close();
+    t.made[1].handlers.close({ reason: 'userCanceled' });
     assert.equal(t.mod._liveEntries.size, 0);
     assert.deepEqual(t.sent, [['focus-session', 's1']]);
+  } finally { t.restore(); }
+});
+
+// Measured on Windows (#847): a toast that times out fires 'close' and moves into the Action Center. Dropping
+// it there left the entry behind after the session was read, because nothing was left to call close() on.
+test('a timed-out toast is kept, so reading the session still removes it from the Action Center', () => {
+  const t = load('win32');
+  try {
+    t.notify(payload('s1'));
+    t.made[0].handlers.close({ reason: 'timedOut' });
+    t.made[0].handlers.close({ reason: 'applicationHidden' });
+    t.made[0].handlers.close();
+    assert.equal(t.mod._liveEntries.size, 1, 'still kept');
+    t.clear({ sessionIds: ['s1'] });
+    assert.equal(t.made[0].closed, 1, 'the clear closes it');
+    assert.equal(t.mod._liveEntries.size, 0);
   } finally { t.restore(); }
 });
 
