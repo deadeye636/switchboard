@@ -340,7 +340,9 @@ function collectSkillInventory({ projectPath = null } = {}) {
     if (projectPath) rows.push(...backendSkills(descriptor, projectPath, 'project'));
   }
   const ownDir = switchboardSkillsDir(projectPath);
-  const ownScope = projectPath && isAtOrInside(ownDir, projectPath) ? 'project' : 'global';
+  // A network spelling is refused before anything resolves it: `isAtOrInside` asks the real path, and on Windows a
+  // realpath of `\\host\share` is a connection to that host. Such a directory lists no skills anyway (`ownSkills`).
+  const ownScope = projectPath && !spelledAsNetworkPath(ownDir) && isAtOrInside(ownDir, projectPath) ? 'project' : 'global';
   rows.push(...ownSkills(projectPath).map(r => ({ ...r, scope: ownScope })));
 
   const byKey = new Map();

@@ -306,3 +306,17 @@ test('skillFiles (the content filter) lists only skills the read door admits (#8
   assert.deepEqual(admitted.map(f => f.id), listed.filter(r => r.editable).map(r => r.id), 'the same bar as the read door');
   assert.ok(admitted.length < listed.length, 'a skill the door refuses is not matched');
 });
+
+for (const spelling of [String.raw`\\nas-host\share\skills`, '//nas-host/share/skills']) {
+  test(`a skillsDir spelled ${spelling} is never resolved on its real path for the inventory`, (t) => {
+    const project = tmpdir('proj');
+    setup({ settings: { skillsDir: spelling } });
+    const asked = [];
+    const real = fs.realpathSync.native;
+    t.after(() => { fs.realpathSync.native = real; });
+    fs.realpathSync.native = (p, ...rest) => { asked.push(String(p)); return real(p, ...rest); };
+    const rows = skills.getSkillInventory({ projectPath: project }).skills;
+    assert.deepEqual(rows, [], 'it lists nothing');
+    assert.deepEqual(asked.filter((p) => p.includes('nas-host')), [], 'and nothing asked the disk about the share');
+  });
+}
