@@ -1,6 +1,13 @@
 // The app's windows: the main BrowserWindow, the popped-out settings window, the menu (there isn't one),
 // the close guard's wiring and the Electron UI zoom (#34).
 //
+// The main window's size, position and display mode (maximized, fullscreen) are persisted by Electron
+// itself (`windowStatePersistence`, #846; stored in `Local State` under userData, so
+// SWITCHBOARD_USER_DATA keeps a demo run apart). Electron's saved state BEATS the x/y/width/height given
+// to the constructor, so those are only the fallback: the first start after the update (nothing saved by
+// Electron yet) and a hard kill inside Electron's write batch. The `windowBounds` setting is that
+// fallback's source. Detached windows (detach.js) keep their own persistence.
+//
 // This module OWNS `settingsWindow` and `closeConfirmed` — nothing outside reads either. It does not own
 // `mainWindow`: 46 handlers still in main.js read it, so it stays declared there and is reached through
 // ctx's getter/setter pair. That is the ctx rule: a `let` is never passed by value. A module that captured
@@ -247,32 +254,45 @@ function confirmCloseWithRunningSessions() {
   return false;   // the renderer answers on 'confirm-close-result'
 }
 
+// The persistence name of the main window in Electron's window-state store. `windowStatePersistence` is
+// marked EXPERIMENTAL in Electron 45: check it on every Electron upgrade.
+const MAIN_WINDOW_STATE_NAME = 'main';
+
+// Is a window's top-left corner on a display that exists now? The same 100 px slack the fallback always had.
+function positionOnScreen(x, y) {
+  return screen.getAllDisplays().some((d) => {
+    const b = d.bounds;
+    return x >= b.x - 100 && x < b.x + b.width && y >= b.y - 100 && y < b.y + b.height;
+  });
+}
+
 function createWindow() {
-  // Restore saved window bounds
+  // Fallback bounds from our own `windowBounds` setting. Electron's persisted state wins over these when
+  // it has one (see the header), so they matter only when it has nothing.
   const savedBounds = ctx.getSetting('global')?.windowBounds;
   let bounds = { width: 1400, height: 900 };
 
-  let restorePosition = null;
   if (savedBounds && savedBounds.width && savedBounds.height) {
     bounds.width = savedBounds.width;
     bounds.height = savedBounds.height;
 
     // Only restore position if it's on a visible display
-    if (savedBounds.x != null && savedBounds.y != null) {
-      const displays = screen.getAllDisplays();
-      const onScreen = displays.some(d => {
-        const b = d.bounds;
-        return savedBounds.x >= b.x - 100 && savedBounds.x < b.x + b.width &&
-               savedBounds.y >= b.y - 100 && savedBounds.y < b.y + b.height;
-      });
-      if (onScreen) {
-        restorePosition = { x: savedBounds.x, y: savedBounds.y };
-      }
+    if (savedBounds.x != null && savedBounds.y != null && positionOnScreen(savedBounds.x, savedBounds.y)) {
+      bounds.x = savedBounds.x;
+      bounds.y = savedBounds.y;
     }
   }
 
+  // Position goes into the constructor, not a setBounds after it. The old post-creation setBounds
+  // (there to stop macOS clamping the size) would run after Electron's own restore and overwrite it, and
+  // `persisted-state-restored` cannot be known to have fired by the time the constructor returns, so
+  // "apply only when not restored" is not decidable here. Passing x/y up front is safe for the restore
+  // (it wins). On macOS it is expected to be safe for the size clamp too, since size and position arrive
+  // together on the target display; not verified there.
   const mainWindow = new BrowserWindow({
     ...bounds,
+    name: MAIN_WINDOW_STATE_NAME,
+    windowStatePersistence: true,   // bounds AND displayMode: a maximized window comes back maximized
     minWidth: 800,
     minHeight: 500,
     title: 'Switchboard',
@@ -285,10 +305,26 @@ function createWindow() {
   });
   ctx.setMainWindow(mainWindow);
 
-  // Set position after creation to prevent macOS from clamping size
-  if (restorePosition) {
-    mainWindow.setBounds({ ...restorePosition, width: bounds.width, height: bounds.height });
-  }
+  // What Electron restored is checked against the displays there are now, with the same guard the fallback
+  // gets. Electron says its state adapts to display changes; an unplugged monitor was not measured, so a
+  // restored window whose corner is on no display is brought onto the primary one. This corrects after the
+  // restore and never overwrites a good one. A maximized, fullscreen or minimized window is placed by the OS.
+  // The event fires after the constructor returns, so a listener attached here hears it (measured in the
+  // #846 spike: a listener added after `new BrowserWindow` reported the restore).
+  mainWindow.once('persisted-state-restored', () => {
+    if (mainWindow.isDestroyed() || mainWindow.isMaximized() || mainWindow.isFullScreen() || mainWindow.isMinimized()) return;
+    const restored = mainWindow.getBounds();
+    if (positionOnScreen(restored.x, restored.y)) return;
+    const area = screen.getPrimaryDisplay().workArea;
+    const width = Math.min(restored.width, area.width);
+    const height = Math.min(restored.height, area.height);
+    mainWindow.setBounds({
+      x: area.x + Math.round((area.width - width) / 2),
+      y: area.y + Math.round((area.height - height) / 2),
+      width,
+      height,
+    });
+  });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
@@ -386,17 +422,23 @@ function createWindow() {
     }
   });
 
-  // Save window bounds on move/resize (debounced)
+  // Save window bounds on move/resize (debounced). Electron persists the state itself now (#846), but
+  // it batches its writes (up to 10 s) and a hard kill inside the batch restores nothing, so this stays
+  // as the fallback writer the constructor bounds are read from. It saves the NORMAL bounds
+  // (`getNormalBounds`), which equal `getBounds` for a plain window and are the un-maximized rectangle
+  // for a maximized or fullscreen one: the fallback has no display mode, and a maximized rectangle saved
+  // as a normal one would come back as a window filling the screen that is not maximized.
+  const writeFallbackBounds = () => {
+    if (mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
+    const b = mainWindow.getNormalBounds();
+    const global = ctx.getSetting('global') || {};
+    global.windowBounds = { x: b.x, y: b.y, width: b.width, height: b.height };
+    ctx.setSetting('global', global);
+  };
   let boundsTimer = null;
   const saveBounds = () => {
     if (boundsTimer) clearTimeout(boundsTimer);
-    boundsTimer = setTimeout(() => {
-      if (mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
-      const b = mainWindow.getBounds();
-      const global = ctx.getSetting('global') || {};
-      global.windowBounds = { x: b.x, y: b.y, width: b.width, height: b.height };
-      ctx.setSetting('global', global);
-    }, 500);
+    boundsTimer = setTimeout(writeFallbackBounds, 500);
   };
   mainWindow.on('resize', saveBounds);
   mainWindow.on('move', saveBounds);
@@ -430,12 +472,7 @@ function createWindow() {
     // on with no window to reach them from and nothing written anywhere.
     try { require('./detach').closeAll(); } catch (err) { ctx.log?.warn?.('[windows] detach teardown failed', err); }
     if (boundsTimer) clearTimeout(boundsTimer);
-    if (!mainWindow.isMinimized()) {
-      const b = mainWindow.getBounds();
-      const global = ctx.getSetting('global') || {};
-      global.windowBounds = { x: b.x, y: b.y, width: b.width, height: b.height };
-      ctx.setSetting('global', global);
-    }
+    writeFallbackBounds();
   });
 
   mainWindow.on('closed', () => {
