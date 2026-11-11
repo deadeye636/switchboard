@@ -233,6 +233,15 @@ Read from existing transcripts, structure only (2026-11-07). The session flow di
   BLOCKED: …` is a hook block; `Permission for this action was denied …` is a denial. An `attachment` of type
   `hook_cancelled` marks a cancelled hook; `hook_success`, `hook_additional_context` and
   `hook_non_blocking_error` are the other hook outcomes.
+  **Measured 2026-11-11 (T21), 2 754 local transcripts, counts and prefixes only:** 1 025 `tool_result`s start with `PreToolUse:<Tool> hook error`
+  and every one has `is_error: true`. 786 carry `: BLOCKED`, 233 have no `BLOCKED` (the word is one guard hook's own wording, not the format), 6 have a
+  `[command]:` segment and no `BLOCKED`. Over 939 distinct call ids, none of these results coexists with a second, normal result for the same call
+  (the 86 ids seen twice are the same error repeated, a resumed session's copy), and none carries a `hook_*` attachment naming the call. The 2
+  `hook_non_blocking_error` attachments in the sample sit on no such result. Measured: an error result starting this way is the only result of its call.
+  Inferred (not observed directly): the call did not run, as an exit-2 block means in Claude Code; the reader flags every anchored
+  `^PreToolUse:<Tool> hook error` `is_error` result as `hook-blocked` on that basis. A mention of the text mid-result is not a block (23 such results, all `is_error: false`).
+  (T21 reads the block, the denial, `hook_cancelled` and `command_permissions`; the shapes
+  of the attachments beyond `type` are not measured, the reader takes `hookName` / `hookEvent` and `allowedTools` when present. Spec 46, Highlights.)
 - **Tools a skill grants.** An `attachment` of type `command_permissions` with `allowedTools: [...]` directly
   follows a skill load (49 of 53 in the sample): the skill's `allowed-tools` taking effect without a prompt.
 - **Subagents** (structure measured 2026-11-11 over local transcripts, keys and tool names only). Each has its own file

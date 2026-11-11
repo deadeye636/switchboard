@@ -133,6 +133,11 @@ function detailSize(detail) {
   return n;
 }
 
+// The bytes a flag adds to the snapshot's size estimate (the step's own overhead does not cover a flag's sentence).
+function flagSize(f) {
+  return 40 + (f && typeof f.code === 'string' ? f.code.length : 0) + (f && typeof f.why === 'string' ? f.why.length : 0);
+}
+
 function evidence(value, unit, basis, note) {
   return { value, unit, basis, note: note || '' };
 }
@@ -163,5 +168,5 @@ function instructionLabel(file, cwd, home) {
 
 module.exports = {
   CHUNK_BYTES, MAX_LINE_BYTES, MAX_STEPS, MAX_SNAPSHOT_BYTES, LABEL_CHARS, DETAIL_CHARS, STEP_OVERHEAD,
-  trunc, firstLine, isObject, readLines, detailSize, evidence, instructionLabel,
+  trunc, firstLine, isObject, readLines, detailSize, evidence, instructionLabel, flagSize,
 };

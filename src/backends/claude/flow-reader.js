@@ -24,10 +24,11 @@ const pathMod = require('node:path');
 const { flowStepId } = require('../../shared/flow-snapshot');
 const {
   MAX_STEPS, MAX_LINE_BYTES, MAX_SNAPSHOT_BYTES, LABEL_CHARS, DETAIL_CHARS, STEP_OVERHEAD,
-  instructionLabel, trunc, firstLine, isObject, readLines, detailSize, evidence,
+  instructionLabel, trunc, firstLine, isObject, readLines, detailSize, evidence, flagSize,
 } = require('../flow-lines');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
 const { resolveClaudeVariant } = require('./model-windows');
+const { commandFlags, modeFlag, resultFlags, attachmentEvent } = require('./flow-flags');
 
 const MAX_INSTRUCTION_FILES = 200;
 const MAX_PENDING_TOOLS = 5000;
@@ -97,6 +98,13 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     shared.limitationIds.add(id);
     shared.limitations.push({ id, text });
   };
+
+  // A flag's sentence counts toward the snapshot's size estimate like the rest of a step.
+  function addFlag(step, f) {
+    step.flags.push(f);
+    shared.size += flagSize(f);
+    if (shared.size > limits.maxBytes) shared.stopReason = shared.stopReason || 'bytes';
+  }
 
   // `ctx` is one line: { lineNo, offset, part, ts }. A line may yield several steps; `part` keeps their ids apart.
   function addStep(ctx, kind, label, detail, extra) {
@@ -168,13 +176,19 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     if (typeof next !== 'string' || !next) return;
     if (mode === null) {
       mode = next;
-      if (startStep) startStep.detail.mode = next;
+      if (startStep) {
+        startStep.detail.mode = next;
+        const f = modeFlag(next); // a session that STARTS in a prompt-skipping mode has no mode step to carry it
+        if (f) addFlag(startStep, f);
+      }
       return;
     }
     if (next === mode) return;
     const from = mode;
     mode = next;
-    addStep(ctx, 'mode', `Mode: ${next}`, { from, to: next });
+    const step = addStep(ctx, 'mode', `Mode: ${next}`, { from, to: next });
+    const f = modeFlag(next); // on the mode step only, not repeated on the tool steps that follow
+    if (step && f) addFlag(step, f);
   }
 
   function onInstructions(attachment, ctx) {
@@ -196,6 +210,14 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
       step.tokens = evidence(Math.ceil(chars / 4), 'tokens', 'estimated', 'About characters / 4, not a measured count.');
     }
     if (files.length > n) limitation('instruction-files-cap', `Only the first ${MAX_INSTRUCTION_FILES} instruction files are listed.`);
+  }
+
+  // `hook_cancelled` and `command_permissions` are facts of their own (flow-flags.js): an event step carrying the flag.
+  function onAttachmentEvent(attachment, ctx) {
+    const ev = attachmentEvent(attachment);
+    if (!ev) return;
+    const step = addStep(ctx, 'event', ev.label, ev.detail);
+    if (step) for (const f of ev.flags) addFlag(step, f);
   }
 
   // A slash command is written as a user line of markup (`<command-name>` ...) and its output as another
@@ -249,8 +271,8 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     const result = trunc(textOfResult(block.content), DETAIL_CHARS);
     step.detail.result = result;
     step.detail.status = block.is_error === true ? 'error' : 'ok';
-    // A failed call carries an outcome flag so a run of equivalent calls never swallows it (the layout keys on `detail.tool`).
-    if (block.is_error === true) step.flags.push({ axis: 'outcome', code: 'tool-error', why: 'the tool reported an error', evidence: 'structured' });
+    // A failed, blocked or denied call carries an outcome flag so a run of equivalent calls never swallows it (the layout keys on `detail.tool`).
+    for (const f of resultFlags(block.is_error, result)) addFlag(step, f);
     shared.size += 40 + result.length;
     if (shared.size > limits.maxBytes) shared.stopReason = shared.stopReason || 'bytes';
   }
@@ -324,6 +346,7 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
         const brief = briefOf(b.input);
         const name = typeof b.name === 'string' && b.name ? b.name : 'tool';
         step = addStep(ctx, 'tool', brief ? `${name}: ${firstLine(brief)}` : name, { tool: trunc(name, 100), input: trunc(brief, DETAIL_CHARS) });
+        if (step) for (const f of commandFlags(name, b.input)) addFlag(step, f);
         if (step && typeof b.id === 'string') {
           if (SPAWN_TOOLS.has(name) && shared.spawns.size < MAX_AGENT_REFS) shared.spawns.set(b.id, step);
           pendingTools.set(b.id, step);
@@ -372,6 +395,7 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     switch (obj.type) {
       case 'attachment':
         if (isObject(obj.attachment) && obj.attachment.type === 'instructions' && Array.isArray(obj.attachment.files)) onInstructions(obj.attachment, ctx);
+        else onAttachmentEvent(obj.attachment, ctx);
         break;
       case 'user': onUser(obj, ctx); break;
       case 'assistant': onAssistant(obj, ctx); break;

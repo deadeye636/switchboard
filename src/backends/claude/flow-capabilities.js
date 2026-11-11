@@ -10,7 +10,7 @@ const { flowCap } = require('../flow-hook');
 const LIMITATIONS = Object.freeze([
   { id: 'agents-open', text: 'Each subagent has its own lane. A subagent started in the background answers the parent at once and its end is not recorded there, so its lane stays open; a lane may also be missing if its transcript could not be read.' },
   { id: 'approvals-not-recorded', text: 'A Claude transcript does not record whether a tool call was asked about or allowed, so no approval step is shown.' },
-  { id: 'patterns-later', text: 'Destructive-command highlights are not built yet, so no step is marked as risky.' },
+  { id: 'patterns-heuristic', text: 'A risky-command mark comes from a built-in list of command patterns on the shell tools and is a heuristic: it is conservative, so a step without a mark is not known to be safe. Marks for a permission mode, a blocked or denied call and a granted tool list come from the transcript itself.' },
   { id: 'window-inferred', text: 'A checkpoint\'s window comes from the model name; a 1M variant selected outside the transcript is not recorded, so the window is an inference.' },
   { id: 'hidden-input', text: 'The start total is the first request\'s measured input and also counts input the transcript does not list (system prompt, tool definitions, memory), so the instruction files do not add up to it. Their token figures are estimates (about characters / 4).' },
 ]);
@@ -23,7 +23,7 @@ const CAPABILITIES = Object.freeze({
   approvals: flowCap('no', 'approvals-not-recorded'),
   compaction: flowCap('yes'),
   interrupt: flowCap('yes'),
-  destructivePatterns: flowCap('no', 'patterns-later'),
+  destructivePatterns: flowCap('yes', 'patterns-heuristic'),
   timestamps: flowCap('yes'),
 });
 

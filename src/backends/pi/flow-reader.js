@@ -27,7 +27,7 @@ const os = require('node:os');
 const { flowStepId } = require('../../shared/flow-snapshot');
 const {
   MAX_STEPS, MAX_LINE_BYTES, MAX_SNAPSHOT_BYTES, LABEL_CHARS, DETAIL_CHARS, STEP_OVERHEAD,
-  instructionLabel, trunc, firstLine, isObject, readLines, detailSize, evidence,
+  instructionLabel, trunc, firstLine, isObject, readLines, detailSize, evidence, flagSize,
 } = require('../flow-lines');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
 const { transportFromEntry } = require('./transport-marker');
@@ -263,7 +263,9 @@ function makeBuilder(sourceId, limits, shared) {
     step.detail.status = m.isError === true ? 'error' : 'ok';
     if (m.isError === true) {
       // Pi records the failure itself, so the evidence is `structured`.
-      step.flags.push({ axis: 'outcome', code: 'tool-error', why: 'the tool result is marked as an error', evidence: 'structured' });
+      const flag = { axis: 'outcome', code: 'tool-error', why: 'the tool result is marked as an error', evidence: 'structured' };
+      step.flags.push(flag);
+      grow(flagSize(flag));
       // The pi-native gate's refusal is the one result with exactly this text (`../pi-native/runtime-extension.js`).
       if (raw.trim() === `The user did not allow this ${step.detail.tool} call.`) step.detail.refused = true;
     }

@@ -1221,7 +1221,7 @@ description:
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is claude-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is claude-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is claude-native' },
-    sessionFlow: { state: 'limited', note: 'a main lane and one lane per subagent, with steps, instruction files and context checkpoints; a background subagent never shows its end, and approvals and risk marks are not read yet; the window comes from the session settings first, the model name is the fallback (spec 46)' },
+    sessionFlow: { state: 'limited', note: 'a main lane and one lane per subagent, with steps, instruction files and context checkpoints; a background subagent never shows its end, risk marks are a built-in pattern list on the shell tools (heuristic) plus the permission mode and blocked or denied calls, and approvals are not read; the window comes from the session settings first, the model name is the fallback (spec 46)' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

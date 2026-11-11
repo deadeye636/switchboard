@@ -24,7 +24,7 @@ const pathMod = require('node:path');
 const { flowStepId } = require('../../shared/flow-snapshot');
 const {
   MAX_STEPS, MAX_LINE_BYTES, MAX_SNAPSHOT_BYTES, LABEL_CHARS, DETAIL_CHARS, STEP_OVERHEAD,
-  trunc, firstLine, isObject, readLines, detailSize, evidence,
+  trunc, firstLine, isObject, readLines, detailSize, evidence, flagSize,
 } = require('../flow-lines');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
 
@@ -292,7 +292,11 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
     if (code !== null) step.detail.exitCode = code;
     // A failed call carries an outcome flag so a run of equivalent calls never swallows it (the layout keys on `detail.tool`).
     // Codex has no structured status, so the evidence is `heuristic`: the code is read out of the output text.
-    if (code !== null && code !== 0) step.flags.push({ axis: 'outcome', code: 'tool-error', why: 'the output reports a non-zero exit code', evidence: 'heuristic' });
+    if (code !== null && code !== 0) {
+      const flag = { axis: 'outcome', code: 'tool-error', why: 'the output reports a non-zero exit code', evidence: 'heuristic' };
+      step.flags.push(flag);
+      grow(flagSize(flag));
+    }
     grow(40 + result.length);
   }
 

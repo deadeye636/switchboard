@@ -7,6 +7,7 @@ sections of `docs/backend-formats.md` (Claude, Codex, Pi).
 | File | Represents | Measured shape |
 |---|---|---|
 | `claude-main.jsonl` | Main lane: `instructions` attachment with `files[]`, prompt, meta user line (`isMeta`), thinking, `tool_use` + `tool_result`, text with `message.usage` and a model, `permissionMode` and a `mode` change, `compact_boundary` + summary line, interrupt | Claude, "Steps, instruction files and permissions" |
+| `claude-flags.jsonl` | Highlights (T21): a hook-blocked destructive `Bash` call (risk and outcome on one step), a quoted `rm -rf` and `rm -rf node_modules` (no flag), a permission-denied `Write`, a plain `is_error` `Read`, `hook_cancelled`, `command_permissions`, a `bypassPermissions` mode change, a force push | Claude, "Steps, instruction files and permissions" |
 | `claude-parent.jsonl` | Parent whose `tool_result` names the subagent by `agentId` | same |
 | `claude-parent/subagents/agent-a1b2c3.jsonl` + `.meta.json` | The subagent file (`isSidechain: true`, own `instructions` attachment) and its meta | same |
 | `codex-rollout.jsonl` | `session_meta`, `turn_context` (permission fields, a change on the second), a `developer` message, the AGENTS.md message with its `<environment_context>` part, reasoning, `custom_tool_call` `exec` + its parts-array output, `function_call` + string output (one failing with an exit code), `token_count` incl. `model_context_window` (once repeated), `compacted`, the zero `token_count` after it, `turn_aborted` | Codex, "Agents, approvals and compaction" |

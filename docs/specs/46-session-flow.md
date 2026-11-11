@@ -310,6 +310,42 @@ compacts unhighlighted detail rather than dimming it. Colour is never the only s
 pattern list is built in, per descriptor, conservative, and labelled heuristic. Editing it is later (a bounded safe pattern
 language, documented in `docs/settings-reference.md`, after false positives have been seen).
 
+Each marker says WHY (`why`, one sentence) and whether its evidence is `structured` (the transcript says so) or `heuristic` (a
+pattern matched). Markers are separate facts that coexist on a step: a blocked destructive command carries a `risk` marker AND an
+`outcome` marker. Only a structured outcome says whether a call ran.
+
+*As built (T21, Claude).* Neutral matcher `src/backends/flow-patterns.js` (`matchPatterns(list, command)`: entries `{ id, test, reason, view? }`,
+no backend knowledge); Claude's list, flag builders and result texts in `src/backends/claude/flow-flags.js`; the reader calls them.
+T22 (Codex) and T23 (Pi) add only their own list and flag builders. Flags per step:
+- `risk`, heuristic, code `destructive:<id>`: a `Bash` or `PowerShell` call whose `command` matches the list; why is the pattern's reason plus the matched
+  simple command (cut to 80 characters). `risk`, structured, `mode-bypass-permissions` and `mode-accept-edits` (milder: only edits skip the
+  prompt; there is no severity field, the code and the sentence carry it): on the `mode` step only, never repeated on later tool steps; a session
+  that STARTS in such a mode carries it on the start step. `dontAsk`, `auto` and `plan` are not flagged.
+- `outcome`, structured: `hook-blocked` (a `tool_result` that is `is_error` and whose text STARTS with `PreToolUse:<Tool> hook error`, with or without `BLOCKED` or a `[cmd]:` segment; measured in `docs/backend-formats.md`: such a result is the only result of its call, so it is read as a call that did not run, which is inferred, not observed), `permission-denied`
+  (`Permission for this action was denied ...`; did not run), `hook-cancelled` (a `hook_cancelled` attachment, an `event` step), `tool-error` (any other
+  `is_error`; the call ran and failed). A block or denial replaces `tool-error` rather than adding to it.
+- `lifecycle`, structured, `skill-granted-tools`: a `command_permissions` attachment becomes an `event` step "Skill granted tools: <first six names, +N>". It is
+  not a risk.
+- Layout: a step with any flag is never part of a run of equivalent calls (O7), so a flagged call keeps its own row; a collapsed lane summary
+  inherits its members' flags (`test/flow-layout.test.js`, `test/flow-claude-flags.test.js`).
+
+Quoting rule. The command is cut to 8 KB, then into simple commands at `;`, `&&`, `||`, a lone `&` and a newline, outside quotes only. Each pattern
+is anchored on the command word (leading `sudo`, `doas`, `env`, `nice`, `time`, `nohup`, `X=1` assignments and their options, including the argument of `sudo -u`, `nice -n` and `env -u`, a leading `(`, `{`, `!` or ``, and a path on the command word such as `/bin/rm` are stripped), so quoted text is data:
+`echo "rm -rf /"` does not match and `rm -rf "/"` does (quote characters are dropped from arguments). A pipeline is tested whole and part by part. A
+`sh -c "..."`, `bash -c`, `eval`, `cmd /c` or PowerShell `-Command` wrapper has its payload scanned (two levels). A pattern with `view: 'blanked'`
+(the redirect onto a device) sees code outside quotes only. The PowerShell tool is read in the `powershell` dialect: the backtick escapes and a backslash is an ordinary
+character; every other tool is POSIX. NOT looked into: `$(...)` and backticks, here-documents, aliases and shell functions, variables (`rm -rf $DIR`), `xargs`,
+`find -delete`, `shred`, `truncate`, a wrapper's unquoted payload other than after `-c`, `/c` or `-Command`, `git push --mirror`/`--delete`, `git stash drop`, container and
+cloud CLIs (`docker system prune`, `kubectl delete`, `terraform destroy`), and a `-- ` end-of-options marker before a prefix word. A missing mark never means safe.
+
+Claude's list (all heuristic; a recursive delete is flagged only at a BROAD target, so `rm -rf node_modules`, `rm -rf dist/` and `rm -rf ~/projects/x` are not flagged):
+`rm-recursive` (`rm -r` on `/`, `~`, `$HOME`, `.`, `..`, `*`, a drive root such as `C:/`, or one top-level directory such as `/etc`; a command that fits both it and `remove-item-recurse` is marked once, as `remove-item-recurse` under the PowerShell tool and as `rm-recursive` otherwise), `git-force-push` (`--force`, `-f`; not
+`--force-with-lease`), `git-reset-hard`, `git-clean-force` (`-f`/`--force` without `-n`/`--dry-run`), `git-discard-changes` (`git checkout .`, `git checkout -- .`,
+`git restore .` without `--staged`, but with `--staged --worktree`; not `git checkout -b <name> .`), `git-branch-force-delete` (`-D`), `chmod-world-writable` (recursive 777 or a+rwx), `dd-to-device` (`of=` a block device),
+`mkfs`, `redirect-to-device` (`> /dev/sdX`), `pipe-to-shell` (`curl|wget ... | sh|bash`), `pipe-to-iex` (`iwr|irm ... | iex`), `remove-item-recurse` (`Remove-Item` and its aliases `rm`, `del`, `erase`, `rd`, `rmdir` with `-r` or `-Recurse`, any order with `-Force`, at a drive, home, `.`, `..`, `*` or a top-level directory of a drive), `cmd-recursive-delete` (`del|erase|rd|rmdir /s` at the same targets), `format-drive`
+(`format X:`, `Format-Volume`), `sql-drop` (`DROP TABLE|DATABASE|SCHEMA`, `TRUNCATE TABLE` in a `psql`, `mysql`, `mariadb`, `sqlite3`, `sqlcmd`, `duckdb` or
+`clickhouse-client` command). Bound measured by `test/flow-patterns.test.js`: pathological 8 KB inputs against the whole list finish in well under 250 ms.
+
 ## Exports
 
 Every export materialises the complete snapshot, not the viewport.
@@ -405,7 +441,7 @@ abort and every cap end in a snapshot with `complete: false` and a limitation (`
   A lane with no step (an empty file, or no room left under a cap) is not listed. The meta file is read up to 16 KB.
 - **Capabilities answered:** `agents` partial (`agents-open`: a background subagent's end is not recorded in the parent, so its lane stays open), `instructionFiles` perFile, `contextCheckpoints` partial,
   `permissionMode` yes, `approvals` no (a terminal transcript records no ask/allow), `compaction` yes, `interrupt` yes,
-  `destructivePatterns` no (Phase 5), `timestamps` yes. The `sessionFlow` row of Claude and claude-native stays `limited`.
+  `destructivePatterns` yes (T21; limitation `patterns-heuristic`: the list is a heuristic), `timestamps` yes. The `sessionFlow` row of Claude and claude-native stays `limited`.
 
 **Reader timing (T4, one machine, 2026-11-10, Node, warm disk cache).** Largest local Claude transcript (59 170 KB): 742 ms wall, peak
 heap about 26 MB, 1165 steps, 961 KB serialised. A 48 MB one: 508 ms, 28 MB, 732 steps, 602 KB. A 17 MB one: 227 ms, 22 MB, 1586
