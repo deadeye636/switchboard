@@ -36,6 +36,13 @@ const DETAIL_CHARS = 2048;
 const MAX_INSTRUCTION_FILES = 200;
 const MAX_PENDING_TOOLS = 5000;
 const STEP_OVERHEAD = 400;
+// Subagents (T11): the cap bounds the readdir answer and the lanes held; the meta file is a few hundred bytes.
+const MAX_AGENT_LANES = 200;
+const MAX_AGENT_REFS = 5000;
+const MAX_LANE_DEPTH = 8;
+const META_BYTES = 16 * 1024;
+// The spawn tool: `Agent` in every transcript measured; `Task` is its older name, so both are accepted.
+const SPAWN_TOOLS = new Set(['Agent', 'Task']);
 
 const LANE_ID = 'main';
 const INTERRUPT_PREFIX = '[Request interrupted by user';
@@ -189,14 +196,15 @@ function evidence(value, unit, basis, note) {
   return { value, unit, basis, note: note || '' };
 }
 
-function makeBuilder(sourceId, limits) {
+// One lane's builder. `shared` is the snapshot-wide state every lane writes to, so the caps apply to the whole snapshot
+// across all files: `{ count, size, stopReason ('steps' | 'bytes'), skippedLines, limitations, limitationIds, spawns,
+// agents, results }`. `spawns` maps a spawn tool call's id to its step, `agents` an `agentId` to the parent step whose
+// `tool_result` named it. `opts`: `sidechain` (a subagent's lane reads the `isSidechain` lines the main lane
+// skips), `startLabel`, `useHint` (the session settings' window belongs to the main lane's model only).
+function makeBuilder(laneId, sourceId, limits, shared, opts) {
   const steps = [];
-  const dynamicLimitations = [];
-  const limitationIds = new Set();
   const pendingTools = new Map();
   let turn = 0;
-  let size = 0;
-  let stopReason = null; // 'steps' | 'bytes'
   let startStep = null;
   let mode = null;
   let lastInput = null;
@@ -206,28 +214,27 @@ function makeBuilder(sourceId, limits) {
   let pendingCompaction = null;
   let lastCompaction = null;
   let lastCommand = null;
-  let skippedLines = 0;
   let cwd = null; // the session's working directory, from the first transcript line that names one
   let instructionLines = 0;
   const startFiles = []; // the first instruction attachment: it belongs to the start, whatever line it came on
   const home = os.homedir();
 
   const limitation = (id, text) => {
-    if (limitationIds.has(id)) return;
-    limitationIds.add(id);
-    dynamicLimitations.push({ id, text });
+    if (shared.limitationIds.has(id)) return;
+    shared.limitationIds.add(id);
+    shared.limitations.push({ id, text });
   };
 
   // `ctx` is one line: { lineNo, offset, part, ts }. A line may yield several steps; `part` keeps their ids apart.
   function addStep(ctx, kind, label, detail, extra) {
-    if (steps.length >= limits.maxSteps) {
-      stopReason = stopReason || 'steps';
+    if (shared.count >= limits.maxSteps) {
+      shared.stopReason = shared.stopReason || 'steps';
       return null;
     }
     const source = { sourceId, line: ctx.lineNo, byteOffset: ctx.offset };
     const step = {
-      id: flowStepId(LANE_ID, source, ctx.part),
-      laneId: LANE_ID,
+      id: flowStepId(laneId, source, ctx.part),
+      laneId,
       ordinal: steps.length,
       turn: turn || null,
       kind,
@@ -242,14 +249,15 @@ function makeBuilder(sourceId, limits) {
     if (extra) Object.assign(step, extra);
     ctx.part += 1;
     steps.push(step);
-    size += STEP_OVERHEAD + step.label.length + detailSize(step.detail);
-    if (size > limits.maxBytes) stopReason = stopReason || 'bytes';
+    shared.count += 1;
+    shared.size += STEP_OVERHEAD + step.label.length + detailSize(step.detail);
+    if (shared.size > limits.maxBytes) shared.stopReason = shared.stopReason || 'bytes';
     return step;
   }
 
   function ensureStart(ctx) {
     if (startStep) return;
-    startStep = addStep(ctx, 'start', 'Session start', {});
+    startStep = addStep(ctx, 'start', opts.startLabel, {});
     if (startStep) {
       startStep.tokens = evidence(null, 'tokens', 'unknown', 'No request has been made yet, so the total is not known.');
       if (mode) startStep.detail.mode = mode;
@@ -265,7 +273,7 @@ function makeBuilder(sourceId, limits) {
       : null;
     // The session's own settings (the caller's `windowHint`, resolved like the health badge) outrank the model name, but
     // never a request that did not fit in them: the floor below still applies.
-    const hint = limits.windowHint;
+    const hint = opts.useHint ? limits.windowHint : null;
     if (hint && input <= hint) return evidence(hint, 'tokens', 'estimated', "Estimated from the session's settings.");
     if (!variant || variant.windowTokens == null) return evidence(null, 'tokens', 'unknown', 'The model is not one with a known window.');
     const why = variant.source === 'floor'
@@ -330,8 +338,8 @@ function makeBuilder(sourceId, limits) {
     if (t.startsWith('<local-command-stdout>') || t.startsWith('<local-command-stderr>')) {
       if (lastCommand && lastCommand.detail.output === undefined) {
         lastCommand.detail.output = trunc(t.replace(/<\/?local-command-std(?:out|err)>/g, '').trim(), DETAIL_CHARS);
-        size += 40 + lastCommand.detail.output.length;
-        if (size > limits.maxBytes) stopReason = stopReason || 'bytes';
+        shared.size += 40 + lastCommand.detail.output.length;
+        if (shared.size > limits.maxBytes) shared.stopReason = shared.stopReason || 'bytes';
       }
       return true;
     }
@@ -348,17 +356,30 @@ function makeBuilder(sourceId, limits) {
     addStep(ctx, 'prompt', firstLine(text) || 'Prompt', { text: trunc(text, DETAIL_CHARS) });
   }
 
-  function onToolResult(block) {
+  // A spawn call's result names the agent in `toolUseResult.agentId` on the user line (measured). A background launch
+  // (`isAsync`, status `async_launched`) answers at once, long before the agent ends, so it is no return.
+  // Keyed by the call's id (the meta file names the same id), so a later result line that carries the same `agentId`
+  // (a continued agent) is never taken for the spawn call's return; `agents` keeps the first result that named an agent.
+  function noteAgentResult(obj, step, toolUseId) {
+    const r = obj.toolUseResult;
+    if (!isObject(r) || typeof r.agentId !== 'string' || !r.agentId || shared.agents.size >= MAX_AGENT_REFS) return;
+    const ref = { step, returned: r.isAsync !== true && r.status !== 'async_launched' };
+    if (typeof toolUseId === 'string') shared.results.set(toolUseId, ref);
+    if (!shared.agents.has(r.agentId)) shared.agents.set(r.agentId, ref);
+  }
+
+  function onToolResult(block, obj) {
     const step = pendingTools.get(block.tool_use_id);
     if (!step) return;
     pendingTools.delete(block.tool_use_id);
+    noteAgentResult(obj, step, block.tool_use_id);
     const result = trunc(textOfResult(block.content), DETAIL_CHARS);
     step.detail.result = result;
     step.detail.status = block.is_error === true ? 'error' : 'ok';
     // A failed call carries an outcome flag so a run of equivalent calls never swallows it (the layout keys on `detail.tool`).
     if (block.is_error === true) step.flags.push({ axis: 'outcome', code: 'tool-error', why: 'the tool reported an error', evidence: 'structured' });
-    size += 40 + result.length;
-    if (size > limits.maxBytes) stopReason = stopReason || 'bytes';
+    shared.size += 40 + result.length;
+    if (shared.size > limits.maxBytes) shared.stopReason = shared.stopReason || 'bytes';
   }
 
   function onUser(obj, ctx) {
@@ -367,8 +388,8 @@ function makeBuilder(sourceId, limits) {
       const summary = obj.message && obj.message.content;
       if (lastCompaction && lastCompaction.detail.summary === undefined && typeof summary === 'string') {
         lastCompaction.detail.summary = trunc(summary, DETAIL_CHARS);
-        size += 40 + lastCompaction.detail.summary.length;
-        if (size > limits.maxBytes) stopReason = stopReason || 'bytes';
+        shared.size += 40 + lastCompaction.detail.summary.length;
+        if (shared.size > limits.maxBytes) shared.stopReason = shared.stopReason || 'bytes';
       }
       return;
     }
@@ -383,7 +404,7 @@ function makeBuilder(sourceId, limits) {
     let sawImage = false;
     for (const b of content) {
       if (!isObject(b)) continue;
-      if (b.type === 'tool_result') onToolResult(b);
+      if (b.type === 'tool_result') onToolResult(b, obj);
       else if (b.type === 'text' && typeof b.text === 'string') text += (text ? '\n' : '') + b.text;
       else if (b.type === 'image') sawImage = true;
     }
@@ -431,6 +452,7 @@ function makeBuilder(sourceId, limits) {
         const name = typeof b.name === 'string' && b.name ? b.name : 'tool';
         step = addStep(ctx, 'tool', brief ? `${name}: ${firstLine(brief)}` : name, { tool: trunc(name, 100), input: trunc(brief, DETAIL_CHARS) });
         if (step && typeof b.id === 'string') {
+          if (SPAWN_TOOLS.has(name) && shared.spawns.size < MAX_AGENT_REFS) shared.spawns.set(b.id, step);
           pendingTools.set(b.id, step);
           if (pendingTools.size > MAX_PENDING_TOOLS) pendingTools.delete(pendingTools.keys().next().value);
         }
@@ -438,7 +460,7 @@ function makeBuilder(sourceId, limits) {
         step = addStep(ctx, 'output', firstLine(b.text) || 'Output', { text: trunc(b.text, DETAIL_CHARS) });
       }
       if (step && !first) first = step;
-      if (stopReason) break;
+      if (shared.stopReason) break;
     }
     if (checkpoint) {
       if (!first) first = addStep(ctx, 'checkpoint', 'Request', {});
@@ -466,11 +488,11 @@ function makeBuilder(sourceId, limits) {
 
   function onLine(text, lineNo, offset) {
     let obj;
-    try { obj = JSON.parse(text); } catch { return stopReason !== null; }
+    try { obj = JSON.parse(text); } catch { return shared.stopReason !== null; }
     if (!isObject(obj)) return false;
     const ts = typeof obj.timestamp === 'string' ? Date.parse(obj.timestamp) : NaN;
-    // A subagent's lines (`isSidechain`) belong to its own lane; the main lane skips them until the agent lanes are built (T11).
-    if (obj.isSidechain === true) return false;
+    // A subagent's lines (`isSidechain`) belong to its own lane: the main lane skips them, a subagent's lane reads its own file whole.
+    if (obj.isSidechain === true && !opts.sidechain) return false;
     const ctx = { lineNo, offset, part: 0, ts: Number.isFinite(ts) ? ts : null };
     if (cwd === null && typeof obj.cwd === 'string' && obj.cwd) cwd = obj.cwd;
     ensureStart(ctx);
@@ -487,17 +509,17 @@ function makeBuilder(sourceId, limits) {
         break;
       default: break;
     }
-    return stopReason !== null;
+    return shared.stopReason !== null;
   }
 
   function onOversize(lineNo, offset, bytes) {
-    skippedLines += 1;
+    shared.skippedLines += 1;
     limitation('line-over-cap', 'A line exceeded the size cap and was skipped unread; the steps in it are missing.');
     const ctx = { lineNo, offset, part: 0, ts: null };
     ensureStart(ctx);
     const step = addStep(ctx, 'event', 'A line exceeded the size cap', { bytes });
     if (step) step.tokens = evidence(null, 'bytes', 'unknown', 'The line was not read.');
-    return stopReason !== null;
+    return shared.stopReason !== null;
   }
 
   // The first instruction attachment arrives after the first prompt in a real transcript, but it is part of the
@@ -512,61 +534,182 @@ function makeBuilder(sourceId, limits) {
     for (let i = 0; i < steps.length; i++) steps[i].ordinal = i;
   }
 
-  function finish({ aborted, failed, noSources }) {
+  // Ends the lane and hands back its steps (ordinals are renumbered across the whole snapshot by the caller).
+  function close() {
     moveStartFilesUp();
     if (pendingCompaction && pendingCompaction.detail.after === undefined) pendingCompaction.detail.after = 'unknown';
-    let complete = !aborted && !failed && skippedLines === 0 && stopReason === null;
-    if (stopReason === 'steps') limitation('step-cap', `The step cap (${limits.maxSteps}) was reached; later steps are not shown.`);
-    if (stopReason === 'bytes') limitation('size-cap', 'The snapshot size cap was reached; later steps are not shown.');
-    if (aborted) limitation('aborted', 'The read was cancelled before the end of the transcript.');
-    if (failed) limitation('read-failed', 'The transcript could not be read.');
-    if (noSources) { limitation('nothing-read', 'Nothing was read from this session.'); complete = false; }
-    else if (!failed && !startStep) limitation('empty-transcript', 'The transcript holds no lines yet.');
-    const caps = {};
-    for (const id of Object.keys(CAPABILITIES)) caps[id] = { ...CAPABILITIES[id] };
-    return {
-      schemaVersion: 1,
-      snapshotId: `claude-${Date.now().toString(36)}`,
-      fingerprint: null,
-      capabilities: caps,
-      limitations: LIMITATIONS.map(l => ({ ...l })).concat(dynamicLimitations),
-      lanes: [{
-        id: LANE_ID, parentLaneId: null, depth: 0, label: 'Main', kind: 'main',
-        spawnAnchor: null, returnAnchor: null, summaryOnly: false, sessionRef: null,
-      }],
-      steps,
-      nextCursor: null,
-      complete,
-    };
+    return steps;
   }
 
-  return { onLine, onOversize, finish, stopped: () => stopReason !== null };
+  return { onLine, onOversize, close, steps, hasStart: () => startStep !== null };
+}
+
+function newShared() {
+  return { count: 0, size: 0, stopReason: null, skippedLines: 0, limitations: [], limitationIds: new Set(), spawns: new Map(), agents: new Map(), results: new Map() };
+}
+
+/** A subagent's `.meta.json` (agent type, description, the spawn call's id), read bounded; `{}` when it is missing or unreadable. */
+async function readAgentMeta(file) {
+  let fh = null;
+  try {
+    fh = await fs.promises.open(file, 'r');
+    const buf = Buffer.allocUnsafe(META_BYTES);
+    const { bytesRead } = await fh.read(buf, 0, META_BYTES, 0);
+    const o = JSON.parse(buf.subarray(0, bytesRead).toString('utf8'));
+    if (!isObject(o)) return {};
+    const str = (v) => (typeof v === 'string' ? v : '');
+    return { agentType: trunc(str(o.agentType), 100), description: firstLine(str(o.description)), toolUseId: str(o.toolUseId), parentAgentId: str(o.parentAgentId) };
+  } catch { return {}; } finally {
+    if (fh) await fh.close().catch(() => {});
+  }
+}
+
+const AGENT_FILE = /^agent-(.+)\.jsonl$/;
+
+/** The agent ids of a session's `subagents` directory, sorted. An absent directory (nothing spawned) is no agents. */
+async function listAgentIds(dir) {
+  let names;
+  try { names = await fs.promises.readdir(dir); } catch { return []; }
+  const ids = [];
+  for (const n of names) {
+    const m = AGENT_FILE.exec(n);
+    if (m) ids.push(m[1]);
+  }
+  return ids.sort();
 }
 
 /**
- * The flow of one Claude session. `sources` is what `sessionFlow(row)` answered (the main transcript is the one
- * with `laneHint: 'main'`, else the first). Async: the file is streamed. Never rejects for a read problem: an
- * unreadable file, an abort and every cap end in a snapshot whose `complete` is false and whose limitations say
- * why. `opts`: `signal`, `windowHint` (`{ windowTokens }`, main's answer from the session's settings), and for tests `maxLineBytes`, `maxSteps`, `maxBytes`.
+ * Turns the lanes read into the snapshot's lane list: the spawn anchor is the parent's spawn call (found by the id the
+ * meta file names, else by the `agentId` its result carried), the return anchor the parent step whose result carried
+ * the `agentId` and was no background launch. The parent lane is the lane of the spawn step (depth one more), else the
+ * main lane, or, with no spawn call found, the lane the meta file's `parentAgentId` names. A lane without a return stays open.
+ */
+function agentLanes(read, shared) {
+  const anchor = (step) => (step ? { laneId: step.laneId, stepId: step.id } : null);
+  const laneIds = new Set(read.map(a => a.laneId));
+  const records = read.map((a) => {
+    const ref = (a.meta.toolUseId && shared.results.get(a.meta.toolUseId)) || shared.agents.get(a.id) || null;
+    const spawn = (a.meta.toolUseId && shared.spawns.get(a.meta.toolUseId)) || (ref && ref.step) || null;
+    // No spawn call found: the meta file's `parentAgentId` names the parent lane, when that lane was read.
+    const viaMeta = a.meta.parentAgentId && laneIds.has(`agent:${a.meta.parentAgentId}`) ? `agent:${a.meta.parentAgentId}` : null;
+    const label = trunc([a.meta.agentType, a.meta.description].filter(Boolean).join(': ') || 'Agent', LABEL_CHARS);
+    return {
+      id: a.laneId, parentLaneId: spawn && spawn.laneId !== a.laneId ? spawn.laneId : (!spawn && viaMeta && viaMeta !== a.laneId ? viaMeta : LANE_ID), depth: 1, label, kind: 'agent',
+      spawnAnchor: anchor(spawn), returnAnchor: ref && ref.returned ? anchor(ref.step) : null, summaryOnly: false, sessionRef: null,
+    };
+  });
+  const byId = new Map(records.map((r) => [r.id, r]));
+  for (const r of records) {
+    let depth = 1;
+    let up = byId.get(r.parentLaneId);
+    for (let hops = 0; up && up !== r && hops < MAX_LANE_DEPTH; hops++) {
+      depth += 1;
+      up = byId.get(up.parentLaneId);
+    }
+    if (up) { r.parentLaneId = LANE_ID; r.depth = 1; } else r.depth = depth;   // a spawn loop or a chain too deep: hang it on main
+  }
+  return records;
+}
+
+/**
+ * The flow of one Claude session. `sources` is what `sessionFlow(row)` answered: the main transcript is the one
+ * with `laneHint: 'main'` (else the first), and a source with `role: 'subagents-dir'` names the session's `subagents`
+ * directory, read here (async) into one lane per `agent-<id>.jsonl`. Async: the files are streamed. Never rejects for a
+ * read problem: an unreadable file, an abort and every cap end in a snapshot whose `complete` is false and whose
+ * limitations say why. The caps and the abort signal cover the whole snapshot, not one file. `opts`: `signal`,
+ * `windowHint` (`{ windowTokens }`, main's answer from the session's settings, used for the main lane's model only),
+ * and for tests `maxLineBytes`, `maxSteps`, `maxBytes`.
  */
 async function readSessionFlow(sources, opts = {}) {
-  const source = (Array.isArray(sources) && (sources.find(s => s && s.laneHint === 'main') || sources[0])) || null;
+  const list = Array.isArray(sources) ? sources.filter(isObject) : [];
+  const dirSource = list.find(s => s.role === 'subagents-dir' && typeof s.file === 'string') || null;
+  const own = list.filter(s => s !== dirSource);
+  const source = own.find(s => s.laneHint === 'main') || own[0] || null;
   const limits = {
     maxSteps: opts.maxSteps || MAX_STEPS,
     maxBytes: opts.maxBytes || MAX_SNAPSHOT_BYTES,
     windowHint: opts.windowHint && Number(opts.windowHint.windowTokens) > 0 ? Number(opts.windowHint.windowTokens) : null,
   };
-  const builder = makeBuilder(source && source.sourceId ? source.sourceId : 'main', limits);
-  if (!source || typeof source.file !== 'string') return builder.finish({ noSources: true });
+  const readOpts = { maxLineBytes: opts.maxLineBytes || MAX_LINE_BYTES, signal: opts.signal };
+  const shared = newShared();
+  const main = makeBuilder(LANE_ID, source && source.sourceId ? source.sourceId : 'main', limits, shared,
+    { sidechain: false, startLabel: 'Session start', useHint: true });
+  const limitation = (id, text) => {
+    if (shared.limitationIds.has(id)) return;
+    shared.limitationIds.add(id);
+    shared.limitations.push({ id, text });
+  };
   let aborted = false;
   let failed = false;
-  try {
-    const r = await readLines(source.file, { maxLineBytes: opts.maxLineBytes || MAX_LINE_BYTES, signal: opts.signal }, builder.onLine, builder.onOversize);
-    aborted = r.aborted;
-  } catch {
-    failed = true;
+  let agentsIncomplete = false;
+  const noSources = !source || typeof source.file !== 'string';
+  const read = [];   // the agent lanes that were read: { id, laneId, meta, builder }
+
+  if (!noSources) {
+    try {
+      const r = await readLines(source.file, readOpts, main.onLine, main.onOversize);
+      aborted = r.aborted;
+    } catch {
+      failed = true;
+    }
+    if (!aborted && !failed && dirSource && shared.stopReason === null) {
+      let ids = await listAgentIds(dirSource.file);
+      if (ids.length > MAX_AGENT_LANES) {
+        const total = ids.length;
+        ids = ids.slice(0, MAX_AGENT_LANES);   // by id: a start time would need every file opened first
+        agentsIncomplete = true;
+        limitation('agent-lanes-cap', `Only ${MAX_AGENT_LANES} of ${total} subagents are shown (chosen by id, not by start time).`);
+      }
+      for (const id of ids) {
+        if (opts.signal && opts.signal.aborted) { aborted = true; break; }
+        if (shared.stopReason !== null) break;
+        const meta = await readAgentMeta(pathMod.join(dirSource.file, `agent-${id}.meta.json`));
+        const laneId = `agent:${id}`;
+        const builder = makeBuilder(laneId, laneId, limits, shared, { sidechain: true, startLabel: 'Agent start', useHint: false });
+        try {
+          const r = await readLines(pathMod.join(dirSource.file, `agent-${id}.jsonl`), readOpts, builder.onLine, builder.onOversize);
+          if (r.aborted) aborted = true;
+        } catch {
+          agentsIncomplete = true;
+          limitation('agent-read-failed', 'A subagent transcript could not be read; its lane is missing or cut short.');
+        }
+        if (builder.steps.length) read.push({ id, laneId, meta, builder });
+        if (aborted) break;
+      }
+    }
   }
-  return builder.finish({ aborted, failed });
+
+  const mainSteps = main.close();
+  for (const a of read) a.builder.close();
+  // Agent lanes in the order they started, then by id; a lane whose time is unknown goes last.
+  const firstTs = (a) => { const t = a.builder.steps.find(x => Number.isFinite(x.ts)); return t ? t.ts : Infinity; };
+  read.sort((a, b) => (firstTs(a) === firstTs(b) ? 0 : firstTs(a) < firstTs(b) ? -1 : 1) || (a.id < b.id ? -1 : 1));
+  const steps = mainSteps.concat(...read.map(a => a.builder.steps));
+  for (let i = 0; i < steps.length; i++) steps[i].ordinal = i;
+
+  let complete = !aborted && !failed && !agentsIncomplete && shared.skippedLines === 0 && shared.stopReason === null;
+  if (shared.stopReason === 'steps') limitation('step-cap', `The step cap (${limits.maxSteps}) was reached; later steps are not shown.`);
+  if (shared.stopReason === 'bytes') limitation('size-cap', 'The snapshot size cap was reached; later steps are not shown.');
+  if (aborted) limitation('aborted', 'The read was cancelled before the end of the transcript.');
+  if (failed) limitation('read-failed', 'The transcript could not be read.');
+  if (noSources) { limitation('nothing-read', 'Nothing was read from this session.'); complete = false; }
+  else if (!failed && !main.hasStart()) limitation('empty-transcript', 'The transcript holds no lines yet.');
+  const caps = {};
+  for (const id of Object.keys(CAPABILITIES)) caps[id] = { ...CAPABILITIES[id] };
+  return {
+    schemaVersion: 1,
+    snapshotId: `claude-${Date.now().toString(36)}`,
+    fingerprint: null,
+    capabilities: caps,
+    limitations: LIMITATIONS.map(l => ({ ...l })).concat(shared.limitations),
+    lanes: [{
+      id: LANE_ID, parentLaneId: null, depth: 0, label: 'Main', kind: 'main',
+      spawnAnchor: null, returnAnchor: null, summaryOnly: false, sessionRef: null,
+    }].concat(agentLanes(read, shared)),
+    steps,
+    nextCursor: null,
+    complete,
+  };
 }
 
-module.exports = { readSessionFlow, MAX_STEPS, MAX_LINE_BYTES, MAX_SNAPSHOT_BYTES };
+module.exports = { readSessionFlow, MAX_STEPS, MAX_LINE_BYTES, MAX_SNAPSHOT_BYTES, MAX_AGENT_LANES };

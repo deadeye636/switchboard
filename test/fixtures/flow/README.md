@@ -23,6 +23,8 @@ Measured or documented, with fake values: the Claude `compact_boundary` and summ
 
 Found wrong against real data (T4): a `mode` line carries the prompt-input mode (`normal`), not a permission mode, so the fixture's `"mode":"acceptEdits"` line is not what a real file holds; the reader ignores it and gets the change from the next user line's `permissionMode`. An `instructions` attachment can also repeat (`changed`, `reason`) and its files have a `type`.
 
-Still guessed: the `Agent` tool name, the `agentId` on the child file's lines, the `spawn_agent` / `wait_agent` argument
+Checked against local transcripts (T11, keys and tool names only): the Claude spawn tool is `Agent` (a `Task` spelling is accepted by the reader but was not seen), `agentId` sits in the result user line's top-level `toolUseResult` and on every line of the child file, the meta file names the spawn call by `toolUseId`, and a background launch has `status: "async_launched"` (the fixture, a foreground one, has `status: "completed"`).
+
+Still guessed: the `spawn_agent` / `wait_agent` argument
 and output keys, the exec input key `cmd`, the `status` values in `wait_agent` output, and Pi's `usage` key names and entry
 wrapper. Confirm against a real transcript before a reader relies on them.

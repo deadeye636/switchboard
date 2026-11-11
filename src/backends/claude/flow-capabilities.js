@@ -8,7 +8,7 @@ const { flowCap } = require('../flow-hook');
 
 // A capability that is not fully there names one of these. The ids are stable (the Flow tab keys on them).
 const LIMITATIONS = Object.freeze([
-  { id: 'agents-later', text: 'Subagent lanes are not drawn yet: a subagent call appears as an ordinary tool step on the main lane.' },
+  { id: 'agents-open', text: 'Each subagent has its own lane. A subagent started in the background answers the parent at once and its end is not recorded there, so its lane stays open; a lane may also be missing if its transcript could not be read.' },
   { id: 'approvals-not-recorded', text: 'A Claude transcript does not record whether a tool call was asked about or allowed, so no approval step is shown.' },
   { id: 'patterns-later', text: 'Destructive-command highlights are not built yet, so no step is marked as risky.' },
   { id: 'window-inferred', text: 'A checkpoint\'s window comes from the model name; a 1M variant selected outside the transcript is not recorded, so the window is an inference.' },
@@ -16,7 +16,7 @@ const LIMITATIONS = Object.freeze([
 ]);
 
 const CAPABILITIES = Object.freeze({
-  agents: flowCap('partial', 'agents-later'),
+  agents: flowCap('partial', 'agents-open'),
   instructionFiles: flowCap('perFile'),
   contextCheckpoints: flowCap('partial', 'window-inferred'),
   permissionMode: flowCap('yes'),

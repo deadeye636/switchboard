@@ -796,7 +796,14 @@ module.exports = {
   sessionFlow: (row) => {
     const hook = require('../flow-hook');
     const answer = require('./flow-capabilities');
-    return hook.singleFileFlowAnswer(row, row && transcriptPathFor(row), { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
+    const file = row && transcriptPathFor(row);
+    const out = hook.singleFileFlowAnswer(row, file, { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
+    // The session's subagents sit beside the transcript as `<transcript without .jsonl>/subagents/agent-<id>.jsonl`. Only the
+    // directory is named here (string joins, no fs): the reader lists it asynchronously in the worker.
+    if (out && out.sources.length && typeof file === 'string' && file.endsWith('.jsonl')) {
+      out.sources.push({ sourceId: 'subagents', role: 'subagents-dir', laneHint: 'agents', file: file.slice(0, -'.jsonl'.length) + path.sep + 'subagents' });
+    }
+    return out;
   },
   readSessionFlow: (sources, opts) => require('./flow-reader').readSessionFlow(sources, opts),
   buildMcpPrune: mcpPrune.buildMcpPrune,
@@ -1214,7 +1221,7 @@ description:
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is claude-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is claude-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is claude-native' },
-    sessionFlow: { state: 'limited', note: 'one main lane with steps, instruction files and context checkpoints; subagent lanes, approvals and risk marks are not read yet, and the window comes from the session settings first, the model name is the fallback (spec 46)' },
+    sessionFlow: { state: 'limited', note: 'a main lane and one lane per subagent, with steps, instruction files and context checkpoints; a background subagent never shows its end, and approvals and risk marks are not read yet; the window comes from the session settings first, the model name is the fallback (spec 46)' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

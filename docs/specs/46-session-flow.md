@@ -156,7 +156,7 @@ What each backend can answer, from the measurements on the issue (second to four
 | | Claude | Codex | Pi |
 |---|---|---|---|
 | Answer | `yes` | `limited` | `limited` |
-| Lanes | main plus `subagents/agent-<id>.jsonl`, joined by `agentId` in the parent's `tool_result`; depth 1 in practice | child rollouts; `source.subagent.thread_spawn` states `depth` and `agent_path`; parent side `spawn_agent`, `wait_agent`, `wait`, `send_message`; `inter_agent_communication_metadata` marks a turn another agent started | single lane; the app's `subagent` call is one collapsed node (call plus the one summary line), never a lane, and Pi nesting cannot be shown. No built-in subagents. |
+| Lanes | main plus `subagents/agent-<id>.jsonl`, joined by the meta file's `toolUseId` or the `agentId` in the parent's `toolUseResult`; depth 1 in practice | child rollouts; `source.subagent.thread_spawn` states `depth` and `agent_path`; parent side `spawn_agent`, `wait_agent`, `wait`, `send_message`; `inter_agent_communication_metadata` marks a turn another agent started | single lane; the app's `subagent` call is one collapsed node (call plus the one summary line), never a lane, and Pi nesting cannot be shown. No built-in subagents. |
 | Instruction files | per file (`attachment` `instructions` `files[]`, characters) | one block (`# AGENTS.md instructions for <dir>`); `included` | per file from `sections.project_context` (`<project_instructions path>`), **Pi 1.1.0 and newer only**; older sessions store no system message, so the start step lists none and a limitation says why |
 | Checkpoints | `message.usage`; window from the model | `token_count.info.last_token_usage` + `model_context_window`; skip the `input_tokens: 0` record after a compaction | `message.usage` |
 | Permission mode | `permissionMode` per user line; `mode` line | `turn_context`: `approval_policy`, `sandbox_policy` | none in a terminal session; pi-native gate refusals only |
@@ -341,7 +341,20 @@ abort and every cap end in a snapshot with `complete: false` and a limitation (`
   transcript with `changed` and `reason` (`session_start`, `compaction`, seen on 13 of 174); each repeat lists its files again as
   children of the start step, the reason in `detail` and in the label (`CLAUDE.md (compaction)`); a repeat stays where it happened, as a child of the start step rather than of the compaction step (the compaction step is a boundary, and the repeat is the same kind of fact as the first listing). **The first attachment is moved up:** in a real transcript it comes after the first prompt, but it describes the session's start, so the reader puts it directly behind the start step (stable partition, ordinals renumbered, ids unchanged because they derive from the source line). **Labels never carry an absolute path:** relative to the session's working directory (`cwd` of the transcript lines) when the file lies inside it (`CLAUDE.md`, a file in a `rules` folder), else `~/...` for the home directory, else the last two segments behind an ellipsis; the full path is not in the snapshot at all. Start total: the first request's input, `measured`, with the `hidden-input`
   limitation (system prompt, tool definitions and memory also count; the files do not add up to it); `unknown` before a first request.
-- **Capabilities answered:** `agents` partial (subagent lanes are Phase 2), `instructionFiles` perFile, `contextCheckpoints` partial,
+- **Subagent lanes (T11).** `sessionFlow(row)` adds one source with `role: 'subagents-dir'`: the string join `<transcript without .jsonl>/subagents`,
+  no fs call in main. The reader lists that directory with `fs.promises.readdir` (an absent one is no agents) and reads each
+  `agent-<id>.jsonl` after the main file with the same builder, as its own lane `agent:<id>` (kind `agent`, `parentLaneId` the lane of the spawn call, depth
+  one more, in practice 1). Lines marked `isSidechain` are skipped on the main lane and read whole on a subagent's lane. A lane has its own start step
+  ("Agent start"), instruction attachment (children of that start), turns, checkpoints and compactions; the session settings' window hint applies to the main lane only, a
+  subagent's window comes from its own model. Step ids are `s:agent:<id>:agent:<id>:<line>:<offset>:<part>`, so they derive from the file and the line offset and not
+  from an array index. **Anchors:** the spawn anchor is the parent step of the `Agent` (or older `Task`) call, found by the `toolUseId` the `.meta.json` names, else by the
+  `agentId` its result carried; the return anchor is the parent step whose `tool_result` line has `toolUseResult.agentId` and is no background launch
+  (`isAsync` / status `async_launched` answers at once and is not a return). The return is keyed by the spawn call's id, so a later result line carrying the same `agentId` (a continued agent) is not taken for it. The call and its result are ONE step, so both anchors name that step. With no spawn call found, the meta file's `parentAgentId` names the parent lane when that lane was read. A lane without a
+  return stays open. The lane label is `agentType: description` from the meta file, truncated. **Caps and abort cover the whole snapshot**: one step count, one size estimate and one
+  signal check between chunks and before each file; at most 200 lanes (`agent-lanes-cap`, chosen by id, not by start time: that would need every file opened first); a file that cannot be read is a limitation (`agent-read-failed`) and `complete: false`.
+  Step `ordinal` is the index in the snapshot's `steps` (main lane first, then lanes in the order they started), so it stays one monotonic sequence.
+  A lane with no step (an empty file, or no room left under a cap) is not listed. The meta file is read up to 16 KB.
+- **Capabilities answered:** `agents` partial (`agents-open`: a background subagent's end is not recorded in the parent, so its lane stays open), `instructionFiles` perFile, `contextCheckpoints` partial,
   `permissionMode` yes, `approvals` no (a terminal transcript records no ask/allow), `compaction` yes, `interrupt` yes,
   `destructivePatterns` no (Phase 5), `timestamps` yes. The `sessionFlow` row of Claude and claude-native stays `limited`.
 
@@ -355,6 +368,8 @@ line is `JSON.parse`d (lines over the cap excepted), no cheap-prefix shortcut wa
 ## Known gaps (planned)
 
 - Cross-backend session trees (#804, #806, #809) and live append are later extensions.
+- A Claude background subagent (`async_launched`) is never shown as ended: the parent records its launch, and the end arrives as a later notification line the reader does not read, so its lane stays open.
+- A subagent file written after the Flow tab last read it is not noticed by `status`, which fingerprints the main transcript only; Refresh reads it.
 - Pi subagent steps and Pi nesting cannot be drawn (no child transcript).
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files.

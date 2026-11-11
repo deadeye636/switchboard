@@ -235,8 +235,15 @@ Read from existing transcripts, structure only (2026-11-07). The session flow di
   `hook_non_blocking_error` are the other hook outcomes.
 - **Tools a skill grants.** An `attachment` of type `command_permissions` with `allowedTools: [...]` directly
   follows a skill load (49 of 53 in the sample): the skill's `allowed-tools` taking effect without a prompt.
-- **Subagents.** Each has its own file `<session-id>/subagents/agent-<id>.jsonl` plus a `.meta.json`; the
-  parent's `tool_result` names it by `agentId`. Its lines carry `isSidechain: true`.
+- **Subagents** (structure measured 2026-11-11 over local transcripts, keys and tool names only). Each has its own file
+  `<session-id>/subagents/agent-<id>.jsonl` plus `agent-<id>.meta.json`. The spawn tool is named `Agent` in every transcript
+  measured (no `Task` seen; the reader accepts both). The parent's `tool_use` has `name`, `id` and an `input` with `description` and `prompt`. The
+  result is a user line whose `message.content` holds the `tool_result` and which carries a top-level `toolUseResult` with `agentId`, `status`,
+  `description`, `prompt`, `resolvedModel`: `status: "completed"` (then also `content`, `totalDurationMs`, `totalTokens`, `usage`, `agentType`) for a foreground
+  agent, `status: "async_launched"` with `isAsync: true` and `outputFile` for a background one, which answers at once, so it is no return. Every line of the
+  agent file carries `isSidechain: true` and `agentId`; the first is a user line (the agent's prompt) or an `instructions` attachment. The meta file keys:
+  `agentType`, `description`, `toolUseId` (the id of the parent's spawn `tool_use`), `spawnDepth`, `requestShape`, `finished`, and on some `parentAgentId`
+  (an agent spawned by an agent), `model`, `isFork`, `worktreePath`. The reader joins lane to call by `toolUseId`, else by `agentId`.
 
 ## Codex — file, JSONL (date-bucketed)
 
