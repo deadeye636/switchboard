@@ -311,7 +311,11 @@ description:
   sessionFlow: (row) => {
     const hook = require('../flow-hook');
     const answer = require('./flow-capabilities');
-    return hook.singleFileFlowAnswer(row, row && row.filePath, { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
+    const out = hook.singleFileFlowAnswer(row, row && row.filePath, { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
+    // A subagent's rollout is a file of its own that the session cache does not hold, so the worker looks for it: the source
+    // names the rollout's folder (a string join, no fs call here) and the reader scans from there (spec 46, O2).
+    if (out && out.sources.length) out.sources.push({ sourceId: 'agents', role: 'rollout-scan', laneHint: 'agents', file: path.dirname(row.filePath) });
+    return out;
   },
   readSessionFlow: (sources, opts) => require('./flow-reader').readSessionFlow(sources, opts),
   // External MCP servers (spec 36): stdio (with `cwd`) and http, as `-c` overrides.
@@ -341,7 +345,7 @@ description:
     review: { state: 'no', note: 'a review runs on a pipe, and Codex has no pipe driver here' },
     task: { state: 'no', note: 'a task runs on a pipe, and Codex has no pipe driver here' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and Codex has no pipe driver here' },
-    sessionFlow: { state: 'limited', note: 'one lane with steps, an AGENTS.md block (not per file), context checkpoints, compactions and permission changes; subagent rollouts are not read yet, and approvals and risk marks are not read (spec 46)' },
+    sessionFlow: { state: 'limited', note: 'one lane with steps, an AGENTS.md block (not per file), context checkpoints, compactions and permission changes; one lane per spawned subagent, found by scanning later rollouts; approvals and risk marks are not read (spec 46)' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

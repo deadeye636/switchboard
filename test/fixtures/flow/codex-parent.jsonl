@@ -1,10 +1,12 @@
-{"timestamp":"2026-01-01T13:00:00.000Z","type":"session_meta","payload":{"id":"00000000-0000-4000-8000-000000000002","cwd":"<project>","cli_version":"0.0.0-fake","source":"exec"}}
-{"timestamp":"2026-01-01T13:00:00.100Z","type":"turn_context","payload":{"turn_id":"t1","cwd":"<project>","model":"gpt-fake","approval_policy":"on-request","approvals_reviewer":"auto_review","sandbox_policy":{"type":"workspace-write"}}}
-{"timestamp":"2026-01-01T13:00:00.200Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Have a helper count the files."}]}}
-{"timestamp":"2026-01-01T13:00:01.000Z","type":"response_item","payload":{"type":"function_call","name":"spawn_agent","call_id":"call_s1","arguments":"{\"task_name\":\"counter\",\"message\":\"Count the files.\"}"}}
-{"timestamp":"2026-01-01T13:00:01.500Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_s1","output":"{\"agent_id\":\"00000000-0000-4000-8000-000000000003\",\"nickname\":\"Fake\"}"}}
-{"timestamp":"2026-01-01T13:00:02.000Z","type":"response_item","payload":{"type":"function_call","name":"wait_agent","call_id":"call_w1","arguments":"{\"targets\":[\"00000000-0000-4000-8000-000000000003\"]}"}}
-{"timestamp":"2026-01-01T13:00:09.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_w1","output":"{\"status\":{\"completed\":\"Three files.\"}}"}}
-{"timestamp":"2026-01-01T13:00:10.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"call_e1","input":"{\"cmd\":\"rm -rf ../scratch\",\"sandbox_permissions\":\"require_escalated\",\"justification\":\"Clean up a fake scratch folder\"}"}}
-{"timestamp":"2026-01-01T13:00:11.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_e1","output":"exit_code=0"}}
-{"timestamp":"2026-01-01T13:00:12.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The helper counted three files."}]}}
+{"timestamp":"2026-01-01T13:00:00.100Z","type":"session_meta","payload":{"id":"00000000-0000-4000-8000-000000000002","cwd":"<project>","cli_version":"0.0.0-fake","source":"exec"}}
+{"timestamp":"2026-01-01T13:00:00.200Z","type":"turn_context","payload":{"turn_id":"t1","cwd":"<project>","model":"gpt-fake","approval_policy":"on-request","approvals_reviewer":"auto_review","sandbox_policy":{"type":"workspace-write"}}}
+{"timestamp":"2026-01-01T13:00:00.300Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Have a helper count the files."}]}}
+{"timestamp":"2026-01-01T13:00:00.400Z","type":"response_item","payload":{"type":"function_call","name":"spawn_agent","namespace":"collaboration","call_id":"call_s1","arguments":"{\"task_name\":\"counter\",\"agent_type\":\"worker\",\"fork_turns\":\"none\",\"message\":\"Count the files.\"}"}}
+{"timestamp":"2026-01-01T13:00:00.500Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_s1","output":"{\"task_name\":\"counter\"}"}}
+{"timestamp":"2026-01-01T13:00:00.600Z","type":"response_item","payload":{"type":"function_call","name":"wait_agent","namespace":"collaboration","call_id":"call_w1","arguments":"{\"timeout_ms\":30000}"}}
+{"timestamp":"2026-01-01T13:00:00.700Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_w1","output":"{\"message\":\"Wait completed.\",\"timed_out\":false}"}}
+{"timestamp":"2026-01-01T13:00:00.800Z","type":"inter_agent_communication_metadata","payload":{"trigger_turn":false}}
+{"timestamp":"2026-01-01T13:00:00.900Z","type":"response_item","payload":{"type":"agent_message","author":"/root/counter","recipient":"/root","content":[{"type":"input_text","text":"Three files."}]}}
+{"timestamp":"2026-01-01T13:00:01.000Z","type":"response_item","payload":{"type":"custom_tool_call","status":"completed","call_id":"call_e1","name":"exec","input":"{\"cmd\":\"rm -rf ../scratch\",\"sandbox_permissions\":\"require_escalated\",\"justification\":\"Clean up a fake scratch folder\"}"}}
+{"timestamp":"2026-01-01T13:00:01.100Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_e1","output":[{"type":"input_text","text":"Script completed\nWall time 0.1 seconds\nOutput:"}]}}
+{"timestamp":"2026-01-01T13:00:01.200Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The helper counted three files."}]}}

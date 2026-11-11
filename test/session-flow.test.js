@@ -475,3 +475,26 @@ test('the snapshot handed to the renderer carries no subagent state and no path 
     assertNoPath(snap, t.dir);
   } finally { t.cleanup(); }
 });
+
+// --- status notices the extra rollouts a reader reports (T15) ---
+
+test('status: a rollout the reader reported (a Codex subagent) that grew is "grew", a shrunk or removed one "rewritten"', async () => {
+  const t = setup();
+  try {
+    const child = path.join(t.dir, 'child.jsonl');
+    fs.writeFileSync(child, '{"type":"x"}\n');
+    const n = t.w.made.length + 1;
+    const p = sessionFlow.getSessionFlow('s1');
+    await tick(t.w, n);
+    t.w.made[n - 1].emit('message', { type: 'result', snapshot: goodSnapshot(), files: [{ file: child, size: fs.statSync(child).size }] });
+    const snap = await p;
+    assertNoPath(snap, t.dir);
+    assert.equal(await sessionFlow.getStatus('s1'), 'unchanged');
+    fs.appendFileSync(child, '{"type":"x"}\n');
+    assert.equal(await sessionFlow.getStatus('s1'), 'grew');
+    fs.writeFileSync(child, '');
+    assert.equal(await sessionFlow.getStatus('s1'), 'rewritten');
+    fs.rmSync(child);
+    assert.equal(await sessionFlow.getStatus('s1'), 'rewritten');
+  } finally { t.cleanup(); }
+});

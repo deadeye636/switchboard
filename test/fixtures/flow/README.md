@@ -10,8 +10,8 @@ sections of `docs/backend-formats.md` (Claude, Codex, Pi).
 | `claude-parent.jsonl` | Parent whose `tool_result` names the subagent by `agentId` | same |
 | `claude-parent/subagents/agent-a1b2c3.jsonl` + `.meta.json` | The subagent file (`isSidechain: true`, own `instructions` attachment) and its meta | same |
 | `codex-rollout.jsonl` | `session_meta`, `turn_context` (permission fields, a change on the second), a `developer` message, the AGENTS.md message with its `<environment_context>` part, reasoning, `custom_tool_call` `exec` + its parts-array output, `function_call` + string output (one failing with an exit code), `token_count` incl. `model_context_window` (once repeated), `compacted`, the zero `token_count` after it, `turn_aborted` | Codex, "Agents, approvals and compaction" |
-| `codex-parent.jsonl` | `spawn_agent` / `wait_agent`, an escalated `exec` (`require_escalated` + `justification`) under `auto_review` | same |
-| `codex-child.jsonl` | Child header: `source.subagent.thread_spawn` with `parent_thread_id`, `depth`, `agent_path`, `agent_nickname` | same |
+| `codex-parent.jsonl` | `spawn_agent` (`task_name`, `agent_type`, `fork_turns`, `message`; output `{task_name}`) / `wait_agent` (`timeout_ms`; output `{message, timed_out}`), the child's result as an `agent_message` after an `inter_agent_communication_metadata`, an escalated `exec` (`require_escalated` + `justification`) under `auto_review` | same |
+| `codex-child.jsonl` | Child header: `source.subagent.thread_spawn` with `parent_thread_id`, `depth`, `agent_path`, `agent_nickname`, `agent_role`; `trigger_turn: true` and the task as an `agent_message` | same |
 | `codex-guardian.jsonl` | Guardian rollout, two turns: short `{"outcome":"allow"}` and the full verdict form | same |
 | `pi-session.jsonl` | `session`, `system` message with `sections.project_context`, `usage`, `toolCall` read/bash, refusal `toolResult`, `subagent` call, `compaction` | Pi, "Instruction files, refusals, subagents and compaction" |
 
@@ -33,7 +33,8 @@ message carries a second `<environment_context>` part; a `reasoning` item's `sum
 `last_token_usage.input_tokens` already includes the cached part. One compaction was seen: the `compacted` line, `world_state`,
 `turn_context`, then a `token_count` with input 0. No `turn_aborted` was in the local rollouts.
 
+Checked against local Codex rollouts (T15, key names only): `spawn_agent` takes `task_name`, `agent_type`, `fork_turns`, `message` and answers `{task_name}` with no child id; `wait_agent` takes `timeout_ms` only and answers `{message, timed_out}` (no per-agent status); `send_message` takes `target`, `message`; a child's header is `thread_spawn` with `parent_thread_id`, `depth`, `agent_path` (`/root/<task_name>`), `agent_nickname`, `agent_role`, and its `forked_from_id` equals the parent; a child's result reaches the parent as a `response_item` `agent_message` with `author` the child's path and `recipient` `/root`, after an `inter_agent_communication_metadata` with `trigger_turn: false`; the child's own first turn is the same pair with `trigger_turn: true` and the parent's task text; the guardian header has `source.subagent.other: "guardian"`. A header line is about 20 KB. The values in a `wait` call (the tool named `wait`) were not seen.
+
 Still guessed: the `Exit code: N` / `exit_code=N` form a failing tool call's output ends in (the local `exec` outputs state no exit
-code; a code seen in them was quoted script output), the `turn_aborted` line (documented, not seen locally), the `spawn_agent` / `wait_agent` argument
-and output keys, the `status` values in `wait_agent` output, and Pi's `usage` key names and entry
+code; a code seen in them was quoted script output), the `turn_aborted` line (documented, not seen locally), and Pi's `usage` key names and entry
 wrapper. Confirm against a real transcript before a reader relies on them.

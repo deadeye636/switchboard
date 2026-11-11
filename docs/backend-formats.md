@@ -468,7 +468,14 @@ Measured on cli 0.166.0 with `codex exec` (gpt-5.6-luna) and read back from exis
   text is `encrypted_content`). An assistant `message` has a `phase` (`commentary`, `final_answer`). A `developer` message is
   the CLI's own instructions. `token_count.info` is `total_token_usage`, `last_token_usage` and `model_context_window`; a
   rate-limit-only record has no `info`. A top-level `token_usage_record` line also exists and is not read. The reader is
-  `src/backends/codex/flow-reader.js`, spec 46 "Codex reader, as built (T14)".
+  `src/backends/codex/flow-reader.js`, spec 46 "Codex reader, as built (T14, T15)".
+- **Agent calls and messages (T15, local rollouts, key names).** `spawn_agent` takes `task_name`, `agent_type`, `fork_turns`, `message` and answers
+  `{"task_name"}`: **no child id**, so a child is matched to the call by `agent_path` = the spawner's path + `/` + `task_name`. `wait_agent` takes
+  `timeout_ms` and answers `{"message","timed_out"}`; `send_message` takes `target` and `message`. A child's result comes back to the parent as a
+  `response_item` `agent_message` (`author` the child's path, `recipient` the parent's, `content` a list of `input_text`) after an
+  `inter_agent_communication_metadata` line with `trigger_turn: false`; the task reaches the child the same way with `trigger_turn: true`. A
+  child header's `thread_spawn` also has `agent_role`, and the header carries `forked_from_id` equal to the parent. The session cache drops all
+  of these rollouts (`buildRow` returns null for a `source.subagent` header), so the flow reader finds them itself: a rollout's file name begins with its start time in LOCAL time and sits under a `<year>/<month>/<day>` folder, and in the first line `source` precedes the very large `base_instructions`, so the first 4 KB say whether a rollout is a spawned child.
 
 ## Hermes — SQLite
 

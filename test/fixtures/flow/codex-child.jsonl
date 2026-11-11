@@ -1,4 +1,6 @@
-{"timestamp":"2026-01-01T13:00:01.200Z","type":"session_meta","payload":{"id":"00000000-0000-4000-8000-000000000003","cwd":"<project>","cli_version":"0.0.0-fake","source":{"subagent":{"thread_spawn":{"parent_thread_id":"00000000-0000-4000-8000-000000000002","depth":1,"agent_path":"/root/counter","agent_nickname":"Fake"}}}}}
-{"timestamp":"2026-01-01T13:00:01.300Z","type":"turn_context","payload":{"turn_id":"c1","cwd":"<project>","model":"gpt-fake","approval_policy":"on-request"}}
-{"timestamp":"2026-01-01T13:00:01.400Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Count the files."}]}}
-{"timestamp":"2026-01-01T13:00:08.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Three files."}]}}
+{"timestamp":"2026-01-01T13:00:00.520Z","type":"session_meta","payload":{"id":"00000000-0000-4000-8000-000000000003","forked_from_id":"00000000-0000-4000-8000-000000000002","cwd":"<project>","cli_version":"0.0.0-fake","source":{"subagent":{"thread_spawn":{"parent_thread_id":"00000000-0000-4000-8000-000000000002","depth":1,"agent_path":"/root/counter","agent_nickname":"Fake","agent_role":"worker"}}}}}
+{"timestamp":"2026-01-01T13:00:00.540Z","type":"inter_agent_communication_metadata","payload":{"trigger_turn":true}}
+{"timestamp":"2026-01-01T13:00:00.560Z","type":"response_item","payload":{"type":"agent_message","author":"/root","recipient":"/root/counter","content":[{"type":"input_text","text":"Count the files."}]}}
+{"timestamp":"2026-01-01T13:00:00.580Z","type":"turn_context","payload":{"turn_id":"c1","cwd":"<project>","model":"gpt-fake","approval_policy":"on-request","sandbox_policy":{"type":"workspace-write"}}}
+{"timestamp":"2026-01-01T13:00:00.600Z","type":"response_item","payload":{"type":"reasoning","summary":[],"encrypted_content":"fake"}}
+{"timestamp":"2026-01-01T13:00:00.620Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Three files."}]}}

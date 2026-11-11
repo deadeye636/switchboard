@@ -9,7 +9,7 @@ const { flowCap } = require('../flow-hook');
 // A capability that is not fully there names one of these. The ids are stable (the Flow tab keys on them).
 const LIMITATIONS = Object.freeze([
   { id: 'instructions-block', text: 'Codex records AGENTS.md as one message and names no files, so the instructions are one block of characters, counted inside the first request\'s input.' },
-  { id: 'agents-later', text: 'Subagent rollouts are not read yet, so a subagent has no lane; the calls that spawn and wait for one are shown as ordinary tool steps.' },
+  { id: 'agents-partial', text: 'Each subagent has its own lane. Its rollout is found among the rollouts that start while the session runs (by file name), so one the search bound cut off can be missing. A call that spawns an agent is matched to its lane by task name, and an agent whose result never reached the parent stays open.' },
   { id: 'approvals-not-recorded', text: 'A Codex rollout does not record whether a call was asked about or allowed (a guardian verdict is written to another rollout that is not read), so no approval step is shown.' },
   { id: 'patterns-later', text: 'Destructive-command highlights are not built yet, so no step is marked as risky.' },
   { id: 'hidden-input', text: 'The start total is the first request\'s measured input and also counts input the rollout does not list (system prompt, tool definitions), so the instruction block does not add up to it. Its token figure is an estimate (about characters / 4).' },
@@ -17,7 +17,7 @@ const LIMITATIONS = Object.freeze([
 ]);
 
 const CAPABILITIES = Object.freeze({
-  agents: flowCap('no', 'agents-later'),
+  agents: flowCap('partial', 'agents-partial'),
   instructionFiles: flowCap('block', 'instructions-block'),
   contextCheckpoints: flowCap('yes'),
   permissionMode: flowCap('yes'),

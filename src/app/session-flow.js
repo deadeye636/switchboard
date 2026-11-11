@@ -172,6 +172,22 @@ async function subagentStatus(dir, before) {
   return grew ? 'grew' : 'unchanged';
 }
 
+/**
+ * Whether the extra rollouts a reader reported (a Codex subagent's, `files` of the worker's reply) moved since the read:
+ * `unchanged | grew | rewritten`. One stat each, in sequence, at most MAX_SUB_FILES. A new child file needs no check of its own:
+ * the parent's rollout grows in the same moment it spawns one.
+ */
+async function readFilesStatus(before) {
+  let grew = false;
+  for (const [file, size] of before) {
+    let st;
+    try { st = await fs.promises.stat(file); } catch { return 'rewritten'; }
+    if (st.size < size) return 'rewritten';
+    if (st.size > size) grew = true;
+  }
+  return grew ? 'grew' : 'unchanged';
+}
+
 function remember(key, fp) {
   fingerprints.delete(key);
   fingerprints.set(key, fp);
@@ -203,6 +219,11 @@ async function getStatus(sessionId, senderId) {
   }
   if (main === 'grew') return main;
   const dir = subagentsDir(flow.sources);
+  if (before.files && before.files.size) {
+    const moved = await readFilesStatus(before.files);
+    if (moved === 'rewritten') return moved;
+    if (moved === 'grew') return moved;
+  }
   if (!dir || !before.subs) return main;
   return (await subagentStatus(dir, before.subs)) || main;
 }
@@ -349,6 +370,9 @@ async function getSessionFlow(sessionId, senderId) {
   const snapshot = outcome.snapshot;
   if (generations.get(key) === gen) generations.delete(key);   // the newest read is done: nothing left to supersede
   snapshot.fingerprint = fingerprint ? { size: fingerprint.size, mtimeMs: fingerprint.mtimeMs, head: fingerprint.head } : null;
+  if (fingerprint && Array.isArray(outcome.files) && outcome.files.length) {
+    fingerprint.files = new Map(outcome.files.filter(f => f && typeof f.file === 'string' && Number.isFinite(f.size)).slice(0, MAX_SUB_FILES).map(f => [f.file, f.size]));
+  }
   if (fingerprint) remember(key, fingerprint);
   debug(`worker start ${Math.round(outcome.onlineMs || 0)} ms, load ${Math.round(outcome.loadMs || 0)} ms, read ${Math.round(outcome.readMs || 0)} ms, `
     + `reply ${outcome.replyBytes || 0} bytes, round trip ${Math.round(outcome.totalMs)} ms, main side before the worker ${mainMs.toFixed(1)} ms`);

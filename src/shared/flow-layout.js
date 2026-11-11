@@ -378,8 +378,8 @@
       const m = metas.get(lane.id);
       if (!m || m.under || m.first < 0) continue;
       const rail = { laneId: lane.id, col: m.col, fromRow: m.first, toRow: m.last };
-      // The hook for a lane that is waiting: nothing sets `waiting` yet (no backend emits an explicit wait event),
-      // so a lane is never drawn dashed today. Omitted when false so the common rail stays small.
+      // A lane that is waiting: a reader sets `waiting` only for an explicit wait call that has no answer yet (Codex's
+      // `wait_agent` / `wait`). Omitted when false so the common rail stays small.
       if (lane.waiting === true) rail.waiting = true;
       rails.push(rail);
       const sa = lane.spawnAnchor;

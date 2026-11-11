@@ -60,6 +60,7 @@ FlowSnapshot {
 Lane { id, parentLaneId, depth, label, kind: 'main' | 'agent' | 'collapsedCall' | 'session',
        spawnAnchor: { laneId, stepId }, returnAnchor: null | { laneId, stepId },
        summaryOnly: boolean,      // a Pi subagent: one node, no steps
+       waiting?: boolean,         // present (true) only while an explicit wait call of this lane has no answer
        sessionRef: null }         // reserved for #804/#806
 Step { id, laneId, ordinal, turn, kind, label, ts: null | number,
        parentStepId?,             // optional: an instruction file names its start step; must name a step of the snapshot
@@ -297,7 +298,7 @@ expand by click, Enter/Space or the arrow keys.
   each with its own connector (requirement 7; the click test found them folded into "2 × Agent").
 - **Nesting reads without colour.** A sibling one column to the right looks like a child, so the lane tag leads with `depth N ·` above depth 1 (the depth
   first, so the tag's ellipsis cuts the label, not the depth), and its title and accessible name say which lane started it (`laneTagInfo`).
-- **Waiting.** `lane.waiting === true` draws the rail dashed. It is a reserved field: no reader emits it yet and it is not in the `FlowSnapshot` shape; add it there (and to `validateSnapshot`) when a reader emits an explicit wait event. No lane is dashed today.
+- **Waiting.** `lane.waiting === true` draws the rail dashed. As built (T15): it is in the `FlowSnapshot` shape (optional, a boolean; `validateSnapshot` refuses another type) and only an explicit wait call sets it. Codex's reader sets it on a lane whose last `wait_agent` / `wait` call has no output at the end of the read and no later turn began or was aborted; no other call, no silence and no open lane makes a lane waiting. Claude's reader emits none (it records no wait event). A wait call is an ordinary `tool` step.
 - **Row lookup.** A step below a collapsed lane maps to its nearest collapsed ancestor's summary row (walking `parentLaneId`) and never uses up a hidden group's count; two root lanes keep snapshot order.
 - **Lane tag on a group row.** Left folds the group there; the row's accessible name carries the tag text and the "Started by" relation, and a click on the tag folds the lane.
 
@@ -332,7 +333,7 @@ visible.
 | ID | Point | Recommendation (decided) |
 |---|---|---|
 | O1 | Where the reader runs: a short-lived worker per Refresh (terminate = cancel), or cooperative reading on the main thread with yields, or paging by cursor. | Worker per Refresh returning one snapshot. Cursor stays in the shape, unused. Main-thread yielding cannot bound a pathological line and shares the event loop with terminals. |
-| O2 | How Codex child rollouts and the guardian rollout are found for a parent. `parent_thread_id` is in each child's header, but the session cache treats a guardian rollout as no session (`src/backends/codex/parser.js`), and **whether it indexes spawned children is not verified**. | Decide in the Codex lane step by measurement: first try the cache, else read only the first line of rollouts in the parent's date folder onward. Document the cost. |
+| O2 | How Codex child rollouts and the guardian rollout are found for a parent. | **Answered (T15).** The session cache does NOT hold spawned children: `src/backends/codex/parser.js` marks any rollout with a `source.subagent` header internal and `buildRow` returns null for it, so the guardian and every spawned child are absent from the cache by design (#492), and indexing them would put them in the sidebar. So the worker reads headers, bounded by the parent's time window taken from file names: see "Codex reader, as built (T14, T15)", "Finding the children". Cost measured there. |
 | O3 | Whether a template/profile session inherits `sessionFlow` or lists it in `NOT_INHERITED`. | Forward it by hand like `listSubagents` (`src/backends/index.js`), since a template runs the base binary and writes the base's transcript. The shape test pins it. |
 | O4 | Order of delivery: the issue's review revision puts highlights before visual exports; the task order is exports (JSON, SVG, PDF, Mermaid), then highlights. | Follow the task order (the plan does). The `Flag` field exists from the first schema, so JSON never changes shape when highlights land. |
 | O5 | The step cap and what the viewer does at it. | Measure the largest local transcripts per backend in the first Claude reader step; set the cap from that; `complete: false` plus a limitation, never a silent cut. |
@@ -395,13 +396,13 @@ heap about 26 MB, 1165 steps, 961 KB serialised. A 48 MB one: 508 ms, 28 MB, 732
 steps, 1405 KB. The median-size file (775 KB): 13 ms, 10 MB, 48 steps. About 2 % of the 30 s worker timeout for the worst case; every
 line is `JSON.parse`d (lines over the cap excepted), no cheap-prefix shortcut was needed.
 
-### Codex reader, as built (T14)
+### Codex reader, as built (T14, T15)
 
 `src/backends/codex/flow-reader.js` with its data in `src/backends/codex/flow-capabilities.js` (read by the descriptor's `sessionFlow` and by the
 reader, so the two cannot disagree). The reading primitives are shared: `src/backends/flow-lines.js` holds the bounded line reader (64 KB chunks,
 4 MB per-line cap, abort between chunks), the step and size caps (20 000 steps, 8 MB estimate), `trunc` / `firstLine` / `detailSize` / `evidence`,
-extracted from Claude's reader so the two cannot drift on a cap. Only the format stays in the backend folder. One lane (`main`); a Codex
-subagent has its own rollout, which is T15. A guardian rollout is not a session and is never a source.
+extracted from Claude's reader so the two cannot drift on a cap. Only the format stays in the backend folder. Lanes: `main` and, since T15, one lane per
+spawned subagent (below). A guardian rollout is not a session and is never a lane.
 
 - **Steps.** `start` (the first line); one `instructions` child for the AGENTS.md message (a user `message` whose part starts `# AGENTS.md instructions`):
   characters in `detail`, `tokens` basis `estimated` (about characters / 4, as for Claude; the block is part of the first request's input), no per-file split because
@@ -425,9 +426,41 @@ subagent has its own rollout, which is T15. A guardian rollout is not a session 
 - **Interrupt.** `turn_aborted` becomes an `interrupt` step (`reason`, `durationMs`).
 - **Mode.** `turn_context` `approval_policy` and `sandbox_policy.type`, joined as `on-request, workspace-write`; the first is the start step's `detail.mode`, a `mode`
   step appears only when the pair changes. `detail.model` of the start step and the checkpoints' `model` come from `turn_context.model`.
-- **Capabilities answered:** `agents` `no` (`agents-later`), `instructionFiles` `block` (`instructions-block`), `contextCheckpoints` `yes`, `permissionMode` `yes`, `approvals` `no`
+- **Capabilities answered:** `agents` `partial` (`agents-partial`), `instructionFiles` `block` (`instructions-block`), `contextCheckpoints` `yes`, `permissionMode` `yes`, `approvals` `no`
   (a rollout records no ask/allow; the guardian's verdict is in another rollout), `compaction` `yes`, `interrupt` `yes`, `destructivePatterns` `no` (later), `timestamps` `yes`.
   The `sessionFlow` row of Codex stays `limited`. The session settings' window hint is not used: the rollout reports the window.
+
+- **Finding the children (T15, O2).** `sessionFlow(row)` adds a source with the role `rollout-scan` naming the parent rollout's folder (a string join; no fs call in
+  main). A child is spawned by a call of the parent, so its rollout STARTS while the parent runs. The reader takes the window from the parent's own first and last
+  line timestamps, plus 2 minutes of slack on each side, and works from file NAMES: a rollout's name begins with its start time in LOCAL time
+  (`rollout-YYYY-MM-DDTHH-MM-SS-<id>.jsonl`, measured against the header's UTC timestamp), and Codex files it under `<root>/<year>/<month>/<day>/`. So it builds the day
+  folders of the window from the calendar (no listing of the store; a missing folder reads as empty), lists each, and opens only a rollout whose name time lies in the
+  window. Opening one reads the first 4 KB: in a header `source` comes BEFORE the very large `base_instructions` (measured: `source` at about byte 470-590, `base_instructions`
+  at 540-910, the line about 19 KB), so a head that shows `source` without `thread_spawn` (an ordinary session, a guardian's `source.subagent.other`) is dropped
+  there; only a candidate is read on, in steps up to 64 KB and to the end of its line. A first line longer than that (or one that does not parse) is not dropped: `id` and the flat `thread_spawn` object are taken from the bytes already read by a bounded pattern match, since `source` precedes `base_instructions`; if even that fails for a header that names a `thread_spawn`, the snapshot is `complete: false` with `agent-header-unreadable`. The name filter looks one hour further back than the window (names are local time, so the autumn clock change can put a name an hour off); that costs a few extra 4 KB heads. **A child that ran longer than the parent widens the window:** after the children found are read, the upper bound moves to the latest last line among them (plus the slack) and only the new range is searched, up to 4 rounds, so a grandchild spawned by a long-running child is found. A header with `thread_spawn.parent_thread_id` naming the session or a child already found is a
+  child, so one pass in name order finds a whole tree. Without a timestamp to build a window from, only the parent's folder is read, after the parent. Bounds:
+  2 000 rollouts opened, 31 calendar days over all widening rounds, 200 lanes, 4 widening rounds (running out of rounds with time still unsearched counts); reaching one is `complete: false` with `agent-scan-cap`, otherwise the search is complete (the earlier
+  "older than a week" blind spot is gone). The worker may report the counts to a caller (`opts.onScan`: folders, rollouts listed and opened, bytes read).
+  **Measured (one machine; the only local store is one day folder of 16 rollouts, 2 sessions with 3 children each, 8 guardian rollouts):** per session 1 folder
+  listed (16 names), 6-7 rollouts opened, 86-90 KB read (a guardian costs 4 KB, a child about 25 KB), 160-240 ms for the whole read including the scan and the children's
+  lanes. The earlier whole-folder version opened 16 rollouts at 64 KB each (up to 1 MB). A session with no children in a quiet period opens only the few rollouts
+  that started during it; no old session without children exists in the local store, so that case is a bound by construction (opened = rollouts that started within
+  the session's own span) and not a measurement.
+- **Lanes (T15).** Lane id `agent:<thread id>` (the header's `id`), `parentLaneId` the lane of the thread named by `parent_thread_id` (main, else the child that
+  spawned it; one that was not read hangs on main), depth counted up the chain (header `depth` is not used); a lane re-parented onto main because its chain is deeper than 8 or loops loses both anchors, which named steps of the lane it came from. Label: `agent_nickname` (else the last segment of
+  `agent_path`) plus `: <agent_role>`; no path. Step ids derive from the lane id and the source line like Claude's.
+- **Anchors.** The `spawn_agent` call's output names NO child id (measured: `{"task_name"}` only), so the spawn anchor is the parent lane's first unused
+  `spawn_agent` call whose `task_name`, appended to the spawning lane's own path (`/root` for main, else its `agent_path`), equals the child's `agent_path`; a
+  call that matches nothing leaves `spawnAnchor` null. The return anchor is the first `agent_message` in the parent lane whose `author` is the child's
+  `agent_path` (Codex delivers a child's result to its parent as that message; `recipient` is the parent's path), shown as an `agent` step "Message from <name>". A
+  `wait_agent` output (`{message, timed_out}`) names no child, so it is no anchor. A child with no such message keeps `returnAnchor: null` and stays open.
+- **Agent messages.** The top-level `inter_agent_communication_metadata` line (`trigger_turn`) precedes an `agent_message`. With `trigger_turn: true` the message starts a turn
+  of the receiving agent, so it is that lane's `prompt` step (`detail.startedBy: "agent"`, `from`), not the user's; with false it is an `agent` step. A message whose author
+  is the lane's own path (the echo of what it sent) is skipped. `send_message` is an `event` step "Message to <name>: ..." on the sender's lane.
+- **Waiting.** `waiting: true` goes on a lane only when its LAST `wait_agent` / `wait` call has no output at the end of the read and no turn began (a user prompt or a turn another agent started) and none was aborted (`turn_aborted`) since; an earlier unanswered wait, an answered one and every other call do not set it.
+- **Status poll.** The worker reports each child rollout it read (`onFiles`: file and size, taken before the read) next to the snapshot; main keeps them with the
+  fingerprint and `status` stats them in sequence (a larger one is `grew`, a smaller or removed one `rewritten`). A new child needs no check of its own: the
+  parent's rollout grows when it spawns. Paths stay in main; the snapshot has none.
 
 **Reader timing (T14, one machine, 2026-11-11, Node, warm cache).** Largest local Codex rollout (4 703 KB): 116 ms, 43 steps, 73 KB serialised; a median one
 (409 KB): 10 ms, 37 steps.
@@ -448,6 +481,8 @@ subagent has its own rollout, which is T15. A guardian rollout is not a session 
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files.
 - A Codex sandbox block and every destructive-command match are heuristics and are labelled so.
+- Codex (T15): a header whose fields cannot be read at all (a `thread_spawn` seen, no `id` in the first 64 KB) is reported as `agent-header-unreadable`, not dropped; a first line over 64 KB whose `source` object and `id` lie inside those bytes is read by pattern, not by a full parse.
+- Codex (T15): a child lane exists only if its rollout starts within the parent's first-to-last-line window (plus 2 minutes) and the search bound (2 000 rollouts opened, 31 days, 200 lanes, 4 widening rounds) was not hit; a parent that is still running has a window that ends at its last written line; the spawn-to-lane link rests on the task name matching the child's path (a repeated task name pairs calls and children in order); the child's result is the first message from its path, so a continued or second result is not a second return.
 - Codex (T14): a failed call is recognised only from an `Exit code: N` head or an `exit_code=N` last line, neither of which was seen in a local rollout (the code-mode `exec` prints no exit code), so failures are probably under-marked. `turn_aborted` was not in the local rollouts either. Codex shows one AGENTS.md block, never per file, and no subagent lane until T15.
 - Per-step token values exist only where a transcript measures one; the diagram never invents them.
 - The pi-native "asked and allowed" state is not in the transcript and is not shown.

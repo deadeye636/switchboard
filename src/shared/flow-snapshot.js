@@ -173,6 +173,7 @@
         if (laneIds.has(lane.id)) add(`lanes[${i}]: duplicate lane id '${lane.id}'`);
         laneIds.add(lane.id);
         if (!FLOW_LANE_KINDS.includes(lane.kind)) add(`lanes[${i}]: kind '${lane.kind}' is not one of ${FLOW_LANE_KINDS.join(', ')}`);
+        if (lane.waiting != null && typeof lane.waiting !== 'boolean') add(`lanes[${i}]: waiting must be a boolean when present`);
       }
     }
 

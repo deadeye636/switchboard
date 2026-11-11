@@ -26,12 +26,15 @@ async function run() {
   }
   const loadMs = performance.now() - t0;
   const t1 = performance.now();
-  const snapshot = await backend.readSessionFlow(workerData.sources, { windowHint: workerData.windowHint || null });
+  // A reader that reads more files than `sources` names (Codex's subagent rollouts) reports them here, so main can poll them
+  // for growth; the paths stay out of the snapshot.
+  let files = [];
+  const snapshot = await backend.readSessionFlow(workerData.sources, { windowHint: workerData.windowHint || null, onFiles: (list) => { if (Array.isArray(list)) files = list.slice(0, 200); } });
   const readMs = performance.now() - t1;
   // Measured here, off the main thread, so the debug line can say how big the reply is.
   let replyBytes = 0;
   try { replyBytes = Buffer.byteLength(JSON.stringify(snapshot)); } catch { /* not measurable: 0 */ }
-  parentPort.postMessage({ type: 'result', snapshot, loadMs, readMs, replyBytes });
+  parentPort.postMessage({ type: 'result', snapshot, files, loadMs, readMs, replyBytes });
 }
 
 run().catch(() => {
