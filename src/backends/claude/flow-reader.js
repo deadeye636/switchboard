@@ -22,20 +22,15 @@ const fs = require('node:fs');
 const os = require('node:os');
 const pathMod = require('node:path');
 const { flowStepId } = require('../../shared/flow-snapshot');
+const {
+  MAX_STEPS, MAX_LINE_BYTES, MAX_SNAPSHOT_BYTES, LABEL_CHARS, DETAIL_CHARS, STEP_OVERHEAD,
+  trunc, firstLine, isObject, readLines, detailSize, evidence,
+} = require('../flow-lines');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
 const { resolveClaudeVariant } = require('./model-windows');
 
-const CHUNK_BYTES = 64 * 1024;
-const MAX_LINE_BYTES = 4 * 1024 * 1024;
-// O5 (spec 46): the largest local transcripts hold a few thousand assistant steps. 20 000 steps is several times
-// that, and the size estimate below is the bound that actually protects the worker's heap and the reply.
-const MAX_STEPS = 20000;
-const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
-const LABEL_CHARS = 200;
-const DETAIL_CHARS = 2048;
 const MAX_INSTRUCTION_FILES = 200;
 const MAX_PENDING_TOOLS = 5000;
-const STEP_OVERHEAD = 400;
 // Subagents (T11): the cap bounds the readdir answer and the lanes held; the meta file is a few hundred bytes.
 const MAX_AGENT_LANES = 200;
 const MAX_AGENT_REFS = 5000;
@@ -46,94 +41,6 @@ const SPAWN_TOOLS = new Set(['Agent', 'Task']);
 
 const LANE_ID = 'main';
 const INTERRUPT_PREFIX = '[Request interrupted by user';
-
-function trunc(value, max) {
-  const s = typeof value === 'string' ? value : value == null ? '' : String(value);
-  if (s.length <= max) return s;
-  let end = max - 1;
-  const last = s.charCodeAt(end - 1);
-  if (last >= 0xD800 && last <= 0xDBFF) end -= 1; // do not cut a surrogate pair in half
-  return s.slice(0, end) + '…';
-}
-
-function firstLine(value) {
-  const s = typeof value === 'string' ? value : '';
-  for (const raw of s.split('\n', 8)) {
-    const t = raw.trim();
-    if (t) return trunc(t, LABEL_CHARS);
-  }
-  return '';
-}
-
-const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-
-/**
- * Reads `file` as lines. `onLine(text, lineNo, byteOffset)` returns true to stop; `onOversize(lineNo, byteOffset,
- * bytes)` is called for a line over the cap, which was never held in memory beyond one chunk. Resolves
- * `{ aborted }`. Rejects on a read error.
- */
-async function readLines(file, { maxLineBytes, signal }, onLine, onOversize) {
-  const stream = fs.createReadStream(file, { highWaterMark: CHUNK_BYTES });
-  let pieces = [];
-  let pieceBytes = 0;
-  let skipping = false;
-  let skippedBytes = 0;
-  let lineNo = 0;
-  let lineStart = 0;
-  let chunkPos = 0;
-  let stopped = false;
-
-  const finishLine = () => {
-    lineNo += 1;
-    let stop = false;
-    if (skipping) {
-      stop = onOversize(lineNo, lineStart, skippedBytes) === true;
-    } else if (pieceBytes > 0) {
-      const text = pieces.length === 1 ? pieces[0].toString('utf8') : Buffer.concat(pieces, pieceBytes).toString('utf8');
-      stop = onLine(text, lineNo, lineStart) === true;
-    }
-    pieces = [];
-    pieceBytes = 0;
-    skipping = false;
-    skippedBytes = 0;
-    return stop;
-  };
-
-  try {
-    for await (const chunk of stream) {
-      if (signal && signal.aborted) return { aborted: true };
-      let start = 0;
-      while (start < chunk.length) {
-        const nl = chunk.indexOf(10, start);
-        const end = nl === -1 ? chunk.length : nl;
-        const len = end - start;
-        if (skipping) {
-          skippedBytes += len;
-        } else if (pieceBytes + len > maxLineBytes) {
-          skipping = true;
-          skippedBytes = pieceBytes + len;
-          pieces = [];
-          pieceBytes = 0;
-        } else if (len > 0) {
-          pieces.push(chunk.subarray(start, end));
-          pieceBytes += len;
-        }
-        if (nl === -1) break;
-        const next = chunkPos + nl + 1;
-        const stop = finishLine();
-        lineStart = next;
-        if (stop) { stopped = true; break; }
-        start = nl + 1;
-      }
-      if (stopped) break;
-      chunkPos += chunk.length;
-    }
-    if (!stopped && (pieceBytes > 0 || skipping)) finishLine();
-  } finally {
-    stream.destroy();
-  }
-  return { aborted: false };
-}
 
 function inputOf(usage) {
   if (!isObject(usage)) return 0;
@@ -162,12 +69,6 @@ function textOfResult(content) {
   return out;
 }
 
-function detailSize(detail) {
-  let n = 0;
-  for (const k in detail) n += 24 + (typeof detail[k] === 'string' ? detail[k].length : 8);
-  return n;
-}
-
 // An instruction file's label (spec 46): relative to the session's working directory when the file lies inside it
 // (`CLAUDE.md`, `.claude/rules/x.md`), else relative to the home directory as `~/...`, else the last two segments
 // behind an ellipsis. Never a drive letter or a leading root, and the full path is not kept anywhere in the snapshot.
@@ -190,10 +91,6 @@ function instructionLabel(file, cwd, home) {
   if (inHome) return '~/' + inHome;
   const parts = file.split(/[\\/]+/).filter((x) => x && !/^[A-Za-z]:$/.test(x));
   return '\u2026/' + parts.slice(-2).join('/');
-}
-
-function evidence(value, unit, basis, note) {
-  return { value, unit, basis, note: note || '' };
 }
 
 // One lane's builder. `shared` is the snapshot-wide state every lane writes to, so the caps apply to the whole snapshot

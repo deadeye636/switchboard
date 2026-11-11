@@ -189,11 +189,11 @@ test('requiring the backend registry loads no flow reader (spec 46: lazy, never 
   const backends = require('../src/backends');
   backends.list();
   const loaded = Object.keys(require.cache).map(f => f.split(path.sep).join('/'));
-  const readers = loaded.filter(f => /\/src\/backends\/(?:[^/]+\/)?flow-(?:reader|stub)[^/]*\.js$/.test(f));
+  const readers = loaded.filter(f => /\/src\/backends\/(?:[^/]+\/)?flow-(?:reader|stub|lines|capabilities)[^/]*\.js$/.test(f));
   assert.deepEqual(readers, [], 'a flow reader module was loaded with the registry');
   // …and the hook does load it, on use.
-  const codex = backends.get('codex'); // still on the stub; Claude's reader is covered by flow-claude-reader.test.js
-  const snap = codex.readSessionFlow([], {});
+  const pi = backends.get('pi'); // still on the stub; Claude's and Codex's readers are covered by their own tests
+  const snap = pi.readSessionFlow([], {});
   assert.equal(flow.validateSnapshot(snap).ok, true);
   assert.ok(Object.keys(require.cache).some(f => /flow-stub\.js$/.test(f)), 'the first call should load the reader');
 });

@@ -461,6 +461,14 @@ Measured on cli 0.166.0 with `codex exec` (gpt-5.6-luna) and read back from exis
   `completed_at`, `duration_ms`.
 - **Compaction.** A top-level `type: "compacted"` line, then a `token_count` with input 0; details and numbers
   in `docs/specs/28-session-health.md`.
+- **Item shapes read for the flow (T14, local rollouts, key and type names).** The `exec` call's `input` is a plain string of
+  script source (no `cmd` key). A `custom_tool_call_output` carries `output` as a list of `{ type: "input_text", text }`
+  parts; the first reads `Script completed` and a `Wall time` line, and it states no exit code. A `function_call_output` carries
+  a string. The AGENTS.md user message has a second part, `<environment_context>`. A `reasoning` item's `summary` is empty (the
+  text is `encrypted_content`). An assistant `message` has a `phase` (`commentary`, `final_answer`). A `developer` message is
+  the CLI's own instructions. `token_count.info` is `total_token_usage`, `last_token_usage` and `model_context_window`; a
+  rate-limit-only record has no `info`. A top-level `token_usage_record` line also exists and is not read. The reader is
+  `src/backends/codex/flow-reader.js`, spec 46 "Codex reader, as built (T14)".
 
 ## Hermes — SQLite
 

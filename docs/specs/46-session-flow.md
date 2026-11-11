@@ -143,7 +143,7 @@ readSessionFlow(sources, { signal, limit, cursor }) -> FlowSnapshot
 As built: `sessionFlow` is synchronous because `transcriptPathFor` only joins strings. Any future filesystem work (a stat, a
 readdir) makes the hook async; it must never do sync fs. Each descriptor requires its reader lazily inside `readSessionFlow`, so
 loading the registry loads no reader (`test/flow-snapshot.test.js`); `src/backends/flow-stub.js` answers an empty snapshot until a
-real reader replaces it (Codex and Pi still use it; Claude's reader is built, see "Claude reader, as built" below), with the same capabilities the descriptor's `sessionFlow` answered (both come from one function, pinned in
+real reader replaces it (Pi still uses it; Claude's and Codex's readers are built, see "Claude reader, as built" and "Codex reader, as built" below), with the same capabilities the descriptor's `sessionFlow` answered (both come from one function, pinned in
 `test/backend-parity.test.js`). A real reader lives in `<backend folder>/flow-reader.js`. The native drivers (`claude-native`, `pi-native`) forward their owner's two functions, as they do
 `transcriptPathFor`. The cheap shared pieces are in `src/backends/flow-hook.js`.
 
@@ -157,7 +157,7 @@ What each backend can answer, from the measurements on the issue (second to four
 |---|---|---|---|
 | Answer | `yes` | `limited` | `limited` |
 | Lanes | main plus `subagents/agent-<id>.jsonl`, joined by the meta file's `toolUseId` or the `agentId` in the parent's `toolUseResult`; depth 1 in practice | child rollouts; `source.subagent.thread_spawn` states `depth` and `agent_path`; parent side `spawn_agent`, `wait_agent`, `wait`, `send_message`; `inter_agent_communication_metadata` marks a turn another agent started | single lane; the app's `subagent` call is one collapsed node (call plus the one summary line), never a lane, and Pi nesting cannot be shown. No built-in subagents. |
-| Instruction files | per file (`attachment` `instructions` `files[]`, characters) | one block (`# AGENTS.md instructions for <dir>`); `included` | per file from `sections.project_context` (`<project_instructions path>`), **Pi 1.1.0 and newer only**; older sessions store no system message, so the start step lists none and a limitation says why |
+| Instruction files | per file (`attachment` `instructions` `files[]`, characters) | one block (`# AGENTS.md instructions for <dir>`); `estimated` (characters / 4) | per file from `sections.project_context` (`<project_instructions path>`), **Pi 1.1.0 and newer only**; older sessions store no system message, so the start step lists none and a limitation says why |
 | Checkpoints | `message.usage`; window from the model | `token_count.info.last_token_usage` + `model_context_window`; skip the `input_tokens: 0` record after a compaction | `message.usage` |
 | Permission mode | `permissionMode` per user line; `mode` line | `turn_context`: `approval_policy`, `sandbox_policy` | none in a terminal session; pi-native gate refusals only |
 | Compaction | `compact_boundary` (`preTokens`/`postTokens` per the issue table) | the `compacted` line (`window_number`), then the zero record, then the next real one | `compaction` with `tokensBefore` |
@@ -395,6 +395,43 @@ heap about 26 MB, 1165 steps, 961 KB serialised. A 48 MB one: 508 ms, 28 MB, 732
 steps, 1405 KB. The median-size file (775 KB): 13 ms, 10 MB, 48 steps. About 2 % of the 30 s worker timeout for the worst case; every
 line is `JSON.parse`d (lines over the cap excepted), no cheap-prefix shortcut was needed.
 
+### Codex reader, as built (T14)
+
+`src/backends/codex/flow-reader.js` with its data in `src/backends/codex/flow-capabilities.js` (read by the descriptor's `sessionFlow` and by the
+reader, so the two cannot disagree). The reading primitives are shared: `src/backends/flow-lines.js` holds the bounded line reader (64 KB chunks,
+4 MB per-line cap, abort between chunks), the step and size caps (20 000 steps, 8 MB estimate), `trunc` / `firstLine` / `detailSize` / `evidence`,
+extracted from Claude's reader so the two cannot drift on a cap. Only the format stays in the backend folder. One lane (`main`); a Codex
+subagent has its own rollout, which is T15. A guardian rollout is not a session and is never a source.
+
+- **Steps.** `start` (the first line); one `instructions` child for the AGENTS.md message (a user `message` whose part starts `# AGENTS.md instructions`):
+  characters in `detail`, `tokens` basis `estimated` (about characters / 4, as for Claude; the block is part of the first request's input), no per-file split because
+  Codex names no files; a later copy is labelled "(again)". `prompt` is a user `message` that is not an injection (the AGENTS.md part, `<environment_context>`,
+  `<turn_aborted>`, `<user_instructions>`, `<no retained transcript`, `<subagent_notification>` parts are dropped; a `<user_shell_command>` part (the user's own `!` line) is an `event` step "Shell command: ..." and starts no turn; a `developer` message is
+  ignored); `thinking` for `reasoning` (its summary text when there is one: the local ones are empty); `output` for an assistant message (`phase` in `detail`);
+  `tool` for `custom_tool_call` (`exec`) and `function_call`, paired by `call_id` with `custom_tool_call_output` / `function_call_output`
+  (an output is a parts list or a string); `detail.tool` is the tool name on every tool step. The brief of a function call is the first of
+  `cmd`, `command`, `message`, `task_name`, `prompt`, `path`, `target`, `query` (the arguments are parsed only up to 64 K characters).
+- **Failure.** Codex records no status for a call. A call is marked failed (`detail.status` `error`, `detail.exitCode`, an `outcome` flag `tool-error`) when its
+  output HEAD reads `Exit code: N` or its last line reads `exit_code=N` with N non-zero. The flag's evidence is `heuristic`, not `structured` as for Claude's `is_error`,
+  because the code is read out of text. A code quoted in the middle of a script's output is no verdict, and the code-mode `exec` prints none, so most
+  local failures are not marked (limitation `failure-from-text`).
+- **Checkpoints.** `event_msg` `token_count`: `info.last_token_usage.input_tokens` (it already includes the cached part), `measured`, with the window
+  `info.model_context_window` as `measured` too (the CLI reports it; unlike Claude's it is not inferred, so `contextCheckpoints` is `yes`). It sits on the first
+  `thinking` / `tool` / `output` step since the last checkpoint, else on a `checkpoint` step. A record with input 0 (the one after a compaction) is skipped, a record
+  without `info` (rate limits only) is skipped, and a record with the same total and input as the last is the same request reported again.
+- **Compaction.** The top-level `compacted` line: `detail.before` the last non-zero input ahead of it, `detail.after` the next non-zero one (`unknown` when none
+  follows), `detail.windowNumber` from `window_number`, and a checkpoint with the "before" reading. The line's `latest_token_usage_record` is the summarising call
+  and is never read (spec 28); the replacement history is not read either.
+- **Interrupt.** `turn_aborted` becomes an `interrupt` step (`reason`, `durationMs`).
+- **Mode.** `turn_context` `approval_policy` and `sandbox_policy.type`, joined as `on-request, workspace-write`; the first is the start step's `detail.mode`, a `mode`
+  step appears only when the pair changes. `detail.model` of the start step and the checkpoints' `model` come from `turn_context.model`.
+- **Capabilities answered:** `agents` `no` (`agents-later`), `instructionFiles` `block` (`instructions-block`), `contextCheckpoints` `yes`, `permissionMode` `yes`, `approvals` `no`
+  (a rollout records no ask/allow; the guardian's verdict is in another rollout), `compaction` `yes`, `interrupt` `yes`, `destructivePatterns` `no` (later), `timestamps` `yes`.
+  The `sessionFlow` row of Codex stays `limited`. The session settings' window hint is not used: the rollout reports the window.
+
+**Reader timing (T14, one machine, 2026-11-11, Node, warm cache).** Largest local Codex rollout (4 703 KB): 116 ms, 43 steps, 73 KB serialised; a median one
+(409 KB): 10 ms, 37 steps.
+
 **O5 measured (2026-11-10, one machine, `scripts/measure-flow-sizes.js`).** Claude: 2523 files, size p50/p90/p99/max 774/2464/17455/59170 KB, the largest files 674-2385 assistant steps. Codex: max 6.4 MB, at most 79 steps among the largest. Pi: max 82 MB, at most 786 steps. Steps are few, bytes many, so the binding bounds are the per-line byte cap, string truncation and the wall-clock budget (see `docs/plans/826-session-flow/PLAN.md`, "O5 input"). T4 set the caps to 20 000 steps and 8 MB of estimated snapshot size; the measured Claude maxima are about 1.2k steps and 1.4 MB.
 
 ## Known gaps (planned)
@@ -411,6 +448,7 @@ line is `JSON.parse`d (lines over the cap excepted), no cheap-prefix shortcut wa
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files.
 - A Codex sandbox block and every destructive-command match are heuristics and are labelled so.
+- Codex (T14): a failed call is recognised only from an `Exit code: N` head or an `exit_code=N` last line, neither of which was seen in a local rollout (the code-mode `exec` prints no exit code), so failures are probably under-marked. `turn_aborted` was not in the local rollouts either. Codex shows one AGENTS.md block, never per file, and no subagent lane until T15.
 - Per-step token values exist only where a transcript measures one; the diagram never invents them.
 - The pi-native "asked and allowed" state is not in the transcript and is not shown.
 
