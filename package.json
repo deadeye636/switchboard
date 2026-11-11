@@ -64,7 +64,7 @@
     "@ddietr/codemirror-themes": "^1.5.2",
     "@napi-rs/canvas": "^1.0.8",
     "codemirror": "^6.0.2",
-    "electron": "^41.10.7",
+    "electron": "^42.11.16",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "eslint": "^10.9.1",
