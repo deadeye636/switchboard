@@ -15,7 +15,7 @@
 // the instant it is armed — loaded before app.js, an early delivery would run its handler into app.js
 // bindings still in their TDZ. Loaded after, app.js is fully parsed first.
 //
-// It declares and owns all of its own state (notificationSettings, windowFocused, lastNotifiedAt,
+// It declares and owns all of its own state (notificationSettings, windowFocused, recentNotifiedAt,
 // prevNotificationSnapshot) and writes none of app.js's — nothing here is a foreign `let` write, unlike
 // search-bar.js. Callers reach IN at two call-time entry points: syncNativeNotifications (from app.js's
 // refreshSessionStatusViews) and window._setNotificationSettings — the latter a window property this file
@@ -24,20 +24,21 @@
 // at app.js:364, `?.` at the boot IIFE) so a boot that races this script's fetch degrades to a no-op.
 //
 // What it reaches into, by file:
-//   app.js                          sessionMap, attentionSessions, responseReadySessions, openSession,
-//                                   clearNotifications, getAllKnownSessionsForStatus
-//   shell/notification-policy.js    decideNotifications (UMD → window property)
+//   app.js                          sessionMap, openSessions, attentionSessions, responseReadySessions,
+//                                   openSession, clearNotifications, getAllKnownSessionsForStatus
+//   lib/utils.js, session-tabs.js   cleanDisplayName, sessionProjectName
+//   shell/notification-policy.js    decideNotifications, FLOOD_WINDOW_MS (UMD → window properties)
 //   shell/attention-engine.js       raisesAttention — may THIS window announce at all (#390)
 
 // --- Native notification + dock badge + tray funnel (Spec 01) ---
 // Every attention/ready transition reaches refreshSessionStatusViews(), which
 // calls syncNativeNotifications() below. The actual decision (what to notify,
-// coalescing, throttle, badge count) lives in the pure, unit-tested
+// the flood guard, badge count) lives in the pure, unit-tested
 // notification-policy.js module — this just feeds it state and forwards results
 // to the main process over IPC.
 let notificationSettings = { enabled: true, notifyOnReady: false };
 let windowFocused = typeof document !== 'undefined' ? document.hasFocus() : true;
-let lastNotifiedAt = 0;
+let recentNotifiedAt = []; // flood-guard state: times of recent individual notifications
 let prevNotificationSnapshot = { attention: new Set(), ready: new Set() };
 
 // Bridge for settings-panel.js so toggles apply without a restart.
@@ -58,6 +59,23 @@ function buildTraySummary() {
   return parts.length ? `Switchboard — ${parts.join(' · ')}` : 'Switchboard';
 }
 
+// What a notification calls a session: the name the tabs and the sidebar use, and the project's label
+// (the user's own name for it if there is one). `cleanDisplayName` is utils.js, `sessionProjectName` is
+// session-tabs.js; both load before this file. Titles stay short - an OS toast truncates anyway.
+function describeSessionForNotification(sessionId) {
+  const session = (openSessions.get(sessionId) || {}).session || sessionMap.get(sessionId)
+    || getAllKnownSessionsForStatus().find((s) => s.sessionId === sessionId);
+  if (!session) return { name: '', project: '', projectKey: '' };
+  const raw = session.name || session.aiTitle || session.summary;
+  const name = (typeof cleanDisplayName === 'function' ? cleanDisplayName(raw) : raw) || '';
+  const project = typeof sessionProjectName === 'function' ? sessionProjectName(session) : '';
+  return {
+    name: name.length > 80 ? `${name.slice(0, 79)}…` : name,
+    project,
+    projectKey: session.projectPath || '',
+  };
+}
+
 function syncNativeNotifications() {
   // One inbox, one badge, one tray tooltip — the main window's (#390). A window of its own runs this
   // file too, with attention sets that are always empty, and `set-badge` / `set-tray-summary` do not
@@ -70,23 +88,34 @@ function syncNativeNotifications() {
     ready: new Set(responseReadySessions),
   };
   const now = Date.now();
+  recentNotifiedAt = recentNotifiedAt.filter((t) => now - t < FLOOD_WINDOW_MS);
   const result = decideNotifications({
     prev: prevNotificationSnapshot,
     next,
     windowFocused,
     settings: notificationSettings,
     now,
-    lastNotifiedAt,
+    recent: recentNotifiedAt,
+    describeSession: describeSessionForNotification,
   });
 
+  // One OS notification per session (#847). Main replaces an earlier entry of the same session by id and
+  // groups them by project; the session name and project label are all it needs, no backend knowledge.
   for (const notification of result.notifications) {
     window.api.notify({
       title: notification.title,
       body: notification.body,
-      sessionId: notification.sessionIds[0],
+      sessionId: notification.sessionId,
+      summary: !!notification.summary,
+      project: notification.project,
+      projectKey: notification.projectKey,
     });
+    if (!notification.summary) recentNotifiedAt.push(now);
   }
-  if (result.notifications.length > 0) lastNotifiedAt = now;
+  // A session the user has looked at (or that was removed) took its entry out of the sets: drop its toast.
+  if (result.cleared.length > 0 || result.clearSummary) {
+    window.api.notifyClear({ sessionIds: result.cleared, summary: result.clearSummary });
+  }
 
   window.api.setBadge(result.badgeCount);
   window.api.setTraySummary(buildTraySummary());

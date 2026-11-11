@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { decideNotifications, COALESCE_WINDOW_MS } = require('../src/renderer/shell/notification-policy');
+const { decideNotifications, FLOOD_MAX, FLOOD_WINDOW_MS } = require('../src/renderer/shell/notification-policy');
 
 function snapshot(attention = [], ready = []) {
   return { attention: new Set(attention), ready: new Set(ready) };
@@ -14,7 +14,6 @@ test('transition into attention while unfocused emits one notification, badge=1'
     windowFocused: false,
     settings: { enabled: true, notifyOnReady: false },
     now: 100000,
-    lastNotifiedAt: 0,
   });
 
   assert.equal(result.notifications.length, 1);
@@ -30,7 +29,6 @@ test('window focused suppresses notifications but badge still reflects count', (
     windowFocused: true,
     settings: { enabled: true, notifyOnReady: false },
     now: 1000,
-    lastNotifiedAt: 0,
   });
 
   assert.equal(result.notifications.length, 0);
@@ -44,28 +42,57 @@ test('disabled setting emits nothing and badge stays 0', () => {
     windowFocused: false,
     settings: { enabled: false, notifyOnReady: true },
     now: 1000,
-    lastNotifiedAt: 0,
   });
 
   assert.equal(result.notifications.length, 0);
   assert.equal(result.badgeCount, 0);
 });
 
-test('two sessions ready at once coalesce into one notification when notifyOnReady on', () => {
+test('two sessions ready at once give one notification each when notifyOnReady on', () => {
   const result = decideNotifications({
     prev: snapshot(),
     next: snapshot([], ['s1', 's2']),
     windowFocused: false,
     settings: { enabled: true, notifyOnReady: true },
     now: 5000,
-    lastNotifiedAt: 0,
   });
 
-  assert.equal(result.notifications.length, 1);
-  assert.equal(result.notifications[0].kind, 'ready');
-  assert.equal(result.notifications[0].sessionIds.length, 2);
-  assert.match(result.notifications[0].body, /2 sessions/);
+  assert.equal(result.notifications.length, 2);
+  assert.deepEqual(result.notifications.map((n) => n.sessionId), ['s1', 's2']);
+  assert.ok(result.notifications.every((n) => n.kind === 'ready'));
   assert.equal(result.badgeCount, 2);
+});
+
+test('each notification names its session and project', () => {
+  const result = decideNotifications({
+    prev: snapshot(),
+    next: snapshot(['s1']),
+    windowFocused: false,
+    settings: { enabled: true },
+    now: 1,
+    describeSession: (id) => ({ name: `Fix ${id}`, project: 'alpha', projectKey: '/p/alpha' }),
+  });
+  const n = result.notifications[0];
+  assert.equal(n.title, 'Fix s1');
+  assert.match(n.body, /alpha/);
+  assert.match(n.body, /needs your attention/);
+  assert.equal(n.projectKey, '/p/alpha');
+});
+
+test('an unknown session still gets a usable title', () => {
+  const result = decideNotifications({
+    prev: snapshot(), next: snapshot(['s1']), windowFocused: false, settings: {}, now: 1,
+  });
+  assert.equal(result.notifications[0].title, 'Session');
+});
+
+test('a session in both sets is announced once, as attention', () => {
+  const result = decideNotifications({
+    prev: snapshot(), next: snapshot(['s1'], ['s1']), windowFocused: false,
+    settings: { notifyOnReady: true }, now: 1,
+  });
+  assert.equal(result.notifications.length, 1);
+  assert.equal(result.notifications[0].kind, 'attention');
 });
 
 test('ready transitions emit nothing and are excluded from badge when notifyOnReady off', () => {
@@ -75,7 +102,6 @@ test('ready transitions emit nothing and are excluded from badge when notifyOnRe
     windowFocused: false,
     settings: { enabled: true, notifyOnReady: false },
     now: 5000,
-    lastNotifiedAt: 0,
   });
 
   assert.equal(result.notifications.length, 0);
@@ -83,35 +109,63 @@ test('ready transitions emit nothing and are excluded from badge when notifyOnRe
   assert.equal(result.badgeCount, 1);
 });
 
-test('throttle window suppresses a second emit inside COALESCE_WINDOW_MS', () => {
-  const lastNotifiedAt = 1000;
+test('flood guard: beyond FLOOD_MAX the rest folds into one summary entry', () => {
+  const ids = Array.from({ length: FLOOD_MAX + 3 }, (_, i) => `s${i}`);
   const result = decideNotifications({
-    prev: snapshot(['s1']),
-    next: snapshot(['s1', 's2']),
-    windowFocused: false,
-    settings: { enabled: true, notifyOnReady: false },
-    now: lastNotifiedAt + COALESCE_WINDOW_MS - 1,
-    lastNotifiedAt,
+    prev: snapshot(), next: snapshot(ids), windowFocused: false, settings: {}, now: 1,
   });
-
-  assert.equal(result.notifications.length, 0);
-  // Badge still reflects both sessions even though the notification is throttled.
-  assert.equal(result.badgeCount, 2);
+  assert.equal(result.notifications.length, FLOOD_MAX + 1);
+  const summary = result.notifications[FLOOD_MAX];
+  assert.equal(summary.summary, true);
+  assert.deepEqual(summary.sessionIds, ids.slice(FLOOD_MAX));
+  assert.match(summary.body, /^3 more sessions need your attention/);
+  assert.equal(result.badgeCount, ids.length);
 });
 
-test('emit allowed once the throttle window has fully elapsed', () => {
-  const lastNotifiedAt = 1000;
+test('flood guard: recent emissions inside the window use up the budget', () => {
+  const now = 100000;
+  const recent = Array.from({ length: FLOOD_MAX }, () => now - 1000);
   const result = decideNotifications({
-    prev: snapshot(['s1']),
-    next: snapshot(['s1', 's2']),
-    windowFocused: false,
-    settings: { enabled: true, notifyOnReady: false },
-    now: lastNotifiedAt + COALESCE_WINDOW_MS,
-    lastNotifiedAt,
+    prev: snapshot(['a']), next: snapshot(['a', 'b']), windowFocused: false, settings: {}, now, recent,
   });
-
   assert.equal(result.notifications.length, 1);
-  assert.deepEqual(result.notifications[0].sessionIds, ['s2']);
+  assert.equal(result.notifications[0].summary, true);
+  assert.match(result.notifications[0].body, /^1 more session needs|^1 more session need/);
+});
+
+test('flood guard: emissions older than the window are forgotten', () => {
+  const now = 100000;
+  const recent = Array.from({ length: FLOOD_MAX }, () => now - FLOOD_WINDOW_MS);
+  const result = decideNotifications({
+    prev: snapshot(['a']), next: snapshot(['a', 'b']), windowFocused: false, settings: {}, now, recent,
+  });
+  assert.equal(result.notifications.length, 1);
+  assert.equal(result.notifications[0].sessionId, 'b');
+});
+
+test('a session that left the set is reported as cleared, even while focused', () => {
+  const result = decideNotifications({
+    prev: snapshot(['s1', 's2']), next: snapshot(['s2']), windowFocused: true, settings: {}, now: 1,
+  });
+  assert.deepEqual(result.cleared, ['s1']);
+  assert.equal(result.clearSummary, false);
+  assert.equal(result.notifications.length, 0);
+});
+
+test('the summary is cleared once nothing is announced any more', () => {
+  const result = decideNotifications({
+    prev: snapshot(['s1']), next: snapshot(), windowFocused: false, settings: {}, now: 1,
+  });
+  assert.deepEqual(result.cleared, ['s1']);
+  assert.equal(result.clearSummary, true);
+});
+
+test('a ready-only exit does not clear when notifyOnReady is off', () => {
+  const result = decideNotifications({
+    prev: snapshot([], ['s1']), next: snapshot(), windowFocused: false, settings: {}, now: 1,
+  });
+  assert.deepEqual(result.cleared, []);
+  assert.equal(result.clearSummary, false);
 });
 
 test('no transition (session already in set) emits nothing', () => {
@@ -121,7 +175,6 @@ test('no transition (session already in set) emits nothing', () => {
     windowFocused: false,
     settings: { enabled: true, notifyOnReady: false },
     now: 10000,
-    lastNotifiedAt: 0,
   });
 
   assert.equal(result.notifications.length, 0);
@@ -135,7 +188,6 @@ test('accepts array snapshots as well as Sets', () => {
     windowFocused: false,
     settings: { enabled: true },
     now: 100000,
-    lastNotifiedAt: 0,
   });
 
   assert.equal(result.notifications.length, 1);

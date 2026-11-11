@@ -59,14 +59,18 @@ function setup({ detached = false } = {}) {
 
   // The pure policy and the sound predicate both say yes, so anything that does NOT reach the OS is
   // the gate's doing and not a decision made further down.
+  window.FLOOD_WINDOW_MS = 10000;
   window.decideNotifications = () => ({
-    notifications: [{ title: 'x', body: 'y', sessionIds: ['s1'] }],
+    notifications: [{ title: 'x', body: 'y', sessionId: 's1', sessionIds: ['s1'] }],
+    cleared: [],
+    clearSummary: false,
     badgeCount: 1,
   });
   window.shouldPlayAttentionSound = (args) => { soundChecks.push(args); return false; };
 
   window.api = {
     notify: (payload) => sent.notify.push(payload),
+    notifyClear: () => {},
     setBadge: (count) => sent.badge.push(count),
     setTraySummary: (text) => sent.tray.push(text),
     onFocusSession: () => {},

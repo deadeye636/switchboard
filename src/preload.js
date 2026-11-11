@@ -411,6 +411,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Native notifications, dock/taskbar badge, tray (Spec 01)
   notify: (payload) => ipcRenderer.send('notify', payload),
+  notifyClear: (payload) => ipcRenderer.send('notify-clear', payload),
   setBadge: (count) => ipcRenderer.send('set-badge', count),
   setTraySummary: (text) => ipcRenderer.send('set-tray-summary', text),
   onFocusSession: (cb) => ipcRenderer.on('focus-session', (_e, id) => cb(id)),

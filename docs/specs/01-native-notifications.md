@@ -26,6 +26,25 @@
 > It fails **open** on a missing identity answer — a silenced main window is the worse failure.
 > Recording is not gated: every window still learns about its own sessions. See spec 17 §2.
 
+> **One notification per session (#847).** The bundled "N sessions need your attention" and the 4 s
+> coalescing throttle are gone. `decideNotifications` now returns one entry per session that entered the
+> attention set (and the ready set with `notifyOnReady`), titled with the session's display name
+> (`cleanDisplayName`) and bodied with the project label (`sessionProjectName`) - never a backend id.
+> It also returns `cleared` (sessions that left the announced set) and `clearSummary`.
+> - **Replace:** `notify` carries the session id; main derives `id = sess:<sessionId>` (hashed past 60
+>   chars, the Windows tag limit) and replaces a live entry of the same id.
+> - **Groups:** `groupId = proj:<hash of project path>`, Windows `groupTitle` = the project label.
+> - **Clear:** `syncNativeNotifications` sends `notify-clear` (`window.api.notifyClear`, handler in
+>   `src/app/notifications.js`) when the diff shows a session left the set - opened, dismissed, or
+>   removed. Win32: `close()` on the kept instance (`Notification.remove` is macOS-only, so main keeps a
+>   `Map<id, Notification>`; click, close, replace and clear all delete from it). macOS:
+>   `Notification.remove(id)`. Linux: no id, group or remove; each event stays a plain toast.
+> - **Flood guard:** at most `FLOOD_MAX` (5) individual notifications per `FLOOD_WINDOW_MS` (10 s,
+>   sliding, state kept in `native-notifications.js`); the overflow of a batch folds into ONE summary
+>   entry ("3 more sessions need your attention", id `sess-summary`, cleared when nothing is announced).
+>   Chosen over a quiet period because that swallowed whole batches: a session needing you 3 s after
+>   another was never announced; here only the excess is folded and the badge always counts all.
+
 ## Problem & goal
 
 Switchboard's whole value is watching multiple agents for you, but **every attention signal currently dies inside the renderer**. There is no native OS notification, no dock/taskbar badge, and no tray icon anywhere in `src/main.js`. The moment the window is unfocused (you're in your editor/browser), an agent hitting a permission prompt produces **zero** signal.

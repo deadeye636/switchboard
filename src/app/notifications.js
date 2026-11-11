@@ -9,6 +9,7 @@
 'use strict';
 
 const { app, ipcMain, Menu, Notification, Tray, nativeImage } = require('electron');
+const crypto = require('crypto');
 const path = require('path');
 
 let ctx = null;
@@ -47,22 +48,99 @@ function updateTrayTooltip() {
   if (tray && !tray.isDestroyed()) tray.setToolTip(traySummary);
 }
 
+// --- Per-session notifications (#847) ---------------------------------------------------------------
+//
+// Windows and macOS give a notification an identity (`id`) and a group. Linux does not, so there each
+// event stays a plain fire-and-forget toast and nothing below tracks it.
+//
+// `live` exists for Windows: the Action Center entry can only be removed through the instance's
+// `close()` (`Notification.remove` is macOS-only), so the objects are kept. It holds only entries that
+// are still on screen - 'click' and 'close' delete, a replace deletes before it re-adds, a clear
+// deletes - and is keyed by session, so its size is bounded by the number of sessions.
+const live = new Map();
+const SUMMARY_ID = 'sess-summary';
+// Windows caps a toast tag/group at 64 characters; a session id of some backend may be longer.
+const MAX_ID_LENGTH = 60;
+
+function tracksEntries() {
+  return process.platform === 'win32' || process.platform === 'darwin';
+}
+
+function shortHash(text) {
+  return crypto.createHash('sha1').update(String(text)).digest('hex').slice(0, 12);
+}
+
+function entryId(sessionId, summary) {
+  if (summary) return SUMMARY_ID;
+  if (!sessionId) return null;
+  const id = `sess:${sessionId}`;
+  return id.length <= MAX_ID_LENGTH ? id : `sess:${shortHash(sessionId)}`;
+}
+
+/** Take one entry off the screen and forget it. */
+function dropEntry(id) {
+  if (!id) return;
+  const notification = live.get(id);
+  live.delete(id);
+  if (process.platform === 'win32') {
+    if (notification) notification.close();
+  } else if (process.platform === 'darwin') {
+    Notification.remove(id);
+  }
+}
+
 function registerIpc(ipc = ipcMain) {
   ipc.on('notify', (_event, payload) => {
     if (!Notification.isSupported()) return;
-    const { title, body, sessionId } = payload || {};
+    const { title, body, sessionId, summary, project, projectKey } = payload || {};
     try {
-      const notification = new Notification({ title: title || 'Switchboard', body: body || '' });
+      const options = { title: title || 'Switchboard', body: body || '' };
+      const id = tracksEntries() ? entryId(sessionId, summary) : null;
+      if (id) {
+        options.id = id;
+        // One group per project; Windows draws a header over it. The summary belongs to no project.
+        if (!summary && projectKey) {
+          options.groupId = `proj:${shortHash(projectKey)}`;
+          if (project) options.groupTitle = String(project);
+        }
+        // A newer event for the same session replaces the old entry rather than stacking beside it.
+        if (live.has(id)) dropEntry(id);
+      }
+      const notification = new Notification(options);
       notification.on('click', () => {
+        if (id && live.get(id) === notification) live.delete(id);
         focusMainWindow();
         const win = ctx.getMainWindow();
         if (sessionId && win && !win.isDestroyed()) {
           win.webContents.send('focus-session', sessionId);
         }
       });
+      // The user (or the OS) took it away: forget it. Compared by identity - closing a replaced entry
+      // reports its 'close' after the new one is already registered under the same id.
+      notification.on('close', () => {
+        if (id && live.get(id) === notification) live.delete(id);
+      });
+      if (id) live.set(id, notification);
       notification.show();
     } catch (err) {
       ctx.log.error('[notify] failed to show notification:', err?.message || String(err));
+    }
+  });
+
+  // The user has looked at these sessions (or they are gone): take their notifications out of the OS's
+  // notification centre. `{ sessionIds, summary }` - the renderer never sees the ids main builds.
+  ipc.on('notify-clear', (_event, payload) => {
+    if (!tracksEntries()) return;
+    const { sessionIds, summary } = payload || {};
+    try {
+      if (Array.isArray(sessionIds)) {
+        for (const sessionId of sessionIds) {
+          if (sessionId) dropEntry(entryId(sessionId, false));
+        }
+      }
+      if (summary) dropEntry(entryId(null, true));
+    } catch (err) {
+      ctx.log.error('[notify-clear] failed:', err?.message || String(err));
     }
   });
 
@@ -243,4 +321,4 @@ function destroyUsageTray() {
   usageTray = null;
 }
 
-module.exports = { init, registerIpc, createTray, destroyTray, focusMainWindow };
+module.exports = { init, registerIpc, createTray, destroyTray, focusMainWindow, _liveEntries: live };
