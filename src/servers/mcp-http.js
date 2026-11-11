@@ -69,7 +69,10 @@ function authenticate(presented) {
 function bearerOf(req) {
   const header = req.headers['authorization'];
   if (typeof header !== 'string') return null;
-  const m = /^Bearer\s+(.+)$/.exec(header);
+  // The token starts with its first non-space character, so the match is linear (CodeQL js/polynomial-redos). The old
+  // `\s+(.+)` took quadratic time on a long run of spaces followed by a line terminator; Node's HTTP parser does not let
+  // such a header through today, so this closes the pattern rather than a reachable hole.
+  const m = /^Bearer\s+(\S.*)$/.exec(header);
   return m ? m[1] : null;
 }
 
@@ -370,5 +373,6 @@ module.exports = {
   shutdownListener,
   // Exposed for tests/measurement; not part of the spawn-path contract.
   MAX_BODY_BYTES,
+  bearerOf,
   ENDPOINT_PATH,
 };

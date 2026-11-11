@@ -170,6 +170,16 @@ test('bad arguments are an error', async () => {
   reg.release();
 });
 
+test('a tool name the handler table only inherits is an unknown tool (CodeQL js/unvalidated-dynamic-method-call)', async () => {
+  const { reg, port } = await setup();
+  for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    const r = await post(port, reg.token, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: {} } });
+    assert.ok(r.json.error, name);
+    assert.match(r.json.error.message, /Unknown tool/, name);
+  }
+  reg.release();
+});
+
 test('(d) accept, reject and accept-with-edits give the specified text', async () => {
   const { win, sessionId, reg, call } = await setup();
   const cases = [['accept', null, 'ACCEPTED'], ['reject', null, 'REJECTED'], ['accept-edited', 'edited body', 'ACCEPTED_WITH_EDITS\nedited body']];

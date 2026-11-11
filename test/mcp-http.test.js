@@ -140,6 +140,31 @@ test('wrong or absent token is 401; a valid one is let through', async () => {
   }
 });
 
+test('bearerOf: the token after any spaces; no token from spaces alone; linear on a run of spaces (CodeQL js/polynomial-redos)', () => {
+  const of = (authorization) => mcpHttp.bearerOf({ headers: { authorization } });
+  assert.equal(of('Bearer abc'), 'abc');
+  assert.equal(of('Bearer    abc'), 'abc', 'extra spaces before the token are absorbed');
+  assert.equal(of('Bearer    '), null);
+  assert.equal(of('Basic abc'), null);
+  assert.equal(of(undefined), null);
+  // The input the old /^Bearers+(.+)$/ took quadratic time on: a long run of spaces, then a character `.` cannot match.
+  const started = Date.now();
+  assert.equal(of('Bearer' + ' '.repeat(50000) + ' '), null);
+  assert.ok(Date.now() - started < 200, 'no quadratic backtracking');
+});
+
+test('a real token after extra spaces is still let through', async () => {
+  const win = fakeWindow();
+  const reg = await mcpHttp.registerSession({ sessionId: 's-spaces', getWindow: () => win, groups: ['ide'], log });
+  const port = portOf(reg.url);
+  try {
+    const ok = await request(port, { token: `  ${reg.token}`, body: { jsonrpc: '2.0', id: 1, method: 'initialize' } });
+    assert.equal(ok.status, 200);
+  } finally {
+    reg.release();
+  }
+});
+
 test("a non-loopback Host and any Origin header are refused (the DNS-rebinding guard)", async () => {
   const win = fakeWindow();
   const reg = await mcpHttp.registerSession({ sessionId: 's-guard', getWindow: () => win, groups: ['ide'], log });

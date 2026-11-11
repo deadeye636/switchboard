@@ -278,8 +278,10 @@ async function handleToolCall(entry, rpcId, params, log) {
   // carries falls through to the `ide` switch below (a `ws` entry never has another group).
   for (const group of entry.groups) {
     if (groupOff(entry, group)) continue;
-    const handler = TOOL_HANDLERS[group] && TOOL_HANDLERS[group][toolName];
-    if (handler) return handler(entry, rpcId, args, log);
+    // Own properties only: a client's tool name like `constructor` must not reach what the table inherits.
+    const table = Object.hasOwn(TOOL_HANDLERS, group) ? TOOL_HANDLERS[group] : null;
+    const handler = table && typeof toolName === 'string' && Object.hasOwn(table, toolName) ? table[toolName] : null;
+    if (typeof handler === 'function') return handler(entry, rpcId, args, log);
   }
   if (!entry.groups.includes('ide')) {
     return sendError(entry, rpcId, -32602, `Unknown tool: ${toolName}`);
