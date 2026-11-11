@@ -445,6 +445,13 @@ test('placeEvents edge cases: equal and unsorted ts, before every step, an empty
   assert.equal(FlowView.placeEvents(alt, [{ kind: 'forked', label: 'f', at: T }]).length, 1);
 });
 
+test('detailOf: an estimated checkpoint says "estimated" once in the panel', () => {
+  const s = mkStep(1, { checkpoint: { input: { value: 3100, basis: 'measured' }, window: { value: 1000000, basis: 'estimated' } } });
+  const lay = FlowLayout.layout(mkSnap([s]), FlowLayout.emptyCollapseState());
+  const ctx = Object.fromEntries(FlowView.detailOf(lay.rows[0], lay.columns).fields).Context;
+  assert.equal((ctx.match(/estimated/g) || []).length, 1, ctx);
+});
+
 test('detailOf carries the Events marks it is given, apart from the flags', () => {
   const lay = FlowLayout.layout(mkSnap([mkStep(1)]), FlowLayout.emptyCollapseState());
   const marks = [{ stepId: 's1', kind: 'stopped', word: 'stopped', label: 'Session stopped', detail: '', at: 1 }];

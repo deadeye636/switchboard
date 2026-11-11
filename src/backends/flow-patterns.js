@@ -1,7 +1,8 @@
 'use strict';
 // A bounded matcher for "potentially destructive command" lists (spec 46, #826 requirement 11). Backend-neutral: it
 // knows shell GRAMMAR (quotes, separators, a leading `sudo`) and no backend id, tool name or record field (CLAUDE.md
-// reflex 5). Each backend folder owns its list and calls `matchPatterns(list, command)`.
+// reflex 5). The built-in list is shared (`./flow-command-patterns.js`, which calls `matchPatterns(list, command)`); each
+// backend folder owns only how it finds a command and the flags its own format adds.
 //
 // A pattern entry is `{ id, test, reason, view? }`:
 //   - `test`: a RegExp without the `g` or `y` flag, written to be linear on its own (no nested quantifiers; a

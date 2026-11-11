@@ -272,7 +272,7 @@
       if (laneName) fields.push(['Lane', String(laneName)]);
       if (Number.isFinite(s.ts)) fields.push(['Time', new Date(s.ts).toLocaleString()]);
       const cp = checkpointInfo(s);
-      if (cp) fields.push(['Context', cp.text + (cp.estimated ? ' (estimated)' : '')]);
+      if (cp) fields.push(['Context', cp.text]);   // checkpointInfo already says "estimated" in the text
       const d = s.detail && typeof s.detail === 'object' ? s.detail : {};
       for (const k of Object.keys(d)) {
         if (fields.length >= DETAIL_MAX_FIELDS) break;
