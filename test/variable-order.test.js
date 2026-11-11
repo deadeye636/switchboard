@@ -8,7 +8,7 @@
 //  - the store's rule for a STALE list (src/db/saved-variable-order.js) — nothing under test/ loads a
 //    module that opens the database, so the rule lives beside the store, where both can use it;
 //  - the IPC handler in src/app/variables.js, through its injected ctx.
-// The SQL itself cannot run here (better-sqlite3 is built for Electron's ABI — .claude/rules/db.md), so the
+// The SQL itself cannot run here (db.js opens the app's own database when required — .claude/rules/db.md), so the
 // last block reads the store and the migration as text. That is a wiring guard, not a behaviour test: the
 // migration is verified with scripts/db-migrate-probe.js against a copy of a real database.
 const test = require('node:test');
@@ -114,7 +114,7 @@ function setupIpc({ changed = true } = {}) {
     activeSessions: new Map(),
     getSetting: () => ({}),
     getSecretRefDir: () => path.join(ROOT, 'no-such-dir'),
-    safeStorage: { isEncryptionAvailable: () => false },
+    safeStorage: { isAsyncEncryptionAvailable: async () => false },
     db: {
       reorderSavedVariables: (ids) => { calls.push(ids); return { order: ids.slice().reverse(), changed }; },
     },

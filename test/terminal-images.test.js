@@ -218,3 +218,30 @@ test('prune survives a missing directory', () => {
   initWith(path.join(os.tmpdir(), 'sb-images-does-not-exist-' + process.pid));
   assert.equal(images.prune(), 0);
 });
+
+// --- the clipboard bitmap (Electron 44+ clipboard.read()) ---
+
+function pngItem(bytes) {
+  return { types: ['image/png'], getType: async () => new Blob([bytes]) };
+}
+
+test('saveClipboardImage writes the image/png of the clipboard item to disk', async () => {
+  const dir = withDir();
+  initWith(dir, { clipboard: { read: async () => [pngItem(Buffer.from([9, 8, 7]))] } });
+
+  const file = await images.saveClipboardImage();
+  assert.equal(path.extname(file), '.png');
+  assert.deepEqual([...fs.readFileSync(file)], [9, 8, 7]);
+});
+
+test('saveClipboardImage is null for a clipboard without an image, and when the read fails', async () => {
+  const dir = withDir();
+  initWith(dir, { clipboard: { read: async () => [{ types: ['text/plain'], getType: async () => new Blob(['x']) }] } });
+  assert.equal(await images.saveClipboardImage(), null);
+
+  initWith(dir, { clipboard: { read: async () => [] } });
+  assert.equal(await images.saveClipboardImage(), null);
+
+  initWith(dir, { clipboard: { read: async () => { throw new Error('busy'); } }, log: { ...NOOP_LOG } });
+  assert.equal(await images.saveClipboardImage(), null);
+});

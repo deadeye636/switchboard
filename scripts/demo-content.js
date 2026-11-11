@@ -6,8 +6,7 @@
 // bar and the task list are empty in the demo, which is exactly what a screenshot of them must not
 // show.
 //
-// Runs UNDER ELECTRON-AS-NODE for the same reason `demo-settings.js` does — `better-sqlite3` is
-// built against Electron's ABI:
+// Runs UNDER ELECTRON-AS-NODE like `demo-settings.js` does — the runtime the app opens the database with:
 //
 //   ELECTRON_RUN_AS_NODE=1 <electron> scripts/demo-content.js
 //

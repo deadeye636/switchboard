@@ -1,8 +1,8 @@
 // The upkeep POLICY (#430): when the database is compacted, how much of it, and what is written down.
 //
 // WHY THIS EXISTS:
-//   The SQL half (src/db/compact.js) cannot be tested here — better-sqlite3 is built against Electron's
-//   ABI and no test loads db.js — so scripts/db-probe.js is what proves those statements run. What IS
+//   The SQL half (src/db/compact.js) cannot be tested here — no test loads db.js, which opens the
+//   app's own database when required — so scripts/db-probe.js is what proves those statements run. What IS
 //   testable is every decision around them, and that is where this issue's rules live: merge before
 //   measuring, never take an exclusive lock under a running session, and say in one line what happened.
 //   All of it reaches the module through ctx, so none of it needs a database.

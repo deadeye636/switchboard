@@ -990,11 +990,12 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         flushPartial();
         if (typeof rpc.lastReplyCommand !== 'function' || typeof rpc.lastReplyText !== 'function'
           || typeof rpc.copiedNotice !== 'function') return;
-        request(rpc.lastReplyCommand).then((res) => {
+        request(rpc.lastReplyCommand).then(async (res) => {
           const text = rpc.lastReplyText(res);
           let copied = false;
           if (text != null && ctx.clipboard && typeof ctx.clipboard.writeText === 'function') {
-            try { ctx.clipboard.writeText(String(text)); copied = true; } catch { copied = false; }
+            // Awaited: the main-process writeText is async since Electron 44, and the notice must tell the truth.
+            try { await ctx.clipboard.writeText(String(text)); copied = true; } catch { copied = false; }
           }
           const notice = rpc.copiedNotice({ text, copied });
           if (notice && notice.text) sendOp(state, { op: 'notice', level: notice.level || 'info', text: notice.text });

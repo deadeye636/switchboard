@@ -11,7 +11,7 @@ npm run demo:auth           # copy your CLI logins into the demo home (once), so
 ```
 
 `demo:start` also **enables every ready backend** in the demo's own settings (`scripts/demo-settings.js`,
-run under Electron-as-node because better-sqlite3 needs Electron's ABI). A fresh install enables **Claude
+run under Electron-as-node, the runtime the app opens the database with). A fresh install enables **Claude
 only** — anything else is opt-in (#162) — which meant the seeded Codex and Pi sessions parsed fine and were
 never scanned: `demo-beta` sat empty and `demo-mixed` showed one row of three (#244). The script is
 idempotent and refuses to run unless `SWITCHBOARD_DATA_DIR` points inside the demo tree, so it can never
@@ -225,7 +225,7 @@ nothing — the rest of the seed still stands.
 
 Tags, tasks, project display names and the activity history are rows in `switchboard.db`, not files,
 so `seed-demo.js` cannot write them. `scripts/demo-content.js` does, on the same Electron-as-node trip
-`demo-settings.js` takes (`better-sqlite3` is built against Electron's ABI), and with the same guard:
+`demo-settings.js` takes, and with the same guard:
 it refuses unless `SWITCHBOARD_DATA_DIR` points inside the demo tree.
 
 | What | Why it is there |

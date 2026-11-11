@@ -1,6 +1,6 @@
 // #620: a guard over the shape of `cacheUpsert` in src/db/session-store.js.
 //
-// No test can load db.js (better-sqlite3 is built against Electron's ABI, `.claude/rules/db.md`), so the
+// No test can load db.js (it opens the app's own database when required, `.claude/rules/db.md`), so the
 // one statement every scanned session goes through is otherwise checked by nothing until a probe runs under
 // Electron. This reads the statement as text and pins the two properties a later edit most easily breaks:
 //

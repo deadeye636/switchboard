@@ -3,9 +3,10 @@
 // Two backends read a SQLite store rather than text files: Hermes (one `state.db`) and agy (one `.db`
 // per conversation). Both need the same trick, so it lives here once instead of being copied.
 //
-// `better-sqlite3` is what the app ships and what runs in production — but it is compiled against
-// Electron's ABI and CANNOT be loaded by a plain `node --test` process. Node 22 ships `node:sqlite`,
-// which can — so the reader falls back to it. That keeps these backends testable in the normal suite
+// `better-sqlite3` is what the app ships and what runs in production. Up to 12.x it was compiled against
+// Electron's ABI and could not be loaded by a plain `node --test` process; 13.x is N-API and loads in both
+// (#843). Its binding can still be missing or fail to build, and Node 22 ships `node:sqlite`, which always
+// loads — so the reader falls back to it. That keeps these backends testable in the normal suite
 // instead of untested, and makes the reader work even where the native module is unavailable.
 //
 // The wrapper normalises the two APIs down to what we actually use: prepare().all/get, a pragma read,
@@ -17,7 +18,7 @@ function loadDriver() {
   try {
     const Database = require('better-sqlite3');
     // require() alone proves nothing: better-sqlite3 loads its native binding LAZILY, on first open.
-    // Under a plain `node` process that binding is the wrong ABI (it is built for Electron) and only
+    // A binding that is missing or built for another runtime only
     // blows up here. Probe it for real, so we can fall through to node:sqlite instead of silently
     // returning "no sessions".
     new Database(':memory:').close();

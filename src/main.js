@@ -581,14 +581,27 @@ const projects = require('./projects/projects');
 
 // (visibleProjectPaths + the Plans/Memory/Work-Files handlers moved to src/app/plans-memory.js — #227.)
 
+// Where a file dialog opens: since Electron 43 the OS no longer remembers it (#843).
+const dialogDirs = require('./app/dialog-dirs');
+dialogDirs.init({ getSetting, setSetting, log });
+
 projects.init({
   PROJECTS_DIR,
   activeSessions,
   log,
-  showOpenDialog: () => dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory', 'createDirectory'],
-    title: 'Select Project Folder',
-  }),
+  showOpenDialog: async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Select Project Folder',
+      defaultPath: dialogDirs.lastDialogDir('projectFolder'),
+    });
+    // The folder the user picked, so the next pick starts beside it rather than in Downloads.
+    if (!result.canceled && result.filePaths && result.filePaths[0]) {
+      const picked = result.filePaths[0];
+      dialogDirs.rememberDialogDir('projectFolder', path.dirname(picked), true);
+    }
+    return result;
+  },
   // The backend registry — trust and remap are BACKEND business now (#171): each declares whether it has
   // a project-trust gate and how to move its own transcripts. No backend id is named in projects.js.
   backends,
@@ -986,14 +999,14 @@ ipcMain.handle('run-custom-launcher', (_event, payload) => {
 });
 
 // --- IPC: read clipboard (terminal right-click paste; see clipboard-write-text) ---
-ipcMain.handle('read-clipboard', () => clipboard.readText());
+ipcMain.handle('read-clipboard', async () => await clipboard.readText());
 
 // --- IPC: clipboard write ---
 // The renderer's navigator.clipboard.writeText is gated on focus/user-activation and
 // is flaky-to-dead on Linux/Wayland (Ozone). The main-process clipboard has no such
 // strings attached, so all terminal copies go through here.
-ipcMain.handle('clipboard-write-text', (_event, text) => {
-  if (typeof text === 'string') clipboard.writeText(text);
+ipcMain.handle('clipboard-write-text', async (_event, text) => {
+  if (typeof text === 'string') await clipboard.writeText(text);
 });
 
 // --- Terminal images: clipboard bitmaps, dropped images -> app/terminal/images.js (#307/#308) ---
@@ -1012,7 +1025,7 @@ terminalImages.registerIpc(ipcMain);
 // The same ladder the paste route walks (file, bitmap, text), on the side of the IPC where there is no
 // DataTransfer. It borrows the image writer above so a snapshot lands where a pasted one does.
 const clipboardInsert = require('./app/clipboard-insert');
-clipboardInsert.init({ clipboard, saveClipboardImage: terminalImages.saveClipboardImage, log });
+clipboardInsert.init({ clipboard, saveImageFromItems: terminalImages.saveImageFromItems, log });
 
 // --- IPC: MCP bridge ---
 ipcMain.on('mcp-diff-response', (_event, sessionId, diffId, action, editedContent) => {

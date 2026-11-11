@@ -24,7 +24,7 @@
 // database at module load, which is exactly what this file used to do on its own first lines. main.js
 // (~L75) sets SWITCHBOARD_DATA_DIR before requiring db.js, and that ordering must keep working.
 //
-// NOTHING LOADS THIS FILE IN A TEST — better-sqlite3 is built against Electron's ABI, so `npm test` says
+// NOTHING LOADS THIS FILE IN A TEST — it opens the app's own database when required, so `npm test` says
 // nothing about whether the wiring below is right. It was checked by running the real thing against a
 // copy of a real database, and against an empty one, and diffing the export surface, the schema version,
 // the table list and thirty-odd reads. Do the same before trusting a change here.

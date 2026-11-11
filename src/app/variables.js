@@ -53,7 +53,7 @@ const secretRefBySession = new Map(); // sessionId -> Set<path>
  * @param {object} context.safeStorage  Electron's; injected so this module needs no electron require.
  * @param {object} context.db  the saved-variable queries: list/listAll/get/save/delete/touch/reorder.
  * @param {object} context.log
- * @param {() => ({kind: string, path?: string, text?: string})} [context.clipboardInsert]  what the system
+ * @param {() => Promise<{kind: string, path?: string, text?: string}>} [context.clipboardInsert]  what the system
  *   clipboard holds, for a template naming {clipboard} (#491). Injected like everything else Electron owns,
  *   so this module stays loadable in `node --test`; absent means the token resolves to empty.
  */
@@ -84,33 +84,38 @@ function normalizeSavedVariableTags(tags) {
   return normalized;
 }
 
-function encryptSavedVariableValue(value, secret) {
+// The async safeStorage API (the sync one is deprecated in Electron 45 and gone in 46). Ciphertext written by
+// the sync API decrypts through the async one, so stored `safe-storage` rows stay readable: measured on Windows
+// (#843: encrypted with Electron 41's `encryptString`, read back with 45's `decryptStringAsync` from the same
+// userData, text equal, `shouldReEncrypt` false). macOS and Linux rely on Electron's documentation, unmeasured.
+// The result's `shouldReEncrypt` is ignored: no stored row is migrated.
+async function encryptSavedVariableValue(value, secret) {
   const stringValue = String(value ?? '');
   if (!secret) {
     return { value: stringValue, valueEncoding: 'plain' };
   }
-  if (!ctx.safeStorage.isEncryptionAvailable()) {
+  if (!(await ctx.safeStorage.isAsyncEncryptionAvailable())) {
     ctx.log.warn('[saved-variables] safeStorage unavailable — storing secret value as plain text');
     return { value: stringValue, valueEncoding: 'plain' };
   }
   return {
-    value: ctx.safeStorage.encryptString(stringValue).toString('base64'),
+    value: (await ctx.safeStorage.encryptStringAsync(stringValue)).toString('base64'),
     valueEncoding: 'safe-storage',
   };
 }
 
-function decryptSavedVariableValue(row) {
+async function decryptSavedVariableValue(row) {
   if (!row) return '';
   if (row.valueEncoding === 'safe-storage') {
-    if (!ctx.safeStorage.isEncryptionAvailable()) {
+    if (!(await ctx.safeStorage.isAsyncEncryptionAvailable())) {
       throw new Error('System secret storage is unavailable');
     }
-    return ctx.safeStorage.decryptString(Buffer.from(row.value || '', 'base64'));
+    return (await ctx.safeStorage.decryptStringAsync(Buffer.from(row.value || '', 'base64'))).result;
   }
   return String(row.value ?? '');
 }
 
-function serializeSavedVariable(row, includeValue = false) {
+async function serializeSavedVariable(row, includeValue = false) {
   if (!row) return null;
   const serialized = {
     id: row.id,
@@ -124,7 +129,7 @@ function serializeSavedVariable(row, includeValue = false) {
     updatedAt: row.updatedAt || null,
     lastUsedAt: row.lastUsedAt || null,
   };
-  if (includeValue) serialized.value = decryptSavedVariableValue(row);
+  if (includeValue) serialized.value = await decryptSavedVariableValue(row);
   return serialized;
 }
 
@@ -227,10 +232,10 @@ function cleanupSecretRefs() {
 //
 // A clipboard this app cannot read at all resolves to empty — the missing-{value} convention — rather than
 // failing the insert: a template usually names {clipboard} beside tokens that do have an answer.
-function clipboardInsertValue(shellType) {
+async function clipboardInsertValue(shellType) {
   if (!ctx.clipboardInsert) return '';
   let read = null;
-  try { read = ctx.clipboardInsert(); } catch (err) {
+  try { read = await ctx.clipboardInsert(); } catch (err) {
     ctx.log.warn(`[variables] clipboard unreadable: ${err.message}`);
     return '';
   }
@@ -239,7 +244,7 @@ function clipboardInsertValue(shellType) {
   return sanitizeClipboardText(read.text);
 }
 
-function resolveVariableInsert(id, sessionId, opts = {}) {
+async function resolveVariableInsert(id, sessionId, opts = {}) {
   const written = [];   // files THIS insert created — unwound on any failure below
   try {
     const session = ctx.activeSessions.get(sessionId);
@@ -302,7 +307,7 @@ function resolveVariableInsert(id, sessionId, opts = {}) {
         return { ok: false, error: `"${nestedRef.node.name}" needs a shell that can read a file inline; this session's shell (${shellType}) cannot` };
       }
       const rootRef = plan.find((p) => p.needsRef && p.nodeId === root.id);
-      if (rootRef) return { ok: false, fallback: 'copy', value: decryptSavedVariableValue(root) };
+      if (rootRef) return { ok: false, fallback: 'copy', value: await decryptSavedVariableValue(root) };
     }
 
     // ---- PHASE 2: materialize ----
@@ -311,7 +316,7 @@ function resolveVariableInsert(id, sessionId, opts = {}) {
     // describe two different clipboards, and reading it unasked would snapshot a bitmap to disk for a
     // template that never mentions it.
     const clipboardValue = plan.some((p) => p.needsClipboard)
-      ? clipboardInsertValue(shellType)
+      ? await clipboardInsertValue(shellType)
       : null;
 
     // One sweep for the whole insert, not one per node.
@@ -330,7 +335,7 @@ function resolveVariableInsert(id, sessionId, opts = {}) {
       // those same rows to materialize silently yields an empty value: a referenced variable composes to
       // nothing, and a referenced SECRET writes an empty temp file its ref then reads.
       const full = p.nodeId === root.id ? root : (ctx.db.getSavedVariable(p.nodeId) || p.node);
-      const value = decryptSavedVariableValue(full);
+      const value = await decryptSavedVariableValue(full);
       let filePath = null;
       if (p.needsRef || p.needsPath) {
         filePath = path.join(ctx.getSecretRefDir(), crypto.randomUUID());
@@ -414,20 +419,20 @@ function resolveVariableInsert(id, sessionId, opts = {}) {
  *   so the encryption round-trip and the secret-ref lifecycle can be tested.
  */
 function registerIpc(ipc) {
-  ipc.handle('list-saved-variables', (_event, projectPath) => {
+  ipc.handle('list-saved-variables', async (_event, projectPath) => {
     try {
-      return ctx.db.listSavedVariables(typeof projectPath === 'string' ? projectPath : null)
-        .map(row => serializeSavedVariable(row));
+      return await Promise.all(ctx.db.listSavedVariables(typeof projectPath === 'string' ? projectPath : null)
+        .map(row => serializeSavedVariable(row)));
     } catch (err) {
       return failed(err, 'Could not read your saved variables.');
     }
   });
 
-  ipc.handle('get-saved-variable', (_event, id) => {
+  ipc.handle('get-saved-variable', async (_event, id) => {
     try {
       const row = ctx.db.getSavedVariable(id);
       if (!row) return { ok: false, error: 'Variable not found' };
-      return { ok: true, variable: serializeSavedVariable(row, true) };
+      return { ok: true, variable: await serializeSavedVariable(row, true) };
     } catch (err) {
       return failed(err, 'Could not read that variable.');
     }
@@ -460,7 +465,7 @@ function registerIpc(ipc) {
     } catch { /* a notification is never worth taking a save down with it */ }
   }
 
-  ipc.handle('save-saved-variable', (event, input = {}) => {
+  ipc.handle('save-saved-variable', async (event, input = {}) => {
     try {
       const name = String(input.name || '').trim().slice(0, 120);
       if (!name) return { ok: false, error: 'Name is required' };
@@ -483,7 +488,7 @@ function registerIpc(ipc) {
       }
 
       const secret = !!input.secret;
-      const encoded = encryptSavedVariableValue(input.value, secret);
+      const encoded = await encryptSavedVariableValue(input.value, secret);
       // Cut to the limit, and SAY so: the answer carries how much was dropped, and the editor tells the user.
       const fullTemplate = String(input.insertTemplate || '');
       const insertTemplate = fullTemplate.slice(0, MAX_TEMPLATE_CHARS);
@@ -503,7 +508,7 @@ function registerIpc(ipc) {
       const templateCut = fullTemplate.length - insertTemplate.length;
       return {
         ok: true,
-        variable: serializeSavedVariable(row),
+        variable: await serializeSavedVariable(row),
         ...(templateCut > 0 ? { templateCut: { kept: insertTemplate.length, dropped: templateCut } } : {}),
       };
     } catch (err) {
@@ -560,9 +565,9 @@ function registerIpc(ipc) {
   });
 
   // Full CRUD list for the Variables admin tab: every variable regardless of scope.
-  ipc.handle('list-all-saved-variables', () => {
+  ipc.handle('list-all-saved-variables', async () => {
     try {
-      return ctx.db.listAllSavedVariables().map(row => serializeSavedVariable(row));
+      return await Promise.all(ctx.db.listAllSavedVariables().map(row => serializeSavedVariable(row)));
     } catch (err) {
       return failed(err, 'Could not read your saved variables.');
     }

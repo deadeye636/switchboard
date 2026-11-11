@@ -99,17 +99,27 @@ function writeImage(bytes, ext) {
   }
 }
 
+// Write the first `image/png` of a ClipboardItem list (Electron 44+ `clipboard.read()`) to the temp dir and
+// return its path; null when no item carries one. A screenshot (Win+Shift+S) is one item with exactly that
+// type; a copied FILE has no image type and falls through. Exported so clipboard-insert.js, which already
+// holds the items, does not read the clipboard a second time.
+async function saveImageFromItems(items) {
+  for (const item of items || []) {
+    if (!item || !Array.isArray(item.types) || !item.types.includes('image/png')) continue;
+    const blob = await item.getType('image/png');
+    const png = Buffer.from(await blob.arrayBuffer());
+    if (png.length) return writeImage(png, 'png');
+  }
+  return null;
+}
+
 // A clipboard bitmap (a screenshot, "Copy image" in a browser). Native clipboard-image paste isn't
 // available everywhere (e.g. Windows), so the bitmap is snapshotted here and its path inserted.
 // Returns null when the clipboard holds no bitmap — plain text or a copied FILE, both of which the
 // renderer handles differently.
-function saveClipboardImage() {
+async function saveClipboardImage() {
   try {
-    const img = ctx.clipboard.readImage();
-    if (!img || img.isEmpty()) return null;
-    const png = img.toPNG();
-    if (!png || !png.length) return null;
-    return writeImage(png, 'png');
+    return await saveImageFromItems(await ctx.clipboard.read());
   } catch (err) {
     ctx.log.error(`[terminal-image] clipboard read failed: ${err.message}`);
     return null;
@@ -244,6 +254,7 @@ module.exports = {
   init,
   registerIpc,
   saveClipboardImage,
+  saveImageFromItems,
   saveImageBuffer,
   saveImageUrl,
   prune,

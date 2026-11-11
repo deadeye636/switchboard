@@ -22,33 +22,46 @@ let ctx = null;
 /**
  * @param {object} context
  * @param {Electron.Clipboard} context.clipboard
- * @param {() => (string|null)} context.saveClipboardImage  app/terminal/images.js — writes a clipboard
- *   bitmap to the app's image temp dir and returns its path. Injected rather than required so this module
- *   stays loadable in `node --test`.
+ * @param {(items: Electron.ClipboardItem[]) => Promise<(string|null)>} context.saveImageFromItems
+ *   app/terminal/images.js — writes the PNG of the items already read to the app's image temp dir and
+ *   returns its path. Injected rather than required so this module stays loadable in `node --test`.
  * @param {object} context.log
  */
 function init(context) {
   ctx = context;
 }
 
-// The platform-specific clipboard formats that name a FILE. Each returns a path or null; the list is walked
-// in order and the first answer wins, so a clipboard carrying two of them is not read twice.
-//
-// `FileNameW` is UTF-16 and NUL-terminated, which is why it is read as a buffer rather than as text — read
-// as text it comes back with the NULs in it, and a path with a NUL in it opens nothing.
+// The main-process clipboard of Electron 44+ has no format list and no sync reads: `clipboard.read()` returns
+// ClipboardItems, each with `types` and an async `getType(type)`. Measured on Windows 11 with Electron 45.3.0:
+//  - a copied FILE is one item with `text/uri-list` (UTF-8 `file:///C:/...`) and the raw OS format
+//    `electron application/osclipboard;format="FileName"` (ANSI path). There is NO `FileNameW`.
+//  - a screenshot is one item with `image/png`.
+// macOS's `public.file-url` would arrive as `electron application/osclipboard;format="public.file-url"`; that
+// is NOT measured, only assumed from the naming rule, and is kept as a cheap fallback.
+const MAC_FILE_URL = 'electron application/osclipboard;format="public.file-url"';
+
+async function itemText(item, type) {
+  const blob = await item.getType(type);
+  return blob.text();
+}
+
+// Each reader takes the items and returns a path or null; the list is walked in order and the first answer
+// wins, so a clipboard carrying two of them is not read twice.
 const FILE_READERS = [
-  ['FileNameW', () => {
-    const buf = ctx.clipboard.readBuffer('FileNameW');
-    if (!buf || !buf.length) return null;
-    return buf.toString('ucs2').replace(/\0.*$/, '');
+  ['text/uri-list', async (items) => {
+    for (const item of items) {
+      if (!item.types.includes('text/uri-list')) continue;
+      // A uri-list is line-separated and may carry comment lines; the first file:// URL is the answer.
+      for (const line of (await itemText(item, 'text/uri-list')).split(/\r?\n/)) {
+        const p = fileUrlToPath(line.trim());
+        if (p) return p;
+      }
+    }
+    return null;
   }],
-  ['public.file-url', () => fileUrlToPath(ctx.clipboard.read('public.file-url'))],
-  ['text/uri-list', () => {
-    const list = String(ctx.clipboard.read('text/uri-list') || '');
-    // A uri-list is line-separated and may carry comment lines; the first file:// URL is the answer.
-    for (const line of list.split(/\r?\n/)) {
-      const p = fileUrlToPath(line.trim());
-      if (p) return p;
+  [MAC_FILE_URL, async (items) => {
+    for (const item of items) {
+      if (item.types.includes(MAC_FILE_URL)) return fileUrlToPath(await itemText(item, MAC_FILE_URL));
     }
     return null;
   }],
@@ -81,20 +94,19 @@ function existingPath(p) {
 /**
  * Read the clipboard as something a terminal can be handed.
  *
- * @returns {{ kind: 'file'|'image'|'text', path?: string, text?: string }}
+ * @returns {Promise<{ kind: 'file'|'image'|'text', path?: string, text?: string }>}
  *   `file` — a path already on disk, `image` — a bitmap this call just wrote to disk, `text` — raw text,
  *   uncleaned. An empty clipboard is `{ kind: 'text', text: '' }`, because "nothing was copied" resolves to
  *   nothing rather than to an error: a template may name {clipboard} beside other tokens that do have an
  *   answer.
  */
-function readClipboardInsert() {
-  let formats = [];
-  try { formats = ctx.clipboard.availableFormats() || []; } catch { formats = []; }
+async function readClipboardInsert() {
+  let items = [];
+  try { items = (await ctx.clipboard.read()) || []; } catch { items = []; }
 
   for (const [format, read] of FILE_READERS) {
-    if (!formats.includes(format)) continue;
     let p = null;
-    try { p = existingPath(read()); } catch (err) {
+    try { p = existingPath(await read(items)); } catch (err) {
       ctx.log.debug(`[clipboard-insert] ${format} unreadable: ${err.message}`);
     }
     if (p) return { kind: 'file', path: p };
@@ -103,14 +115,14 @@ function readClipboardInsert() {
   // A bitmap with nothing behind it — a screenshot, "Copy image" in a browser. Written to disk exactly the
   // way a pasted one is, so both routes leave one kind of file in one place.
   try {
-    const saved = ctx.saveClipboardImage();
+    const saved = await ctx.saveImageFromItems(items);
     if (saved) return { kind: 'image', path: saved };
   } catch (err) {
     ctx.log.debug(`[clipboard-insert] image snapshot failed: ${err.message}`);
   }
 
   let text = '';
-  try { text = ctx.clipboard.readText() || ''; } catch { text = ''; }
+  try { text = (await ctx.clipboard.readText()) || ''; } catch { text = ''; }
   return { kind: 'text', text };
 }
 

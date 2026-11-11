@@ -1,5 +1,5 @@
 // Characterization probe for #217: run the REAL db.js against a REAL database and print everything a
-// split could break. No test loads db.js (better-sqlite3 is built against Electron's ABI), so `npm test`
+// split could break. No test loads db.js (it opens the app's database when required), so `npm test`
 // green says nothing about this file. Run under: ELECTRON_RUN_AS_NODE=1 electron db-probe.js <dataDir>
 //
 // Prints a stable, diffable JSON snapshot: the export surface, the schema version, the table/index list,

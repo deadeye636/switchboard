@@ -184,5 +184,20 @@ test('the last reply is put on the clipboard by the app, and the backend says wh
   assert.ok(!h.sent.some(m => m.op && m.op.op === 'lastReply'), 'the request op is answered here, never sent on');
 });
 
+test('a clipboard write that rejects is reported as not copied, not as copied', async (t) => {
+  const h = harness({ dataDir: tempDataDir(t), clipboardFails: true });
+  t.after(() => stopped(h));
+  await until(() => h.rekeys.length === 1);
+
+  await agentRpc.sendTurn('fake-session', { text: 'hello', mode: 'prompt' });
+  await until(() => h.signals.some(s => s.kind === 'idle'));
+  await agentRpc.sendTurn('fake-session', { text: '/copy', mode: 'prompt' });
+  await until(() => h.sent.some(m => m.op && m.op.op === 'notice'));
+  const done = h.sent.filter(m => m.op && m.op.op === 'notice').pop().op;
+  assert.equal(done.level, 'error');
+  assert.match(done.text, /could not be put on the clipboard/);
+  assert.deepEqual(h.clipped, []);
+});
+
 // #643 — a `!` line. The runtime runs it, because its own shell is what books the output into the
 // session's context; this process starts it, draws it as it goes, and can stop it.

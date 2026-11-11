@@ -398,7 +398,7 @@ Prebuilt (unsigned) releases — **convenience only**, prefer building from sour
 
 **[Download Switchboard](https://github.com/deadeye636/switchboard/releases/latest)**
 
-- **macOS**: `.dmg` (Apple Silicon & Intel)
+- **macOS**: `.dmg` (Apple Silicon & Intel), macOS 13 (Ventura) or later
 - **Windows**: `.exe` installer
 - **Linux**: `.AppImage`, `.deb`, or `.pacman` (Arch/Manjaro)
 

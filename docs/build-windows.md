@@ -17,7 +17,7 @@ any more.
 
 ## Prerequisites
 
-- **Node.js** — the same major as `package.json`/CI (Electron 41 ABI).
+- **Node.js** — the same major as `package.json`/CI. The app runs on Electron 45 (#843).
 - **Visual Studio 2026 Build Tools** with the C++ desktop workload, for the native modules
   `better-sqlite3` and `node-pty`.
 - **The Spectre-mitigated MSVC libraries** (component `Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre`,

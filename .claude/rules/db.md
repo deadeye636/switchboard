@@ -89,8 +89,9 @@ It prepares its statements at load, so requiring it at the top dies on a **fresh
 
 ## No test loads `db.js` — a green suite says NOTHING here
 
-better-sqlite3 is built against Electron's ABI. Verify with `scripts/db-probe.js` under
-`ELECTRON_RUN_AS_NODE=1`, against a **copy** of a real DB **and** an empty one — several of the bugs
+db.js opens the app's own database the moment it is required (`DATA_DIR`, above), so no test requires it. Since #843
+better-sqlite3 is 13.x, an N-API module that plain Node loads as well, but that changes nothing here. Verify with
+`scripts/db-probe.js` under `ELECTRON_RUN_AS_NODE=1` (the runtime the app uses), against a **copy** of a real DB **and** an empty one — several of the bugs
 found during #217 were visible only on the fresh one.
 
 An **appended migration** is verified with `scripts/db-migrate-probe.js` (same invocation, same

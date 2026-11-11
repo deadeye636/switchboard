@@ -14,8 +14,8 @@
 // The rule follows the CODE, not the file: project management moved to projects.js (#170), so both files
 // are checked. A new home for a folder-wide delete must be added here.
 //
-// Static analysis (like main-ctx-db-wiring.test.js): db.js cannot be required under plain node —
-// better-sqlite3 is compiled against Electron's ABI.
+// Static analysis (like main-ctx-db-wiring.test.js): db.js cannot be required in a test —
+// db.js opens the app's own database when required.
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

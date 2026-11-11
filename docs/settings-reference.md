@@ -417,12 +417,14 @@ main, detached, settings, changes, diff — counts at once. Below one minute fal
 Where the OS reports no idle time (some Wayland setups answer 0), nobody is ever counted away.
 `docs/specs/03-what-changed.md` has the reasoning.
 
-**One key here is written by the main process rather than by the screen**, and it decides behaviour
-rather than appearance:
+**These keys are written by the main process rather than by the screen**, and neither is in a settings export:
 
 | Key | Holds | Written by |
 |---|---|---|
 | `usage:lastSuccessful:<backendId>` | the last usage reading that succeeded, with its timestamp — plus `probedAt`, when a probe was last allowed and answered nothing | `src/main.js`, on every successful poll and on a fruitless probe |
+| `lastDialogDir` | per kind of file dialog (`projectFolder`, `settingsFile`), the folder it opened last. Since Electron 43 the OS no longer remembers it (#843); a folder that is gone or spelled as a network path is not handed back | `src/app/dialog-dirs.js`, after a dialog the user did not cancel |
+
+The first one decides behaviour rather than appearance.
 
 It is what keeps a figure on screen when the source cannot answer today, and — for AGY — it is also the
 switch that decides whether the app may start a CLI of its own to read quota (`allowLaunch` is

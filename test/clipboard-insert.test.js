@@ -15,20 +15,30 @@ const path = require('path');
 
 const clipboardInsert = require('../src/app/clipboard-insert');
 
-function setup(t, { formats = [], reads = {}, buffers = {}, text = '', image = null, onImage } = {}) {
-  const calls = { image: 0, text: 0, read: [], buffer: [] };
+const MAC_FILE_URL = 'electron application/osclipboard;format="public.file-url"';
+
+// A ClipboardItem stand-in: `types` and an async `getType` returning a Blob, as Electron 44+ hands them.
+function item(parts) {
+  return {
+    types: Object.keys(parts),
+    getType: async (type) => new Blob([parts[type]]),
+  };
+}
+
+function setup(t, { items = [], text = '', readFails = false, imagePath = null, onImage } = {}) {
+  const calls = { image: 0, text: 0, read: 0 };
   clipboardInsert.init({
     clipboard: {
-      availableFormats: () => formats,
-      read: (fmt) => { calls.read.push(fmt); return reads[fmt] ?? ''; },
-      readBuffer: (fmt) => { calls.buffer.push(fmt); return buffers[fmt] ?? Buffer.alloc(0); },
-      readText: () => { calls.text++; return text; },
+      read: async () => { calls.read++; if (readFails) throw new Error('clipboard busy'); return items; },
+      readText: async () => { calls.text++; return text; },
     },
-    saveClipboardImage: () => { calls.image++; return onImage ? onImage() : image; },
+    saveImageFromItems: async (got) => { calls.image++; calls.items = got; return onImage ? onImage() : imagePath; },
     log: { info() {}, warn() {}, debug() {}, error() {} },
   });
   return calls;
 }
+
+const fileUrl = (file) => 'file://' + file.replace(/\\/g, '/').replace(/^([a-z]):/i, '/$1:');
 
 // A real file, so the existence check has something to find. A path to nothing is not a file (see below).
 function realFile(t, name = 'copied.txt') {
@@ -41,76 +51,75 @@ function realFile(t, name = 'copied.txt') {
 
 // --- the ladder ----------------------------------------------------------------
 
-test('a copied file wins over everything else, and is read from the Windows format', (t) => {
+test('a copied file wins over everything else, read from the uri-list the Windows clipboard carries', async (t) => {
   const file = realFile(t);
+  // Measured on Windows 11 / Electron 45: one item with the uri-list and the raw ANSI FileName, no FileNameW.
   const calls = setup(t, {
-    formats: ['FileNameW', 'text/plain'],
-    // FileNameW is UTF-16 and NUL-terminated: read as text it comes back with the NULs in it, and a path
-    // with a NUL in it opens nothing.
-    buffers: { FileNameW: Buffer.from(file + '\u0000\u0000', 'ucs2') },
+    items: [item({ 'text/uri-list': fileUrl(file) + '\r\n', 'electron application/osclipboard;format="FileName"': file })],
     text: file,
-    image: '/tmp/snapshot.png',
+    imagePath: '/tmp/snapshot.png',
   });
 
-  assert.deepEqual(clipboardInsert.readClipboardInsert(), { kind: 'file', path: file });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'file', path: file });
+  assert.equal(calls.read, 1, 'the clipboard is read once');
   assert.equal(calls.image, 0, 'a real path beats a snapshot — the bitmap is not even asked for');
   assert.equal(calls.text, 0);
 });
 
-test('a macOS file-url and a Linux uri-list name the same thing', (t) => {
+test('the uri-list may carry comment lines; the first file:// URL is the answer', async (t) => {
   const file = realFile(t);
-  const asUrl = 'file://' + file.replace(/\\/g, '/').replace(/^([a-z]):/i, '/$1:');
-
-  setup(t, { formats: ['public.file-url'], reads: { 'public.file-url': asUrl } });
-  assert.deepEqual(clipboardInsert.readClipboardInsert(), { kind: 'file', path: file });
-
-  // A uri-list is line-separated and may carry comment lines; the first file:// URL is the answer.
-  setup(t, { formats: ['text/uri-list'], reads: { 'text/uri-list': `# comment\n${asUrl}\n` } });
-  assert.deepEqual(clipboardInsert.readClipboardInsert(), { kind: 'file', path: file });
+  setup(t, { items: [item({ 'text/uri-list': `# comment\r\n${fileUrl(file)}\r\n` })] });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'file', path: file });
 });
 
-test('a path to nothing is not a file — a stale entry falls through instead of inserting a dead path', (t) => {
+test('a macOS file-url is the fallback (format name not measured)', async (t) => {
+  const file = realFile(t);
+  setup(t, { items: [item({ [MAC_FILE_URL]: fileUrl(file) })] });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'file', path: file });
+});
+
+test('a path to nothing is not a file — a stale entry falls through instead of inserting a dead path', async (t) => {
   const calls = setup(t, {
-    formats: ['FileNameW'],
-    buffers: { FileNameW: Buffer.from('C:\\gone\\deleted.txt\u0000', 'ucs2') },
+    // Built at run time, so the source names no drive: a file URL to a path that does not exist.
+    items: [item({ 'text/uri-list': require('url').pathToFileURL(path.join(os.tmpdir(), 'sb-clip-gone', 'deleted.txt')).href })],
     text: 'plain text',
   });
 
-  assert.deepEqual(clipboardInsert.readClipboardInsert(), { kind: 'text', text: 'plain text' });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'text', text: 'plain text' });
   assert.equal(calls.image, 1, 'the bitmap is still offered its turn');
 });
 
-test('a bitmap with nothing behind it is written to disk and named by its path', (t) => {
-  setup(t, { formats: ['image/png'], image: '/tmp/paste-1.png' });
-  assert.deepEqual(clipboardInsert.readClipboardInsert(), { kind: 'image', path: '/tmp/paste-1.png' });
+test('a bitmap with nothing behind it is written to disk and named by its path', async (t) => {
+  const png = item({ 'image/png': 'PNGBYTES' });
+  const calls = setup(t, { items: [png], imagePath: '/tmp/paste-1.png' });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'image', path: '/tmp/paste-1.png' });
+  assert.deepEqual(calls.items, [png], 'the items already read are handed on, not read again');
+  assert.equal(calls.read, 1);
 });
 
-test('an empty clipboard resolves to nothing, not to an error', (t) => {
-  setup(t, { formats: [], text: '' });
+test('plain text falls through to readText', async (t) => {
+  setup(t, { items: [item({ 'text/plain': 'hello' })], text: 'hello' });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'text', text: 'hello' });
+});
+
+test('an empty clipboard resolves to nothing, not to an error', async (t) => {
+  setup(t, { items: [], text: '' });
   // A template usually names {clipboard} beside tokens that do have an answer.
-  assert.deepEqual(clipboardInsert.readClipboardInsert(), { kind: 'text', text: '' });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'text', text: '' });
 });
 
-test('a format that is offered but unreadable does not take the whole insert down', (t) => {
+test('an item that is offered but unreadable does not take the whole insert down', async (t) => {
   setup(t, {
-    formats: ['FileNameW'],
+    items: [{ types: ['text/uri-list'], getType: async () => { throw new Error('gone'); } }],
     text: 'fallback',
     onImage: () => { throw new Error('no bitmap here'); },
   });
-  // readBuffer returns an empty buffer → no path; the image reader throws → both are stepped over.
-  assert.deepEqual(clipboardInsert.readClipboardInsert(), { kind: 'text', text: 'fallback' });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'text', text: 'fallback' });
 });
 
-test('a clipboard that cannot even be asked what it holds still answers', (t) => {
-  clipboardInsert.init({
-    clipboard: {
-      availableFormats: () => { throw new Error('clipboard busy'); },
-      readText: () => 'still here',
-    },
-    saveClipboardImage: () => null,
-    log: { info() {}, warn() {}, debug() {}, error() {} },
-  });
-  assert.deepEqual(clipboardInsert.readClipboardInsert(), { kind: 'text', text: 'still here' });
+test('a clipboard that cannot even be read still answers with its text', async (t) => {
+  setup(t, { readFails: true, text: 'still here' });
+  assert.deepEqual(await clipboardInsert.readClipboardInsert(), { kind: 'text', text: 'still here' });
 });
 
 // --- fileUrlToPath -------------------------------------------------------------

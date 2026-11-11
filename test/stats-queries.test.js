@@ -13,8 +13,8 @@ const assert = require('node:assert/strict');
 const q = require('../src/db/stats-queries');
 
 // The same two drivers the app accepts (backends/hermes/reader.js). better-sqlite3 is a native module
-// built for Electron's ABI, so it may not load under plain `node --test`; node:sqlite (Node >= 22.5) is
-// the fallback that always can.
+// that may be missing or fail to build; node:sqlite (Node >= 22.5) is the fallback that always loads.
+// Up to 12.x it was built for Electron's ABI and never loaded here; 13.x is N-API and does (#843).
 function openMemory() {
   try {
     const Database = require('better-sqlite3');
@@ -165,7 +165,7 @@ test('an orphan metrics row is not counted into a filtered chart', () => {
 // heatmap, no bars, no cost. Claude only escaped it because no template ran on Claude.
 //
 // The SQL was right and tested all along. The decision that was wrong lived in db.js, which no test can
-// load (better-sqlite3 is built for Electron's ABI) — so it now lives in `plan()`, here.
+// load (db.js opens the app's own database when required) — so it now lives in `plan()`, here.
 
 test('filtering by a backend finds the sessions its TEMPLATES ran, too', () => {
   const db = seed();

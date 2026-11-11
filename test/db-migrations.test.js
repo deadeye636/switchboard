@@ -10,7 +10,7 @@
 // None of that is catchable by reading the file, and none of it fails loudly: it lands as a corrupted
 // database on someone else's machine, the next time the installed app starts. Until #217 this rule was a
 // comment. It is testable now only because migrations.js takes `db` as a parameter instead of importing
-// it — so it loads under plain `node --test`, without better-sqlite3's Electron ABI and without resolving
+// it — so it loads under plain `node --test` without opening the app's database or resolving
 // DATA_DIR. Nothing else in db.js can say that, which is why nothing else in db.js has ever had a test.
 //
 // FINGERPRINTS: one per migration that has shipped, whitespace-normalised.

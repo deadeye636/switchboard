@@ -8,7 +8,7 @@
 // exists. That is exactly what happened to session-cache.js once (see main-ctx-db-wiring.test.js), and
 // the same shape of gap is now open here.
 //
-// Static analysis: db.js cannot be required under plain node (better-sqlite3 is built for Electron's ABI).
+// Static analysis: db.js cannot be required in a test (db.js opens the app's own database when required).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

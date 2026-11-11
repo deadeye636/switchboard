@@ -21,6 +21,10 @@ cd switchboard
 npm install          # runs postinstall automatically
 ```
 
+Since Electron 42 the `electron` package no longer downloads its binary during the install: the first
+`npm start`, `npm run demo:start` or `npx electron` fetches it. A script that names
+`node_modules/electron/dist/electron` directly needs one of those to have run first (or `npx install-electron`).
+
 ## Running
 
 | Command | What it does |

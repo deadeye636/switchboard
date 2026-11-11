@@ -1,7 +1,7 @@
 'use strict';
 // Spec 39, T8: the link between a session the app started for another one (a review) and its caller,
 // `session_meta.spawnedBy` + `spawnKind`. The store runs against a real SQLite database: `node:sqlite` stands in
-// for better-sqlite3 (Electron's ABI) behind a stubbed `src/db/connection.js`, with the real schema and the real
+// for better-sqlite3 behind a stubbed `src/db/connection.js`, with the real schema and the real
 // migrations, so no test loads `db.js` (.claude/rules/db.md).
 const test = require('node:test');
 const assert = require('node:assert/strict');

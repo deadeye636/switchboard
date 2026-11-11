@@ -51,8 +51,8 @@ function main() {
 
   // ── Enable every backend in the demo's settings (#244) ──
   // A fresh install enables Claude only, so the seeded Codex and Pi sessions were never scanned and the
-  // demo did not show the multi-backend sidebar it exists to show. Runs under Electron-as-node because
-  // better-sqlite3 is built against Electron's ABI, and only after the DB exists — which it does from the
+  // demo did not show the multi-backend sidebar it exists to show. Runs under Electron-as-node, the
+  // runtime the app opens the database with, and only after the DB exists — which it does from the
   // previous run; on the very first launch there is nothing to write to yet, so a failure here is not
   // fatal and the next start picks it up.
   //

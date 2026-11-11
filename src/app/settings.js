@@ -36,6 +36,8 @@ const profiles = require('../backends/profiles');
 // value, and what does a blob that still holds one become (#617). No backend id is spelled here.
 const backends = require('../backends');
 const settingsTransfer = require('./settings-transfer');
+// Initialised by main.js with the settings accessors before any dialog can open (#843).
+const dialogDirs = require('./dialog-dirs');
 // A thrown fs error names the file it failed on, and this one is a path the user picked (#457).
 const { readableError } = require('./readable-error');
 const { settingsOwnerPath } = require('../shared/worktree-path');
@@ -580,12 +582,14 @@ function registerIpc(ipc) {
   ipc.handle('export-settings', async (event) => {
     const parent = ctx.getParentWindow(event.sender);
     const stamp = new Date().toISOString().slice(0, 10);
+    // Export and import share one remembered folder (#843): a file exported here is the one imported later.
     const result = await ctx.dialog.showSaveDialog(parent, {
       title: 'Export Settings',
-      defaultPath: `switchboard-settings-${stamp}.json`,
+      defaultPath: dialogDirs.defaultSavePath('settingsFile', `switchboard-settings-${stamp}.json`),
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
     if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    dialogDirs.rememberDialogDir('settingsFile', result.filePath);
     try {
       // The project list rides along explicitly now — it is a table, not a settings key (#167).
       const payload = settingsTransfer.buildExportPayload(ctx.db.getSetting('global'), new Date().toISOString(), ctx.db.getProjectStates());
@@ -604,8 +608,10 @@ function registerIpc(ipc) {
       title: 'Import Settings',
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }],
+      defaultPath: dialogDirs.lastDialogDir('settingsFile'),
     });
     if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+    dialogDirs.rememberDialogDir('settingsFile', result.filePaths[0]);
     try {
       let parsed;
       try {

@@ -9,7 +9,7 @@ const path = require('path');
 //
 // These helpers are pure / module-scoped — since #227 they live in src/app/plans-memory.js (moved out of
 // main.js with the Plans handlers). They are exercised here via source-text extraction
-// + vm.runInContext so we avoid pulling in Electron or better-sqlite3 (both compiled against Electron ABI).
+// + vm.runInContext so we avoid pulling in Electron or db.js (which opens the app's own database when required).
 // ---------------------------------------------------------------------------
 
 const vm = require('vm');

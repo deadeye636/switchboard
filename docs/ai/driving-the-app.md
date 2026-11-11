@@ -536,7 +536,7 @@ between (#622 measured `/model` that way). Five things make such a harness measu
    session inherits `CLAUDECODE` and `CLAUDE_CODE_*`, and with `CLAUDE_CODE_CHILD_SESSION` it writes no
    transcript ("Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker"). The app strips them
    for its own spawns (`src/main.js`); a script does not.
-2. **node-pty here is built for Electron's ABI**, like better-sqlite3. Run the script as
+2. **node-pty here is built for Electron's ABI.** Run the script as
    `ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron <script>.js`, not with plain `node`.
 3. **Expect the trust dialog under another spelling.** Claude keys folder trust in `.claude.json` by the real
    path of the git root, or of the directory outside a repository, with the drive letter and (since 2.1.311,

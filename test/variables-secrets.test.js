@@ -27,12 +27,12 @@ const variables = require('../src/app/variables');
 // are not the plaintext.
 function fakeSafeStorage(available = true) {
   return {
-    isEncryptionAvailable: () => available,
-    encryptString: (s) => Buffer.from('enc:' + s, 'utf8'),
-    decryptString: (buf) => {
+    isAsyncEncryptionAvailable: async () => available,
+    encryptStringAsync: async (s) => Buffer.from('enc:' + s, 'utf8'),
+    decryptStringAsync: async (buf) => {
       const s = buf.toString('utf8');
       if (!s.startsWith('enc:')) throw new Error('not our ciphertext');
-      return s.slice(4);
+      return { shouldReEncrypt: false, result: s.slice(4) };
     },
   };
 }
@@ -77,7 +77,7 @@ function setup(t, {
     clipboardReads,
     // Absent unless a test hands one in — main.js always wires it, but the token must resolve to empty
     // rather than throw where it is missing.
-    ...(clipboard ? { clipboardInsert: () => { clipboardReads.push(1); return clipboard; } } : {}),
+    ...(clipboard ? { clipboardInsert: async () => { clipboardReads.push(1); return clipboard; } } : {}),
   };
   variables.init(ctx);
   return ctx;
@@ -94,79 +94,79 @@ const secretRow = (over = {}) => ({
 
 // --- encryption at rest --------------------------------------------------------
 
-test('a secret is encrypted at rest, and comes back out intact', (t) => {
+test('a secret is encrypted at rest, and comes back out intact', async (t) => {
   setup(t);
-  const stored = variables.encryptSavedVariableValue('hunter2', true);
+  const stored = await variables.encryptSavedVariableValue('hunter2', true);
 
   assert.equal(stored.valueEncoding, 'safe-storage');
   assert.ok(!stored.value.includes('hunter2'), 'the stored bytes are not the plaintext');
-  assert.equal(variables.decryptSavedVariableValue(stored), 'hunter2');
+  assert.equal(await variables.decryptSavedVariableValue(stored), 'hunter2');
 });
 
-test('a non-secret is stored as-is — encryption is for secrets', (t) => {
+test('a non-secret is stored as-is — encryption is for secrets', async (t) => {
   setup(t);
-  assert.deepEqual(variables.encryptSavedVariableValue('plain', false), { value: 'plain', valueEncoding: 'plain' });
+  assert.deepEqual(await variables.encryptSavedVariableValue('plain', false), { value: 'plain', valueEncoding: 'plain' });
 });
 
-test('no keychain: a secret degrades to plain storage rather than crashing, and says so', (t) => {
+test('no keychain: a secret degrades to plain storage rather than crashing, and says so', async (t) => {
   const ctx = setup(t, { available: false });
-  const stored = variables.encryptSavedVariableValue('hunter2', true);
+  const stored = await variables.encryptSavedVariableValue('hunter2', true);
 
   assert.deepEqual(stored, { value: 'hunter2', valueEncoding: 'plain' });
   assert.match(ctx.warnings.join(' '), /safeStorage unavailable/, 'the fallback is logged, not silent');
 });
 
-test('a keychain that disappears after the value was encrypted is an error, not an empty string', (t) => {
+test('a keychain that disappears after the value was encrypted is an error, not an empty string', async (t) => {
   setup(t, { available: false });
-  assert.throws(() => variables.decryptSavedVariableValue({ value: 'x', valueEncoding: 'safe-storage' }),
+  await assert.rejects(() => variables.decryptSavedVariableValue({ value: 'x', valueEncoding: 'safe-storage' }),
     /System secret storage is unavailable/);
 });
 
 // --- what leaves main --------------------------------------------------------
 
-test('serializing a variable does not carry its value unless asked', (t) => {
+test('serializing a variable does not carry its value unless asked', async (t) => {
   setup(t);
   const row = secretRow();
 
-  const listed = variables.serializeSavedVariable(row);
+  const listed = await variables.serializeSavedVariable(row);
   assert.equal('value' in listed, false, 'the list feeds the renderer — no plaintext rides along');
   assert.equal(listed.secret, true);
 
-  const opened = variables.serializeSavedVariable(row, true);
+  const opened = await variables.serializeSavedVariable(row, true);
   assert.equal(opened.value, 'hunter2', 'the editor asks for it explicitly');
 });
 
 // --- materialization -----------------------------------------------------------
 
-test('Shift+Enter cannot take a secret past its template', (t) => {
+test('Shift+Enter cannot take a secret past its template', async (t) => {
   setup(t, { rows: [secretRow({ insertTemplate: '{ref}' })] });
-  const out = variables.resolveVariableInsert('v1', 'sess-1', { plain: true });
+  const out = await variables.resolveVariableInsert('v1', 'sess-1', { plain: true });
   assert.equal(out.ok, true);
   assert.ok(!out.text.includes('hunter2'), 'the plaintext never reaches the terminal');
 });
 
-test('Shift+Enter inserts a plain variable without its template', (t) => {
+test('Shift+Enter inserts a plain variable without its template', async (t) => {
   setup(t, { rows: [secretRow({ secret: 0, value: 'hello', valueEncoding: 'plain', insertTemplate: 'Say {value} now' })] });
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, 'Say hello now');
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1', { plain: true }).text, 'hello');
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1')).text, 'Say hello now');
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1', { plain: true })).text, 'hello');
 });
 
-test('Shift+Enter reads nothing the template names, a secret behind {var:} included', (t) => {
+test('Shift+Enter reads nothing the template names, a secret behind {var:} included', async (t) => {
   const ctx = setup(t, { rows: [
     secretRow(),
     secretRow({ id: 'v2', name: 'plainone', secret: 0, value: 'line one', valueEncoding: 'plain', insertTemplate: '{var:token} {value}' }),
   ] });
-  const out = variables.resolveVariableInsert('v2', 'sess-1', { plain: true });
+  const out = await variables.resolveVariableInsert('v2', 'sess-1', { plain: true });
   assert.deepEqual([out.ok, out.text], [true, 'line one']);
   assert.ok(!fs.existsSync(path.join(ctx.dir, 'secret-refs')) || fs.readdirSync(path.join(ctx.dir, 'secret-refs')).length === 0, 'no temp file');
-  const full = variables.resolveVariableInsert('v2', 'sess-1');
+  const full = await variables.resolveVariableInsert('v2', 'sess-1');
   assert.ok(!full.text.includes('hunter2'), 'without Shift the secret stays behind its ref');
 });
 
-test('a {ref} writes the plaintext to a 0600 file and inserts a shell read, not the secret', (t) => {
+test('a {ref} writes the plaintext to a 0600 file and inserts a shell read, not the secret', async (t) => {
   const ctx = setup(t, { rows: [secretRow({ insertTemplate: '{ref}' })] });
 
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
   assert.equal(out.ok, true);
   assert.ok(!out.text.includes('hunter2'), 'the plaintext never reaches the terminal');
 
@@ -184,31 +184,31 @@ test('a {ref} writes the plaintext to a 0600 file and inserts a shell read, not 
   assert.deepEqual(ctx.touched, ['v1'], 'lastUsedAt is stamped when the text actually reaches a terminal');
 });
 
-test('a shell that cannot read a file inline gets the clipboard fallback, and no file is written', (t) => {
+test('a shell that cannot read a file inline gets the clipboard fallback, and no file is written', async (t) => {
   const ctx = setup(t, {
     rows: [secretRow({ insertTemplate: '{ref}' })],
     session: { shellType: 'cmd', projectPath: null },
   });
 
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
   assert.equal(out.fallback, 'copy');
   assert.equal(out.value, 'hunter2', 'the user asked for this one — handing it over to paste is the consent they gave');
   assert.equal(fs.existsSync(path.join(ctx.dir, 'secret-refs')), false, 'nothing was materialized');
 });
 
-test('a newline in an insert that writes a temp file collapses to a space — the command stays one line', (t) => {
+test('a newline in an insert that writes a temp file collapses to a space — the command stays one line', async (t) => {
   const ctx = setup(t, {
     rows: [secretRow({ value: enc('line1\nrm -rf /'), insertTemplate: '{path} {value}' })],
   });
 
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
   assert.equal(out.ok, true, out.error);
   assert.ok(!/[\r\n]/.test(out.text), 'a break here would submit the half of the command in front of it');
   assert.match(out.text, /line1 rm -rf \//, 'the text still arrives, on one line');
   assert.equal(fs.readdirSync(path.join(ctx.dir, 'secret-refs')).length, 1, 'the {path} file is still the one it wrote');
 });
 
-test('a multi-line template that materializes nothing keeps its breaks — the insert pastes them', (t) => {
+test('a multi-line template that materializes nothing keeps its breaks — the insert pastes them', async (t) => {
   // The reason this stopped being a refusal: a template holding a multi-line PROMPT (no {path}, no {ref})
   // could not be inserted at all, and that is the ordinary way these are used.
   const ctx = setup(t, {
@@ -218,31 +218,31 @@ test('a multi-line template that materializes nothing keeps its breaks — the i
     }],
   });
 
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
   assert.deepEqual(out, { ok: true, text: 'Look at this repo\nReport only, change nothing' });
   assert.equal(fs.existsSync(path.join(ctx.dir, 'secret-refs')), false, 'nothing to materialize');
 });
 
-test('an ESC byte is still refused, and the file it already wrote is gone', (t) => {
+test('an ESC byte is still refused, and the file it already wrote is gone', async (t) => {
   // A control sequence has no safe way in: pasted it is still parsed by the terminal.
   const ctx = setup(t, {
     rows: [secretRow({ value: enc('a\x1b[31mb'), insertTemplate: '{path} {value}' })],
   });
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
   assert.equal(out.ok, false);
   assert.match(out.error, /control character/);
   assert.deepEqual(fs.readdirSync(path.join(ctx.dir, 'secret-refs')), [], 'the unwind ran');
 });
 
-test('an insert with no running session resolves nothing', (t) => {
+test('an insert with no running session resolves nothing', async (t) => {
   setup(t, { rows: [secretRow()], session: null });
-  assert.deepEqual(variables.resolveVariableInsert('v1', 'sess-1'),
+  assert.deepEqual(await variables.resolveVariableInsert('v1', 'sess-1'),
     { ok: false, error: 'No running session for this insert' });
 });
 
-test('a variable that does not exist is not an insert', (t) => {
+test('a variable that does not exist is not an insert', async (t) => {
   setup(t);
-  assert.deepEqual(variables.resolveVariableInsert('nope', 'sess-1'),
+  assert.deepEqual(await variables.resolveVariableInsert('nope', 'sess-1'),
     { ok: false, error: 'Variable not found' });
 });
 
@@ -251,7 +251,7 @@ test('a variable that does not exist is not an insert', (t) => {
 // not select `value`. Materialize from those and a referenced secret writes an EMPTY temp file that its
 // own {ref} then reads — the command still runs, with no credential in it, and nothing says a word.
 // It needs a graph to catch, so it needs a test that builds one.
-test('a referenced secret materializes its REAL value, not an empty file', (t) => {
+test('a referenced secret materializes its REAL value, not an empty file', async (t) => {
   const ctx = setup(t, {
     rows: [
       // No quotes around the {var:} — a ref IS a complete shell word already, and the test below is what
@@ -261,7 +261,7 @@ test('a referenced secret materializes its REAL value, not an empty file', (t) =
     ],
   });
 
-  const out = variables.resolveVariableInsert('root', 'sess-1');
+  const out = await variables.resolveVariableInsert('root', 'sess-1');
   assert.equal(out.ok, true, out.error);
 
   const dir = path.join(ctx.dir, 'secret-refs');
@@ -279,7 +279,7 @@ test('a referenced secret materializes its REAL value, not an empty file', (t) =
 // The other half of the same story. A ref is a finished, pre-quoted shell word; wrapping one in quotes
 // breaks it — and the quote can come from a resolved VALUE, not just the template, so this can only be
 // judged after composition. Which is why the unwind exists: by the time we know, the file is written.
-test('a referenced ref that lands inside quotes is refused — and its temp file does not survive', (t) => {
+test('a referenced ref that lands inside quotes is refused — and its temp file does not survive', async (t) => {
   const ctx = setup(t, {
     rows: [
       { id: 'root', name: 'login', secret: 0, scope: 'global', value: enc(''), valueEncoding: 'safe-storage', insertTemplate: 'curl -H "Auth: {var:token}"' },
@@ -287,14 +287,14 @@ test('a referenced ref that lands inside quotes is refused — and its temp file
     ],
   });
 
-  const out = variables.resolveVariableInsert('root', 'sess-1');
+  const out = await variables.resolveVariableInsert('root', 'sess-1');
   assert.equal(out.ok, false);
   assert.match(out.error, /inside double quotes/);
   assert.deepEqual(fs.readdirSync(path.join(ctx.dir, 'secret-refs')), [],
     'the secret it had already written is gone again');
 });
 
-test('a reference to a plain variable composes its text, and writes no file at all', (t) => {
+test('a reference to a plain variable composes its text, and writes no file at all', async (t) => {
   const ctx = setup(t, {
     rows: [
       { id: 'root', name: 'greet', secret: 0, scope: 'global', value: enc(''), valueEncoding: 'safe-storage', insertTemplate: 'echo {var:who}' },
@@ -302,12 +302,12 @@ test('a reference to a plain variable composes its text, and writes no file at a
     ],
   });
 
-  const out = variables.resolveVariableInsert('root', 'sess-1');
+  const out = await variables.resolveVariableInsert('root', 'sess-1');
   assert.deepEqual(out, { ok: true, text: 'echo world' });
   assert.equal(fs.existsSync(path.join(ctx.dir, 'secret-refs')), false, 'nothing to materialize');
 });
 
-test('variables that reference each other in a loop are refused before anything is written', (t) => {
+test('variables that reference each other in a loop are refused before anything is written', async (t) => {
   const ctx = setup(t, {
     rows: [
       { id: 'a', name: 'a', secret: 0, scope: 'global', value: enc(''), valueEncoding: 'safe-storage', insertTemplate: '{var:b}' },
@@ -315,7 +315,7 @@ test('variables that reference each other in a loop are refused before anything 
     ],
   });
 
-  const out = variables.resolveVariableInsert('a', 'sess-1');
+  const out = await variables.resolveVariableInsert('a', 'sess-1');
   assert.equal(out.ok, false);
   assert.match(out.error, /reference each other in a loop/);
   assert.equal(fs.existsSync(path.join(ctx.dir, 'secret-refs')), false,
@@ -393,7 +393,7 @@ const DIRS_FOR = (projectPath) => ({
   planPath: `${projectPath}/.plans`,
 });
 
-test('a directory token resolves for the SESSION\'s project, not the variable\'s scope', (t) => {
+test('a directory token resolves for the SESSION\'s project, not the variable\'s scope', async (t) => {
   const asked = [];
   setup(t, {
     rows: [{
@@ -404,13 +404,13 @@ test('a directory token resolves for the SESSION\'s project, not the variable\'s
     conventionDirs: (projectPath) => { asked.push(projectPath); return DIRS_FOR(projectPath); },
   });
 
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
   assert.equal(out.ok, true, out.error);
   assert.equal(out.text, 'write it to /here/shop/.handoffs and .plans');
   assert.deepEqual(asked, ['/here/shop'], 'asked once, about the terminal we are inserting into');
 });
 
-test('a referenced variable naming a directory gets the SAME answer as the root', (t) => {
+test('a referenced variable naming a directory gets the SAME answer as the root', async (t) => {
   setup(t, {
     rows: [
       {
@@ -426,12 +426,12 @@ test('a referenced variable naming a directory gets the SAME answer as the root'
     conventionDirs: DIRS_FOR,
   });
 
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
   assert.equal(out.ok, true, out.error);
   assert.equal(out.text, '/here/shop/.handoffs|.handoffs', 'one insert, one project');
 });
 
-test('no resolver wired — a directory token resolves to empty rather than to a guess', (t) => {
+test('no resolver wired — a directory token resolves to empty rather than to a guess', async (t) => {
   setup(t, {
     rows: [{
       id: 'v1', name: 'Plan', secret: 0, scope: 'global', value: '', valueEncoding: 'plain',
@@ -440,7 +440,7 @@ test('no resolver wired — a directory token resolves to empty rather than to a
     session: { shellType: 'bash', projectPath: '/here/shop' },
   });
 
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, '[]');
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1')).text, '[]');
 });
 
 // --- #491: {clipboard} ---------------------------------------------------------
@@ -455,12 +455,12 @@ const plainRow = (over = {}) => ({
   value: 'stored', valueEncoding: 'plain', insertTemplate: '{clipboard}', ...over,
 });
 
-test('{clipboard}: clipboard text is inserted, cleaned of what a terminal would obey', (t) => {
+test('{clipboard}: clipboard text is inserted, cleaned of what a terminal would obey', async (t) => {
   const ctx = setup(t, {
     rows: [plainRow()],
     clipboard: { kind: 'text', text: 'echo \x1b[31mred\x07\r\nsecond line' },
   });
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
 
   assert.equal(out.ok, true);
   assert.equal(out.text, 'echo [31mred\nsecond line');
@@ -468,46 +468,46 @@ test('{clipboard}: clipboard text is inserted, cleaned of what a terminal would 
   assert.equal(ctx.clipboardReads.length, 1, 'read once for the whole insert');
 });
 
-test('{clipboard}: a multi-line clipboard keeps its breaks — the insert pastes, it does not submit', (t) => {
+test('{clipboard}: a multi-line clipboard keeps its breaks — the insert pastes, it does not submit', async (t) => {
   setup(t, { rows: [plainRow()], clipboard: { kind: 'text', text: 'one\r\ntwo\r\nthree' } });
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, 'one\ntwo\nthree');
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1')).text, 'one\ntwo\nthree');
 });
 
-test('{clipboard}: a copied file inserts its path as one quoted shell word', (t) => {
+test('{clipboard}: a copied file inserts its path as one quoted shell word', async (t) => {
   setup(t, { rows: [plainRow()], clipboard: { kind: 'file', path: "/tmp/o'brien report.pdf" } });
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, "'/tmp/o'\\''brien report.pdf'");
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1')).text, "'/tmp/o'\\''brien report.pdf'");
 });
 
-test('{clipboard}: a snapshotted bitmap is a path like any other file', (t) => {
+test('{clipboard}: a snapshotted bitmap is a path like any other file', async (t) => {
   setup(t, {
     rows: [plainRow({ insertTemplate: 'read {clipboard} and tell me' })],
     clipboard: { kind: 'image', path: '/tmp/paste-1.png' },
   });
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, "read '/tmp/paste-1.png' and tell me");
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1')).text, "read '/tmp/paste-1.png' and tell me");
 });
 
-test('{clipboard}: pwsh gets its own quoting, an unknown shell gets the bare path', (t) => {
+test('{clipboard}: pwsh gets its own quoting, an unknown shell gets the bare path', async (t) => {
   setup(t, {
     rows: [plainRow()],
     session: { shellType: 'pwsh', projectPath: null },
     clipboard: { kind: 'file', path: "C:\\it's\\here.txt" },
   });
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, "'C:\\it''s\\here.txt'");
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1')).text, "'C:\\it''s\\here.txt'");
 
   setup(t, {
     rows: [plainRow()],
     session: { shellType: 'cmd', projectPath: null },
     clipboard: { kind: 'file', path: 'C:\\here.txt' },
   });
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, 'C:\\here.txt');
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1')).text, 'C:\\here.txt');
 });
 
-test('{clipboard}: a secret does not resolve it, and the clipboard is never even read', (t) => {
+test('{clipboard}: a secret does not resolve it, and the clipboard is never even read', async (t) => {
   const ctx = setup(t, {
     rows: [secretRow({ insertTemplate: 'login {clipboard}' })],
     clipboard: { kind: 'text', text: 'someone-elses-password' },
   });
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
 
   assert.equal(out.ok, true);
   assert.equal(out.text, 'login ');
@@ -515,23 +515,23 @@ test('{clipboard}: a secret does not resolve it, and the clipboard is never even
   assert.equal(ctx.clipboardReads.length, 0, 'reading it would snapshot a bitmap for nothing');
 });
 
-test('{clipboard}: a template that never names it does not read the clipboard', (t) => {
+test('{clipboard}: a template that never names it does not read the clipboard', async (t) => {
   const ctx = setup(t, {
     rows: [plainRow({ insertTemplate: '{value}' })],
     clipboard: { kind: 'text', text: 'unrelated' },
   });
-  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, 'stored');
+  assert.equal((await variables.resolveVariableInsert('v1', 'sess-1')).text, 'stored');
   assert.equal(ctx.clipboardReads.length, 0);
 });
 
-test('{clipboard}: no clipboard reader wired resolves to empty rather than throwing', (t) => {
+test('{clipboard}: no clipboard reader wired resolves to empty rather than throwing', async (t) => {
   setup(t, { rows: [plainRow({ insertTemplate: 'x{clipboard}y' })] });
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
   assert.equal(out.ok, true);
   assert.equal(out.text, 'xy');
 });
 
-test('{clipboard}: a quote on the clipboard is seen by the ref-safety scan, like any other value', (t) => {
+test('{clipboard}: a quote on the clipboard is seen by the ref-safety scan, like any other value', async (t) => {
   // The scan runs on the FINISHED string, which is the whole reason it exists: the quote that breaks a
   // {ref} need not come from the template. Here it comes from outside the app entirely.
   const rows = [
@@ -539,7 +539,7 @@ test('{clipboard}: a quote on the clipboard is seen by the ref-safety scan, like
     plainRow({ id: 'v1', name: 'cmd', insertTemplate: "curl -H 'X: {clipboard}{var:token}'" }),
   ];
   const ctx = setup(t, { rows, clipboard: { kind: 'text', text: 'abc' } });
-  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  const out = await variables.resolveVariableInsert('v1', 'sess-1');
 
   assert.equal(out.ok, false);
   assert.match(out.error, /inside .*quotes|quote is left open/);
@@ -555,18 +555,18 @@ function saveHandler() {
   return handlers.get('save-saved-variable');
 }
 
-test('a long template is saved whole up to the limit, and a cut is reported, never silent', (t) => {
+test('a long template is saved whole up to the limit, and a cut is reported, never silent', async (t) => {
   setup(t);
   const save = saveHandler();
   const { MAX_TEMPLATE_CHARS } = require('../src/shared/variable-insert');
 
   const fits = 'x'.repeat(MAX_TEMPLATE_CHARS);
-  const whole = save(null, { name: 'prompt', value: '', insertTemplate: fits });
+  const whole = await save(null, { name: 'prompt', value: '', insertTemplate: fits });
   assert.equal(whole.ok, true);
   assert.equal(whole.variable.insertTemplate.length, MAX_TEMPLATE_CHARS, 'a template at the limit is not cut');
   assert.equal(whole.templateCut, undefined, 'nothing cut, nothing reported');
 
-  const cut = save(null, { name: 'prompt', value: '', insertTemplate: fits + 'tail' });
+  const cut = await save(null, { name: 'prompt', value: '', insertTemplate: fits + 'tail' });
   assert.equal(cut.ok, true);
   assert.equal(cut.variable.insertTemplate, fits);
   assert.deepEqual(cut.templateCut, { kept: MAX_TEMPLATE_CHARS, dropped: 4 });

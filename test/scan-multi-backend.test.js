@@ -37,8 +37,8 @@ backends.register({
 // would then actually be enumerated on disk.
 backends.register(backends.plannedDummy({ id: 'fakeplanned', label: 'Fake Planned', monogram: 'Fp', colour: 'fake' }));
 
-// --- in-memory mirror of the db layer (better-sqlite3 is built for Electron's ABI and cannot be
-// required from node:test — same approach as db-session-metrics.test.js). The backend scoping here
+// --- in-memory mirror of the db layer (db.js opens the app's own database when required, so no
+// test requires it — same approach as db-session-metrics.test.js). The backend scoping here
 // mirrors db.js backendScopeClause() 1:1. ---
 function inScope(backendId, scope) {
   const id = backendId || 'claude';

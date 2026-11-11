@@ -1,6 +1,6 @@
 'use strict';
 // #805 T2: the owner marker for the worktrees the app creates, `app_worktree`. The store runs against a real SQLite
-// database: `node:sqlite` stands in for better-sqlite3 (Electron's ABI) behind a stubbed `src/db/connection.js`, with
+// database: `node:sqlite` stands in for better-sqlite3 behind a stubbed `src/db/connection.js`, with
 // the real schema and the real migrations, so no test loads `db.js` (.claude/rules/db.md).
 const test = require('node:test');
 const assert = require('node:assert/strict');

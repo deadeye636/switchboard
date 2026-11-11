@@ -6,7 +6,7 @@
 // multi-backend sidebar: the seeded Codex and Pi sessions parse fine and are simply never scanned, so
 // `demo-beta` sat empty and `demo-mixed` showed one row of three (#244).
 //
-// This runs UNDER ELECTRON-AS-NODE, because `better-sqlite3` is built against Electron's ABI:
+// This runs UNDER ELECTRON-AS-NODE, the runtime the app opens the database with:
 //
 //   ELECTRON_RUN_AS_NODE=1 <electron> scripts/demo-settings.js
 //

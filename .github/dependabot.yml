@@ -36,7 +36,7 @@ updates:
           - patch
     # Majors stay ungrouped on purpose — one wants reading, not merging with four others.
     ignore:
-      # Rebuilt against Electron's ABI by the postinstall; a major is a rebuild-and-verify exercise.
+      # The app's database driver; a major is a rebuild-and-verify exercise (13.x moved to N-API, #843).
       - dependency-name: better-sqlite3
         update-types: [version-update:semver-major]
       # Same, plus patch-package carries a patch on top that a major would invalidate.
