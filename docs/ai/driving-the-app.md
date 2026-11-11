@@ -13,6 +13,7 @@ node scripts/drive-app.js count "<selector>"          # how many match
 node scripts/drive-app.js click "<selector>"          # a REAL click at the first match's centre
 node scripts/drive-app.js clicktext "<sel>" "<text>"  # click the first match containing <text>
 node scripts/drive-app.js drag "<from>" "<to>" [zone] # a REAL drag: center|left|right|top|bottom of <to>
+node scripts/press-key.js "<sel>|-" "<keys>"         # REAL key presses (a separate script): End,Enter,Shift+Tab
 node scripts/drive-app.js console [seconds]           # renderer console (default 2 s) — finds a ReferenceError in seconds
 node scripts/drive-app.js dims ["<sessionId>"]        # active terminal geometry: cols/rows, cell box, WebGL state
 node scripts/drive-app.js shot [out.png]              # screenshot the window (default app.png)
@@ -26,6 +27,9 @@ put while the tool printed `clicked:`. The point is hit-tested first, so an over
 element is reported as `COVERED by …` instead of taking the press, and an element of zero size as
 `NOT VISIBLE`. The pointer stays where it pressed, as a hand would leave it, so a hover tooltip may open
 there and cover the next target. There is no synthetic form left; when a script really wants one, `eval` says so in its own text.
+
+The keyboard half of the same lesson is `scripts/press-key.js` (see "A key press has to be a real key press" below); it takes a
+key sequence too (`"#flow-scroller" "End,Enter,Tab"`, then `- "Shift+Tab"` to continue from where the focus is).
 
 The other half of "run it and look" is what the app costs while nobody looks. `scripts/perf-sample.js`
 reads the same port on an interval and writes one JSON line per sample — the per-page counters that are
@@ -310,7 +314,9 @@ script picked; it does not go through the browser's key pipeline, so xterm's
 **`Input.dispatchKeyEvent`** is the real thing: focus the terminal's `.xterm-helper-textarea`, dispatch
 `rawKeyDown` + `keyUp`, and both halves become observable. `scripts/press-key.js` does exactly that for any
 selector: `node scripts/press-key.js ".xterm-helper-textarea" PageUp`, or `... ".ssb-grip" ArrowDown 1` for Alt+Down
-(the last argument is CDP's modifier mask: 1 Alt, 2 Ctrl, 4 Meta, 8 Shift).
+(the last argument is CDP's modifier mask: 1 Alt, 2 Ctrl, 4 Meta, 8 Shift). It also takes a sequence and named modifiers,
+`... "#flow-scroller" "End,Enter,Tab"` or `... - "Shift+Tab"` (`-` keeps the focus), so a keyboard-reach check is one call;
+an unknown modifier is refused rather than dropped.
 
 Both halves is the point. For any terminal key, ask who got it:
 

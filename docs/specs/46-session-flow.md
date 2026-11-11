@@ -643,7 +643,7 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
   clock and the app's disagree, or a step with no `ts`, can put it a row off. Events that arrive while the Flow tab is open show after a
   Refresh or a reopen. **A `forked` mark can stand for any re-key**: the Events record writes `forked` / "Session forked" in `applyRekey`
   (`src/session/session-transitions.js`) for a `/clear`, a plan accept, a Pi session adopting its own id and a real fork alike, and Flow
-  shows what the record says. Telling them apart is a change to the Events record (and its tab), not to Flow; not decided.
+  shows what the record says. Telling them apart is a change to the Events record (and its tab), not to Flow: #851.
   No "Open in messages" (O6, T24): the messages view has no anchor a step can address.
 - Codex (T22): a command built in code (a template with `${}`, a variable) is neither matched nor paired with a guardian verdict, so its step shows
   the escalation request alone. A call the guardian did not review and the answer of a person in the terminal show no verdict. When an unreviewed call is

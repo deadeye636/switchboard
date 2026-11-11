@@ -6,14 +6,19 @@
 // focuses an element and sends CDP's `Input.dispatchKeyEvent` (rawKeyDown + keyUp), so every listener sees what a
 // keyboard would give it. Written for #829's Alt+ArrowUp / Alt+ArrowDown on the session sidebar's grip.
 //
-//   node scripts/press-key.js [--target=<substring>] "<selector>" <key> [modifiers]
+//   node scripts/press-key.js [--target=<substring>] "<selector>" <keys> [modifiers]
 //
-//   <key>        a DOM key name: the arrows, PageUp, PageDown, Home, End, Enter, Tab, Escape, Backspace, Delete,
-//                " " (Space) or a letter; any other name is sent without a key code
-//   [modifiers]  CDP's bit mask: 1 Alt, 2 Ctrl, 4 Meta, 8 Shift; add them up (default 0)
+//   <selector>   the element to focus first; "-" keeps the focus where it is (for a sequence continued in a second call)
+//   <keys>       one key or a comma-separated sequence pressed in order (#826: End,Enter,Tab). Each is a DOM key name:
+//                the arrows, PageUp, PageDown, Home, End, Enter, Tab, Escape, Backspace, Delete, F10, ContextMenu,
+//                " " or Space, or one character; any other name is sent without a key code. A key may carry
+//                `Shift+`, `Ctrl+`, `Alt+` or `Meta+` in front (Shift+Tab, Alt+ArrowDown, Ctrl++); a letter with
+//                Shift (named or in the mask) is sent as the capital. A comma is sendable only alone (","), not inside
+//                a sequence. No text is typed: each press is rawKeyDown + keyUp.
+//   [modifiers]  CDP's bit mask: 1 Alt, 2 Ctrl, 4 Meta, 8 Shift; add them up (default 0); applies to every key
 //   --target     matches a window by title or URL, as drive-app.js's flag does; without it, the first page
 //
-// Prints whether the element took the focus, and what has the focus after the press. Port from SWITCHBOARD_DEBUG_PORT.
+// Prints whether the element took the focus, and what has the focus after the last press. Port from SWITCHBOARD_DEBUG_PORT.
 // No dependency: Node 22 ships a global WebSocket.
 'use strict';
 
@@ -31,15 +36,46 @@ function keyCodeOf(key) {
   return key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0;
 }
 
+const MODIFIER_BITS = { alt: 1, ctrl: 2, control: 2, meta: 4, cmd: 4, shift: 8 };
+
+/** One item of <keys> (`Shift+Tab`, `End`, `a`) as `{ key, modifiers }`; throws on a modifier it does not know. */
+function parseKey(spec, baseMods) {
+  // The key is what follows the last `+`; a trailing `+` is the plus key itself (`+`, `Ctrl++`).
+  let key;
+  let head;
+  if (spec === '+') { key = '+'; head = ''; }
+  else if (spec.endsWith('++')) { key = '+'; head = spec.slice(0, -2); }
+  else { const i = spec.lastIndexOf('+'); key = i < 0 ? spec : spec.slice(i + 1); head = i < 0 ? '' : spec.slice(0, i); }
+  let modifiers = baseMods;
+  for (const p of head ? head.split('+') : []) {
+    const bit = MODIFIER_BITS[p.toLowerCase()];
+    if (!bit) throw new Error(`unknown modifier "${p}" in "${spec}" (Shift, Ctrl, Alt, Meta)`);
+    modifiers |= bit;
+  }
+  if (key === 'Space') key = ' ';
+  if (!key) throw new Error(`no key in "${spec}"`);
+  if ((modifiers & 8) && key.length === 1) key = key.toUpperCase();   // what a keyboard reports for Shift+a
+  return { key, modifiers };
+}
+
+/** <keys> split into presses. A lone " " is Space and a lone "," the comma key; a list that names no key is refused. */
+function parseKeys(keys, baseMods) {
+  if (keys === ' ' || keys === ',') return [parseKey(keys, baseMods)];
+  const presses = keys.split(',').map((s) => s.trim()).filter(Boolean).map((s) => parseKey(s, baseMods));
+  if (!presses.length) throw new Error(`no key in "${keys}"`);
+  return presses;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const targetArg = args.find((a) => a.startsWith('--target='));
-  const [selector, key, mods = '0'] = args.filter((a) => a !== targetArg);
-  if (!selector || !key) {
-    console.error('usage: node scripts/press-key.js [--target=<substring>] "<selector>" <key> [modifiers]');
+  const [selector, keys, mods = '0'] = args.filter((a) => a !== targetArg);
+  if (!selector || !keys) {
+    console.error('usage: node scripts/press-key.js [--target=<substring>] "<selector>|-" <key>[,<key>...] [modifiers]');
     process.exit(2);
   }
   const needle = targetArg ? targetArg.slice('--target='.length).toLowerCase() : '';
+  const presses = parseKeys(keys, Number(mods) || 0);   // before connecting: a typo fails without touching the app
 
   let list;
   try {
@@ -56,29 +92,37 @@ async function main() {
   const pending = new Map();
   ws.onmessage = (m) => {
     const d = JSON.parse(m.data);
-    if (pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
+    if (pending.has(d.id)) { pending.get(d.id).resolve(d); pending.delete(d.id); }
   };
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
-  const send = (method, params) => new Promise((resolve) => {
+  // A key that closes or reloads the window drops the socket: fail what is waiting instead of hanging on it.
+  ws.onclose = () => {
+    for (const p of pending.values()) p.reject(new Error('the page closed the connection during the key presses'));
+    pending.clear();
+  };
+  const send = (method, params) => new Promise((resolve, reject) => {
     const id = ++nextId;
-    pending.set(id, resolve);
+    pending.set(id, { resolve, reject });
     ws.send(JSON.stringify({ id, method, params }));
   });
   const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true })).result.result.value;
 
   try {
-    const focus = await evaluate(`(() => {
+    const focus = selector === '-' ? 'kept' : await evaluate(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return 'NOT FOUND';
       el.focus();
       return document.activeElement === el ? 'focused' : 'NOT FOCUSABLE';
     })()`);
     console.log(`focus: ${focus}`);
-    if (focus !== 'focused') process.exitCode = 1;
+    if (focus !== 'focused' && focus !== 'kept') process.exitCode = 1;
     else {
-      const base = { key, code: key, windowsVirtualKeyCode: keyCodeOf(key), modifiers: Number(mods) || 0 };
-      await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
-      await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+      for (const p of presses) {
+        const base = { key: p.key, code: p.key, windowsVirtualKeyCode: keyCodeOf(p.key), modifiers: p.modifiers };
+        await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+        if (presses.length > 1) await new Promise((r) => setTimeout(r, 60));   // let the page's handlers run in between
+      }
       const after = await evaluate(`(() => {
         const a = document.activeElement;
         if (!a) return 'nothing';
