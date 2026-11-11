@@ -40,10 +40,18 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
   possibly stale list, kept out of `settings-store.js` for the same reason: no test loads a module that
   opens the database (below), so a rule a store applies and a test must reach is a pure file beside it
 
-`src/index/session-cache.js` is a **façade** (#199) over `index-writes.js`,
-`index-worker-client.js`, `search-worker-client.js`, `projects-view.js`, `folder-index-state.js` and
-`worktree-dirs.js`. **List the directory rather than trusting that line** — the same reason
-`.claude/rules/main-process.md` gives for `src/app/`. The workers themselves are `src/workers/`.
+`src/index/session-cache.js` is a **façade** (#199) over `index-writes.js`, `projects-view.js` and `worktree-dirs.js`
+(its own `require` lines are the list). The two worker clients, `index-worker-client.js` and `search-worker-client.js`, are
+required by `src/main.js` directly; `folder-index-state.js` is reached through `index-worker-client.js` and the Claude
+store indexer; and
+`context-window.js` is the per-pass context-window resolver the sidebar build and the Flow tab share. **List the directory
+rather than trusting this paragraph** — the same reason `.claude/rules/main-process.md` gives for `src/app/`. The workers
+themselves are `src/workers/`.
+
+**`src/workers/flow-worker.js` is not an index worker** (#826, spec 46). It is one short-lived worker per Flow request,
+started and terminated by `src/app/session-flow.js` (terminating it IS the cancel), and it loads the backend registry and
+nothing else: no database, no Electron, no log. Its rules are `.claude/rules/backends.md` ("The session flow is a hook
+PAIR") and spec 46, not this file.
 
 `worktree-dirs.js` is the odd one and says so in its own header: it reads the FILESYSTEM, not the
 database, and it is the third source a sidebar row can come from (#594) — the worktrees a **visible**
@@ -123,7 +131,8 @@ for a value nothing stores, and the storage step then has to force a second full
 `openedWithCommand` and `contextWindow` run for every session of every sidebar payload, so their per-call
 cost is multiplied by the session count. The first `contextWindow` spread `process.env` per call: 299 ms
 against 10 ms for 2 000 rows. Anything a hook needs from settings or the environment is read once per
-BUILD here and handed in (`backendEnv` resolved per backend, launch options memoised per project owner);
+BUILD and handed in (`backendEnv` resolved per backend, launch options memoised per project owner); that layering
+lives in `src/index/context-window.js` (`createContextWindowResolver`), one instance per pass, shared with the Flow tab;
 a hook that reads files caches them. Time a new per-row hook over a few thousand fake rows before trusting it.
 
 ## Which database

@@ -26,6 +26,8 @@ Before you touch an area, read its path-scoped rule file:
 | handoffs / plans | `docs/specs/25-handoffs.md` + `docs/specs/20-plans.md` + `docs/specs/29-agent-side-conventions.md` |
 | settings / welcome tour / session health | `docs/specs/26-settings-screen.md`, `27-welcome-tour.md`, `28-session-health.md` |
 | document cards in the conversation view | `docs/specs/33-document-preview.md` |
+| the session flow (Flow tab, its readers, the exports) | `docs/specs/46-session-flow.md` + the session-flow section of `.claude/rules/backends.md` |
+| a feature with its own spec (MCP server, review, plugins, tasks, sidebar, instructions, idle maintenance, …) | its row in `docs/specs/README.md` |
 | driving the app / performance | `docs/ai/driving-the-app.md` + `docs/ai/lessons.md` |
 | running, data isolation, release | `docs/ai/running-and-data.md` + `docs/ai/release.md` |
 | syncing with upstream / porting a change | `docs/ai/fork-and-porting.md` |
@@ -65,17 +67,17 @@ All app code lives under `src/`:
 | Area | What lives there |
 |---|---|
 | `src/main.js` | Composition root, `DATA_DIR`, module wiring, grandfathered IPC handlers. |
-| `src/app/**` | Core subsystems (settings, terminal, vcs, window management, handoffs, safe-write). |
+| `src/app/**` | Core subsystems (settings, terminal, vcs, window management, handoffs, safe-write, MCP, plugins and instructions inventory, idle maintenance, session flow and its exports). List the directory; `.claude/rules/main-process.md` maps it. |
 | `src/preload.js` | The only IPC surface (`window.api.*`). |
 | `src/shared/**` | Modules loaded by both main and renderer processes, with two named exceptions (`.claude/rules/renderer.md`). |
 | `src/renderer/**` | Vanilla JS (no framework), morphdom, `@xterm/xterm`, CodeMirror via esbuild. |
 | `src/db/**` | SQLite database façade (`db.js`), connection, schema, migrations, and one `*-store.js` per table family. |
 | `src/index/**` | Cache layer (`session-cache.js`), `projects-view.js`, `worktree-dirs.js`, index writes and folder state, the clients of the two worker threads. |
-| `src/workers/**` | Scan and search worker threads (`index-worker.js`, `scan-projects.js`, `search-query.js`). |
+| `src/workers/**` | Scan, search and session-flow worker threads (`index-worker.js`, `scan-projects.js`, `search-query.js`, `flow-worker.js`). |
 | `src/perf.js` | Timing primitive (`startTimer`). |
 | `src/watch/**` | Store and project filesystem watchers, adoption, trigger watchers. |
-| `src/backends/**` | CLI backend descriptors, registry (`index.js`), file-store, probe utilities. |
-| `src/session/**` | Session transitions, lineage, clear-claims, project-path derivation, subagent tail and transcript. App lifecycle is `src/app/lifecycle.js`. |
+| `src/backends/**` | CLI backend descriptors, registry (`index.js`), file-store, probe utilities, the session-flow readers and their shared primitives (`flow-*.js`). |
+| `src/session/**` | Session transitions, lineage, clear-claims, project-path derivation, subagent tail and transcript, the launch-time backend overlay, turn view. List the directory. App lifecycle is `src/app/lifecycle.js`. |
 | `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`), the app's own HTTP MCP listener (`mcp-http.js`) and its tool groups (`discovery-tools.js`, `review-tools.js`). |
 | `src/vcs/**` | VCS provider registry, git provider (including the diff argv), porcelain-v2 status parser. Diff output is not parsed. |
 | `src/projects/**` | Backend-neutral project registry and metadata. |

@@ -122,11 +122,13 @@ list, and asserts the copy shapes it must catch.
 
 ## Code this app GENERATES is tested by running it
 
-Pi's per-spawn extensions (`src/backends/pi/*-extension.js`, `subagent-tool.js`, `command-bridge.js`,
-`src/backends/pi-native/runtime-extension.js`) are TypeScript written out of a JavaScript template literal.
-Reading that text proves nothing about what it does, so the tests compile it with **esbuild** and run it in
-a `vm` context against a fake `pi` (`test/pi-native.test.js`, `test/pi-command-bridge.test.js`,
-`test/pi-source-agents.test.js`). A regex that dropped `: any` broke on the first other annotation, which is
+Pi's per-spawn extensions (for example `src/backends/pi/*-extension.js`, `subagent-tool.js`, `command-bridge.js`,
+`hooks-section.js`, `mcp-section.js`, `live-binding.js`, `src/backends/pi-native/runtime-extension.js` and
+`session-commands.js`; grep for a template literal that writes TypeScript rather than trusting this list) are TypeScript
+written out of a JavaScript template literal. Reading that text proves nothing about what it does, so the tests compile it
+with **esbuild** and run it in a `vm` context against a fake `pi` (e.g. `test/pi-native.test.js`,
+`test/pi-command-bridge.test.js`, `test/pi-source-agents.test.js`, `test/pi-mcp-section.test.js`,
+`test/pi-source-hooks.test.js`, `test/pi-native-session-commands.test.js`). A regex that dropped `: any` broke on the first other annotation, which is
 why the compiler does it. What else to keep in mind when writing one:
 
 - **A timer in generated code is cleared and `unref`'d**, or the test file (and Pi) waits it out.

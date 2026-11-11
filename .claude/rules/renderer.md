@@ -750,6 +750,15 @@ while the app runs, so routing it would make the copy correct only until somethi
 - Readers are synchronous, so `ensureTimelineLoaded(sessionId)` runs BEFORE them —
   `showTimelineViewer` and `handleSessionViewed` are async for that reason alone.
 
+## The Flow tab draws only the visible rows (#826, spec 46)
+
+`session/flow-view.js` is the Flow tab of the timeline viewer. It reads a `FlowSnapshot` the worker built and lays it out
+through `FlowLayout`; it names no backend and no format. The owner's performance rule is binding there: only the rows in view
+are built (fixed 40 px rows, windowed by index), nothing is computed on scroll, the status poll runs only while the tab is on
+screen, and the detail panel and the Events marks are rebuilt only when the selection or the layout changes. Its pure helpers
+are exported and tested in `test/flow-view-logic.test.js`; the click test is `scripts/drive-app.js` plus `scripts/press-key.js`
+for the keyboard. Spec 46 has the rest.
+
 ## The document card and its viewer own their keys only while open (#755)
 
 `jsonl/document-card.js` draws a card for a tool result that carries a neutral `document` element, and
@@ -785,9 +794,11 @@ the check is drawn as plain text. Loosening the check means an agent's text can 
 ## `src/shared/`
 
 The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,
-`preview-kind`, `worktree-path` (#582), `convention-dir-name` (#630), `partial-args` (#664) and the Flow trio
-`flow-snapshot` / `flow-layout` / `flow-text` (#826: the neutral shape, the pure layout the Flow tab in `session/flow-view.js` draws, and the words both the tab and the SVG export in main draw with; each adds one
-global and no helper name). **List the directory rather than trusting this line.**
+`preview-kind`, `worktree-path` (#582), `convention-dir-name` (#630), `partial-args` (#664), the Flow trio
+`flow-snapshot` / `flow-layout` / `flow-text` (#826: the neutral shape, the pure layout the Flow tab in `session/flow-view.js` draws, and the words the tab and every export in main (SVG, PDF pages, Mermaid) draw with; each adds one
+global and no helper name), and two that only `settings.html` loads on the renderer side: `external-mcp-validate` (main's
+`external-mcp.js` and `external-mcp-check.js` validate with it too) and `mcp-addon-catalog` (main's `mcp-registry.js` and
+`windows.js`). **List the directory rather than trusting this line.**
 `require()`d in main, a global in the renderer (which has no require — plain `<script>` tags). The
 preview in main must compute with the same code the insert runs in the renderer; two copies would be
 a bug factory. `worktree-path` is what that reads like when it is ignored: the pairing that decides

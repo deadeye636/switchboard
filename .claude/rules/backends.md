@@ -702,6 +702,28 @@ backend's own folder cannot list other backends (reflex 5), so the core fills th
 `backends-list` projection (`resource-sources.projectFields`) and every form reads the same list. A new
 token there is core vocabulary. Add it to that module, never as a backend id in a descriptor.
 
+## The session flow is a hook PAIR, and its reader runs in a worker (#826, spec 46)
+
+`sessionFlow(row)` + `readSessionFlow(sources, opts)`, answered by every backend (`() => null` to decline: Hermes and agy;
+`test/backend-parity.test.js` pins the pair and the `sessionFlow` capability row). The two halves live in different processes,
+and that split is the rule:
+
+- **`sessionFlow(row)` runs in main, on demand** (only when a Flow tab opens, never from the scan, the watcher or a list
+  projection), so it does **no filesystem work**: it joins the transcript path through `transcriptPathFor` and answers the
+  capabilities, the limitations and the `sources` a worker needs (`singleFileFlowAnswer` in `src/backends/flow-hook.js`). A
+  backend whose answer would need a stat or a readdir makes the hook async instead. `flow-hook.js` requires nothing.
+- **`readSessionFlow` is the reader, required LAZILY inside the hook** and run in `src/workers/flow-worker.js`: no Electron,
+  no database, no synchronous fs, and the registry must not load a reader (`test/flow-snapshot.test.js`). It answers one
+  neutral `FlowSnapshot` (`src/shared/flow-snapshot.js`), bounded by the shared primitives in `src/backends/flow-lines.js`.
+- **The capability and limitation data is a module of its own per backend** (`<backend>/flow-capabilities.js`), read by both
+  halves, so the descriptor and the reader cannot disagree.
+- **What is shared, and what stays in the folder.** The matcher (`src/backends/flow-patterns.js`) and the destructive-command
+  list (`src/backends/flow-command-patterns.js`) are shared: `rm` and `git` are command-line language, not a transcript format.
+  How a backend FINDS a command, and every flag it derives from its own format (a hook block, a guardian verdict, a gate
+  refusal), stays in `<backend>/flow-flags.js` (reflex 5).
+- **A driver and a template forward the pair** (`profileToDescriptor`; claude-native and pi-native resolve through their
+  owner's reader). A profile reaches the worker by its BASE backend's id, because the worker's registry holds the built-ins only.
+
 ## "Is something else already running this session?" is THREE hooks (#172, #607)
 
 `liveOwnersCached()` reads a cache and **never spawns**; `refreshLiveOwners()` is the one that costs a
