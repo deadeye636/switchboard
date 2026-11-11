@@ -823,9 +823,23 @@ function loadSidebarGroup(entry, group, section, force = false) {
 
 // --- A group's figure in its header (#840). ---
 // Shown by the stylesheet only while the group is collapsed; an open group has the figure in its body.
+// The figure is drawn for the eye and spoken apart from the name (#842): the drawn span is `aria-hidden`, and a
+// visually hidden one beside it says what the number is, so a screen reader reads "Processes, CPU 3.2 %" rather
+// than "Processes3.2 %". No figure, no spoken text.
+const SIDEBAR_HEAD_FIGURE_WORDS = { processes: (t) => `CPU ${t}`, context: (t) => `${t} used` };
+function sidebarHeadFigureSpoken(groupId, text) {
+  if (!text) return '';
+  const words = SIDEBAR_HEAD_FIGURE_WORDS[groupId];
+  return `, ${words ? words(text) : text}`;
+}
 function sidebarSetHeadFigure(entry, groupId, text) {
-  const el = entry.sidebar && entry.sidebar.querySelector(`.ssb-group[data-group="${groupId}"] > summary > .ssb-group-figure`);
+  const summary = entry.sidebar && entry.sidebar.querySelector(`.ssb-group[data-group="${groupId}"] > summary`);
+  if (!summary) return;
+  const el = summary.querySelector(':scope > .ssb-group-figure');
   if (el && el.textContent !== text) el.textContent = text;
+  const spoken = summary.querySelector(':scope > .ssb-group-figure-sr');
+  const say = sidebarHeadFigureSpoken(groupId, text);
+  if (spoken && spoken.textContent !== say) spoken.textContent = say;
 }
 
 // The Context figure costs no read: it comes from what the conversation view and the session already hold.
@@ -1308,7 +1322,7 @@ function buildSidebar(entry) {
     <div class="ssb-body">${sessionSidebarGroupOrder().map((id) => SESSION_SIDEBAR_GROUPS.find((g) => g.id === id)).map((g) => `
       <div class="ssb-slot" data-group-slot="${g.id}"${hidden.includes(g.id) ? ' hidden' : ''}>
         <details class="ssb-group" data-group="${g.id}"${state.groups.includes(g.id) ? ' open' : ''}>
-          <summary><span class="ssb-group-name">${escapeHtml(sidebarGroupLabel(g.id))}</span><span class="ssb-group-figure"></span></summary>
+          <summary><span class="ssb-group-name">${escapeHtml(sidebarGroupLabel(g.id))}</span><span class="ssb-group-figure" aria-hidden="true"></span><span class="ssb-group-figure-sr visually-hidden"></span></summary>
           <div class="ssb-group-body"></div>
         </details>
         <button type="button" class="ssb-grip" title="Drag to reorder (Alt+Up / Alt+Down)" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"

@@ -253,3 +253,22 @@ test('#845: a folded tree is patched too, and a cut list says of how many', asyn
   assert.equal(tree().querySelector('summary .ssb-row-meta').textContent, '2 of 40');
   assert.ok(tree().querySelector(':scope > .ssb-note'), 'the cut note sits in the fold');
 });
+
+test('#842: a collapsed header speaks name and figure apart, and says what the figure is', async () => {
+  const h = setupSessionSidebar({ processUsage: () => answerFor([{ pid: 10, name: 'bash', depth: 0, cpu: 3.2, memory: MB }]) });
+  await flush(); await flush();
+  const head = (id) => h.slot(id).querySelector('.ssb-group > summary');
+  const proc = head('processes');
+  assert.equal(proc.querySelector('.ssb-group-figure').getAttribute('aria-hidden'), 'true', 'the drawn figure is not read');
+  assert.equal(proc.querySelector('.ssb-group-figure-sr').textContent, ', CPU 3.2 %');
+  assert.ok(proc.querySelector('.ssb-group-figure-sr').classList.contains('visually-hidden'));
+  h.run('__entry.session.contextFill = { percent: 41.6 }; sessionSidebarSessionsChanged()');
+  assert.equal(head('context').querySelector('.ssb-group-figure-sr').textContent, ', 42 % used');
+  h.run('__entry.session.contextFill = null; sessionSidebarSessionsChanged()');
+  assert.equal(head('context').querySelector('.ssb-group-figure-sr').textContent, '', 'no figure, nothing spoken');
+});
+
+test('#842: an open group hides the spoken figure with the drawn one (jsdom loads no stylesheet, so the rule is read)', () => {
+  const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'style.css'), 'utf8');
+  assert.match(css, /\.ssb-group\[open\] > summary > \.ssb-group-figure,\s*\.ssb-group\[open\] > summary > \.ssb-group-figure-sr \{ display: none; \}/);
+});

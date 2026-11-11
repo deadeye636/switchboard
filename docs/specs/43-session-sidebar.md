@@ -234,6 +234,12 @@ an open one, whose body shows the same figure).
   group's body still redraws only on the conversation view's context change, as before. While the app sidebar shows
   another tab than Sessions, `loadProjects` waits for the way back, and a terminal session's header waits with it.
 - The header stays one line; the name and the figure sit in two spans (`.ssb-group-name`, `.ssb-group-figure`).
+- **Spoken apart (#842).** The drawn figure is `aria-hidden`; a `.visually-hidden` span beside it carries what a screen
+  reader says, with what the number is: ", CPU 3.2 %" for Processes, ", 42 % used" for Context. It follows the drawn
+  figure (empty with no figure) and is hidden with it in an open group, so an open group announces its name only.
+  Read from Chromium's accessibility tree (CDP `Accessibility.getPartialAXTree`, Electron 45): collapsed "Processes ,
+  CPU 3.7 %" (Chromium puts a space before the absolutely positioned span; the comma still gives the pause), open
+  "Processes", a group without a figure its name.
 
 ## Hidden sections (#835)
 
