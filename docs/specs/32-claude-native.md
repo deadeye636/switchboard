@@ -445,7 +445,7 @@ that ends in nothing but a failure or a Stop still draws its line, in front of t
 arrives after the line was drawn is not drawn a second time. The entry carries no uuid, since the stream names
 none; an attach draws the transcript's markup line instead. One window is not covered: a background task's
 turn that starts while a follow-up waits in the CLI is taken for that follow-up's turn, so a `/` follow-up
-there keeps the view's "sending…" line.
+there keeps the view's "sending…" line until that turn ends (#854, below).
 
 **`/mcp` is answered by the app (#719).** Over the pipe the CLI prints one line and sends the user to the
 terminal for the details, which a session without a terminal cannot follow. The control request `mcp_status`
@@ -1033,6 +1033,29 @@ one, or begins with it — a `/` command Claude answers by itself comes back as 
 output (#680's `typedCommand`). A refused send removes it, a branch switch (a reset of the conversation) drops
 any still pending, and a `!` shell line gets none (it is not a turn). Shared with pi-native, which plays a line
 back the same way.
+
+**"sending…" ends with its turn (#854).** The match above reads only a user line without a `tool_result`, and a
+resumed turn's first user line carries a synthetic one beside the prompt, so it never matches. The view therefore
+also clears on the busy to idle edge every send that is not marked queued and was made before that turn began
+(`at <= busySince`, the view's own clock), and attaches again so the transcript's real line is drawn in its place.
+A send queued behind the turn keeps its mark for the next one. An append the attach snapshot already holds
+(skipped by its key) still settles the send waiting for it. Main side, a stop followed at once by an open
+registers a fresh process under the same id before the old one's exit lands; that stale exit no longer deletes the
+replacement from `activeSessions` or announces its death (`src/app/terminal/session-identity.js`). The id counts as taken
+not only once the replacement is registered but from the moment `openTerminal` starts for it until that call is over on
+any path, because the open registers the session after many awaits and close-terminal has already dropped the exited
+entry: an exit landing in that window finds no entry and would otherwise mark the freshly reopened view exited. The
+question is asked PER ID: after a re-key the original id is a stored session the user may open again, and its
+replacement takes only that id, so the exiting process still cleans up under the id it ended up with. For an id that is
+not its own any more, an exit skips everything keyed by it (the exit push, the MCP server, the secret refs, the maps, the
+`activeSessions` entry); the timeline's "exited" stays, because it is true of the process. A send made while main is busy for a
+maintenance turn (spec 45) shows "sending…" for a moment and clears with that turn. The survivors of a turn end (queued
+sends) are put back after the re-read, unless the snapshot already holds their line because their turn has started, and
+lose their `queued` mark, so the next turn end can drop them too. They still read "queued": they are owed to the runtime.
+Known limits, all of the dimmed copy only (the message itself stays queued in main): the "already in the snapshot" test
+looks at the newest readable user lines, so a survivor with the same text as a recent prompt can lose its copy early; a
+send made during the re-read's round trip loses its copy to the reset; and with two queued messages the second one's
+copy can go at the end of the first one's turn. Each copy is replaced by the real line when its turn starts.
 
 ## Spell check in the composer (#815)
 

@@ -1665,6 +1665,122 @@ test('a slash command played back with its output settles its bubble; a reset dr
   assert.equal(pending(), 0);
 });
 
+// #854: "sending..." belongs to one turn. A resumed turn's first user line carries a synthetic tool_result
+// beside the prompt, which the match cannot read, so the bubble waits for ever unless the turn's end clears it.
+test('a sent message the played-back line never matches goes when its turn ends, and the transcript is drawn again (#854)', async () => {
+  const h = setup();
+  const pending = () => h.entry.element.querySelectorAll('.conversation-pending').length;
+  await h.settle();
+  h.input.value = 'hello';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  const before = h.calls.attach;
+  h.entry.conversation.apply({ op: 'busy', busy: true });
+  h.entry.conversation.apply({ op: 'append', entry: { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't' }, { type: 'text', text: 'hello' }] } } });
+  assert.equal(pending(), 1, 'the line cannot be matched, so the bubble stays while the turn runs');
+  h.entry.conversation.apply({ op: 'busy', busy: false });
+  assert.equal(pending(), 0, 'the turn ended');
+  assert.equal(h.calls.attach, before + 1, 'and the real transcript is read again');
+});
+
+test('a message queued behind a running turn survives that turn ending (#854)', async () => {
+  const h = setup();
+  const pending = () => h.entry.element.querySelectorAll('.conversation-pending').length;
+  await h.settle();
+  h.entry.conversation.apply({ op: 'busy', busy: true });
+  h.input.value = 'next';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  const before = h.calls.attach;
+  h.entry.conversation.apply({ op: 'busy', busy: false });
+  assert.equal(pending(), 1, 'it belongs to the next turn');
+  assert.equal(h.calls.attach, before, 'nothing was dropped, so nothing is re-read');
+});
+
+test('a queued send survives the re-read a dropped one causes, and ends with the turn it belongs to (#854)', async () => {
+  const h = setup();
+  const pending = () => [...h.entry.element.querySelectorAll('.conversation-pending')].map(e => e.textContent);
+  await h.settle();
+  h.input.value = 'hello';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  h.entry.conversation.apply({ op: 'busy', busy: true });
+  h.input.value = 'next';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  assert.equal(pending().length, 2);
+  const before = h.calls.attach;
+  h.entry.conversation.apply({ op: 'busy', busy: false });
+  await h.settle();
+  assert.equal(h.calls.attach, before + 1);
+  assert.equal(pending().length, 1, 'only the send of the ended turn is gone');
+  assert.match(pending()[0], /next/);
+  // The next turn runs and ends without ever playing the line back: it does not stay for good either.
+  h.entry.conversation.apply({ op: 'busy', busy: true });
+  h.entry.conversation.apply({ op: 'busy', busy: false });
+  await h.settle();
+  assert.equal(pending().length, 0);
+});
+
+test('a queued send whose turn already started is not put back after the re-read (#854)', async () => {
+  let started = false;   // the queued line's turn has started by the time the re-read answers
+  const h = setup({ attachAnswer: () => {
+    const entries = started ? [{ type: 'user', message: { role: 'user', content: 'next' }, uuid: 'u-next' }] : [];
+    return Promise.resolve({ ok: true, entries, seq: 0 });
+  } });
+  const pending = () => h.entry.element.querySelectorAll('.conversation-pending').length;
+  await h.settle();
+  h.input.value = 'hello';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  h.entry.conversation.apply({ op: 'busy', busy: true });
+  h.input.value = 'next';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  const before = h.calls.attach;
+  started = true;
+  h.entry.conversation.apply({ op: 'busy', busy: false });
+  await h.settle();
+  assert.equal(h.calls.attach, before + 1, 'the dropped send caused one re-read');
+  assert.equal(pending(), 0, 'the snapshot already holds the queued line, so no copy is put back');
+});
+
+test('a turn already running when the view attaches still ends a send made before it (#854)', async () => {
+  const h = setup({ attachAnswer: () => Promise.resolve({ ok: true, entries: [], seq: 0, busy: true }) });
+  const pending = () => h.entry.element.querySelectorAll('.conversation-pending').length;
+  await h.settle();
+  h.input.value = 'steer';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  h.entry.conversation.apply({ op: 'busy', busy: false });
+  await h.settle();
+  assert.equal(pending(), 1, 'sent while busy, so it is queued for the next turn');
+  h.entry.conversation.apply({ op: 'busy', busy: true });
+  h.entry.conversation.apply({ op: 'busy', busy: false });
+  await h.settle();
+  assert.equal(pending(), 0);
+});
+
+test('an append the snapshot already holds still settles the send waiting for it (#854)', async () => {
+  const h = setup({ attachAnswer: () => Promise.resolve({ ok: true, entries: [], keys: ['k1'], seq: 0 }) });
+  const pending = () => h.entry.element.querySelectorAll('.conversation-pending').length;
+  await h.settle();
+  h.input.value = 'hi';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  assert.equal(pending(), 1);
+  h.entry.conversation.apply({ op: 'append', key: 'k1', entry: { type: 'user', message: { role: 'user', content: 'hi' } } });
+  assert.equal(pending(), 0);
+});
+
 // #770: an agent call opens its transcript in place; the draw is told which subagent the call started, from the
 // neutral fields the backend sends (a running task's `subagentId` beside its call, and an ended task's notice).
 test('the draw is told which subagent an agent call started, and how to open it in a tab', async () => {

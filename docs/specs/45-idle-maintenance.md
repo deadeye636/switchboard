@@ -290,6 +290,7 @@ window stayed hidden to the renderer); and on Pi a prompt right after `/session`
 - What Pi's one-off jump in the prompt is, and whether it causes the early misses. How Pi behaves in a real conversation: the
   measurement used small prompts with identical text, at Pi's default thinking setting.
 - How long a compaction of a larger session takes on either backend.
+- A message sent while main is already busy for a maintenance turn: the view marks it "queued" only when its own busy flag is set, so for a moment it reads "sending…". It clears with the turn (#854, spec 32), so this is cosmetic and heals itself.
 
 - [x] A refused `/compact` on Claude read as compacted. Closed 2026-11-10 by `confirmedBy` (see "Neutral capability"). Its
   error reply ("Error: No messages to compact") is still drawn in the conversation, as any declined command is. The fix

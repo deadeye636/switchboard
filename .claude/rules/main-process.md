@@ -264,7 +264,7 @@ catalog's servers, not as a second direct caller),
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),
 `safe-write.js` + `format-validate.js` (how this app overwrites a file a CLI also owns — #441, below) and
-`terminal/` (`spawn.js` = open-terminal, plus `resume-launch-preview` (the options a plain resume would send, #760) among its IPC handlers; `io.js` = input/resize/redraw/flow control, plus the PTY
+`terminal/` (`session-identity.js` = whose exit a late exit is while its id is reopened, #854; `spawn.js` = open-terminal, plus `resume-launch-preview` (the options a plain resume would send, #760) among its IPC handlers; `io.js` = input/resize/redraw/flow control, plus the PTY
 pure-logic and half a dozen more — list it).
 
 **A plain terminal WRAPS nothing, and says what it is instead (#588).** It used to install a `claude`

@@ -49,6 +49,7 @@ const { composeMcpInjection, ownServerSource, externalServersSource, externalSer
 const { composeMcpPrune } = require('../mcp-prune');
 const { readExternalMcpPrune } = require('../external-mcp');
 const { conptyBuildHint } = require('./conpty');
+const { ownsId, deleteIfOwner, beginOpen } = require('./session-identity');
 const { measured } = require('../../perf');
 const { resolveResumeOptions, previewResumeOptions, withoutResumeMark } = require('./resume-options');
 
@@ -290,8 +291,21 @@ function spawnOptionsFor(backend, projectPath, sessionOptions) {
   return { ...g, ...p, ...(sessionOptions || {}) };
 }
 
-/** The open-terminal handler. Reattaches to a live session, or spawns a new PTY for it. */
+/**
+ * The open-terminal handler. Reattaches to a live session, or spawns a new PTY for it. The id counts as
+ * being opened until the body is over on any path, so the late exit of a process this open replaces finds
+ * the id taken even before the new session is registered (#854, `session-identity.js`).
+ */
 async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
+  const endOpen = beginOpen(sessionId);
+  try {
+    return await openTerminalBody(sessionId, projectPath, isNew, sessionOptions);
+  } finally {
+    endOpen();
+  }
+}
+
+async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
   if (!ctx.getMainWindow()) return { ok: false, error: 'no window' };
   // Spec 39: the caller a review session answers to. The runner's launch names it; a resume of a review row reads the
   // stored link back (owner decision), so a resumed review gets no group of the app's own server either (depth 1).
@@ -1759,27 +1773,36 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // different faults.
     ctx.log.info(`[exit] session=${session.realSessionId || sessionId} kind=${sessionKind} code=${exitCode} `
       + `after=${Date.now() - (session._openedAt || 0)}ms output=${session._sawOutput ? 'yes' : 'none'}`);
+    const realId = session.realSessionId || sessionId;
+    // A late exit of a stopped process can land after the id was taken again (#854): a replacement is
+    // registered under it, or one is being opened (`session-identity.js`). Everything below that is KEYED
+    // BY THE ID (the MCP server, the secret refs, the maps, the activeSessions entry, the exit push) would
+    // hit the replacement, so it is skipped. What belongs to this process alone (its own handles and
+    // templates) still runs, and so does the timeline's "exited", which is true of the process.
+    // Decided PER ID: after a re-key the original id is a stored session the user may open again, and its
+    // replacement must not stop this process from cleaning up under the id it ended up with.
+    const ownsReal = ownsId(ctx.activeSessions, realId, session);
+    const ownsOrig = realId === sessionId ? ownsReal : ownsId(ctx.activeSessions, sessionId, session);
+    const owns = (id) => (id === realId ? ownsReal : ownsOrig);
     // Clean up MCP server. It answers and clears whatever reviews this session still had open (#405),
     // so the log line belongs to this exit rather than to nowhere.
-    const mcpId = session.realSessionId || sessionId;
-    ctx.shutdownMcpServer(mcpId, ctx.log);
+    if (ownsReal) ctx.shutdownMcpServer(realId, ctx.log);
     session.mcpServer = null;
 
-    const realId = session.realSessionId || sessionId;
     // The window that RENDERS this session also needs the exit, or a detached terminal simply freezes
     // with no explanation while its exit banner is written into a window that no longer holds it (#2).
     // Main keeps getting it regardless — the sidebar, the badges and the relaunch hint live there.
     for (const id of realId !== sessionId ? [realId, sessionId] : [realId]) {
       const owner = ctx.windowForSession ? ctx.windowForSession(id) : null;
       const main = ctx.getMainWindow();
-      if (owner && owner !== main && !owner.isDestroyed()) owner.webContents.send('process-exited', id, exitCode);
+      if (owns(id) && owner && owner !== main && !owner.isDestroyed()) owner.webContents.send('process-exited', id, exitCode);
     }
     if (windowLive()) {
-      sendToWindow('process-exited', realId, exitCode);
+      if (ownsReal) sendToWindow('process-exited', realId, exitCode);
       // If a fork/plan-accept transition re-keyed this session under realId
       // but the PTY exited before transition detection ran, also notify the
       // renderer for the original sessionId so it doesn't stay stuck as "Running".
-      if (realId !== sessionId && ctx.activeSessions.has(sessionId)) {
+      if (ownsOrig && realId !== sessionId && ctx.activeSessions.has(sessionId)) {
         sendToWindow('process-exited', sessionId, exitCode);
       }
     }
@@ -1829,12 +1852,14 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     if (ctx.recordTimelineLifecycle) {
       ctx.recordTimelineLifecycle(realId, 'exited', 'Process exited', `Exit code ${exitCode}.`);
     }
-    ctx.activeSessions.delete(realId);
+    deleteIfOwner(ctx.activeSessions, realId, session);
     // Clean up the original key too in case transition detection hasn't run yet
-    ctx.activeSessions.delete(sessionId);
+    deleteIfOwner(ctx.activeSessions, sessionId, session);
     // Release the Codex rollout claim + busy latch for this session (T-4.5), so the file can be
     // re-claimed and the maps don't grow for the life of the app.
     for (const id of [realId, sessionId]) {
+      // A replacement's own claim, latch and timeline state live under the same id.
+      if (!owns(id)) continue;
       ctx.liveStoreRef.delete(id);
       ctx.liveBusy.delete(id);
       // The timeline's own busy latch (#396) — same reason, same place: it exists to tell a busy→idle
@@ -1880,9 +1905,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     }
     // Wipe this session's secret-ref temp files (default on; the prompt that used
     // them is done). Quit/startup wipe still covers the setting-off case.
-    if (ctx.getSetting('global')?.secretRefCleanupOnSessionStop !== false) {
-      ctx.cleanupSecretRefsForSession(realId);
-      if (realId !== sessionId) ctx.cleanupSecretRefsForSession(sessionId);
+    if ((ownsReal || ownsOrig) && ctx.getSetting('global')?.secretRefCleanupOnSessionStop !== false) {
+      if (ownsReal) ctx.cleanupSecretRefsForSession(realId);
+      if (ownsOrig && realId !== sessionId) ctx.cleanupSecretRefsForSession(sessionId);
     }
   });
 

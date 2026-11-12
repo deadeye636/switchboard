@@ -580,7 +580,7 @@ function createConversationView(getSession, container) {
     tag.textContent = queued ? 'queued' : 'sending…';
     el.appendChild(tag);
     pendingEl.appendChild(el);
-    const p = { text: normText(text), el, at: Date.now() };
+    const p = { text: normText(text), el, at: Date.now(), queued: !!queued };
     view.pendingSends.push(p);
     toEnd();
     return p;
@@ -2732,7 +2732,11 @@ function createConversationView(getSession, container) {
     switch (op.op) {
       case 'reset': snapshotKeys = new Set(); reset(op.entries); break;
       case 'append':
-        if (op.key && snapshotKeys.delete(String(op.key))) return;
+        if (op.key && snapshotKeys.delete(String(op.key))) {
+          // Skipped as already drawn, but it may be the very line a send here is waiting for (#854).
+          settlePendingSend(op.entry);
+          return;
+        }
         appendEntry(op.entry);
         break;
       case 'unfold': unfoldMaintenanceReplies(); break;
@@ -2745,8 +2749,40 @@ function createConversationView(getSession, container) {
         renderActivity();
         break;
       }
-      case 'busy':
+      case 'busy': {
         if (op.busy && !view.busy) view.busySince = Date.now();
+        // The turn is over, and nothing sent before it began can still be waiting for it (#854). A line the
+        // runtime played back in a shape the match cannot read (a resumed turn's first user line carries a
+        // synthetic tool_result beside the prompt) would otherwise read "sending…" for good. A message
+        // queued behind the turn belongs to the next one. The transcript is drawn again, so the real line
+        // replaces the dimmed copy.
+        const turnEnded = !op.busy && view.busy && view.busySince;
+        const ended = turnEnded ? view.pendingSends.filter(x => !x.queued && x.at <= view.busySince) : [];
+        for (const p of ended) dropPendingSend(p);
+        if (turnEnded) {
+          // What is left was sent during the turn: it belongs to the next one, and must be droppable when
+          // that one ends (a steer's playback may never match). The re-read below resets the log and with it
+          // every pending send, so the survivors are put back once it has answered.
+          const survivors = view.pendingSends.slice();
+          for (const p of survivors) p.queued = false;
+          if (ended.length) {
+            attach().then(() => {
+              // A survivor whose turn already started is in the snapshot just drawn; putting it back would leave
+              // a copy nothing settles until the next turn ends. The newest user lines are where it would be.
+              const recent = new Set();
+              for (let i = view.entries.length - 1; i >= 0 && recent.size < survivors.length + 1; i--) {
+                const t = userTextOf(view.entries[i]);
+                if (t != null) recent.add(normText(t));
+              }
+              for (const p of survivors) {
+                if (view.pendingSends.includes(p) || recent.has(p.text)) continue;
+                // Still owed to the runtime, so it reads "queued"; `queued: false` only lets the next turn end drop it.
+                const again = addPendingSend(p.text, true);
+                if (again) { again.queued = false; again.at = p.at; }
+              }
+            });
+          }
+        }
         // A turn has started, so "nothing has been sent" is over before the next answer says so (#758). A turn that
         // sent nothing gets the mark back with the answer asked when it settles.
         if (op.busy && view.context && view.context.baseline) {
@@ -2760,6 +2796,7 @@ function createConversationView(getSession, container) {
         if (!view.busy) { view.busySince = null; view.tools.clear(); renderActivity(); }
         renderStatus();
         break;
+      }
       case 'suggestion': setSuggestion(op.text); break;
       // What runs in the background, and the session's figures (#691).
       case 'tasks': view.tasks = Array.isArray(op.tasks) ? op.tasks : []; renderStatus(); break;
@@ -2885,6 +2922,9 @@ function createConversationView(getSession, container) {
     view.partial = res.partial || null;
     renderPartial();
     view.busy = !!res.busy;
+    // A turn already running when the view attached has no start edge to take the time from, and the end
+    // fallback needs one (#854).
+    if (view.busy && !view.busySince) view.busySince = Date.now();
     view.queue = res.queue || { steering: [], followUp: [] };
     view.heldPrompts = res.held && Array.isArray(res.held.items) ? { items: res.held.items, paused: !!res.held.paused } : { items: [], paused: false };
     renderHeld();
