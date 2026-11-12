@@ -285,6 +285,11 @@ function repositoryRows(answer) {
 }
 
 // A row that shows and does nothing: not a button, so its tooltip shows (a disabled button's would not).
+// What the Repository group draws from a status, as one string: a poll that brings the same string leaves the group be.
+function repositorySignature(s) {
+  return s ? [s.branch, s.state, s.ahead, s.behind].map((v) => (v == null ? '' : v)).join('|') : '';
+}
+
 function repositoryRowHtml(row) {
   return `<div class="ssb-row ssb-row-info" title="${escapeHtml(row.title || '')}"><span class="ssb-row-main">${escapeHtml(row.main)}</span>`
     + `<span class="ssb-row-meta">${escapeHtml(row.meta || '')}</span></div>`;
@@ -352,7 +357,7 @@ function contextHeadFigure(figures) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
-    instructionGroups, instructionRow, repositoryRows, repositoryRowHtml, processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure,
+    instructionGroups, instructionRow, repositoryRows, repositorySignature, repositoryRowHtml, processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure,
     sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
@@ -644,6 +649,50 @@ async function sessionSidebarOpenServers(entry) {
   await openSessionServers(entry.session.sessionId, { onClose: () => sidebarSessionFocus(entry) });
 }
 
+// The Repository group follows the VCS poller (#858): main pushes a status for each directory the poller watches, and a
+// push that changes what the group draws reads it again from the poller's cache. There is no timer of its own. The
+// subscription lives while the group is open and shown: closing it, hiding it and closing the sidebar end it.
+const sidebarVcsFollowers = new Set();   // entries whose open Repository group follows the poller
+
+// Tells main which directories those are, so it polls them whether or not the chip is on.
+function sidebarReportFollowed() {
+  if (!window.api || typeof window.api.vcsFollow !== 'function') return;
+  const cwds = [...sidebarVcsFollowers].map((e) => sidebarSessionOf(e).projectPath).filter(Boolean);
+  window.api.vcsFollow([...new Set(cwds)]);
+}
+
+// ONE subscription per window however many sessions follow: a listener each would pass Node's limit with ten sessions.
+// It is made for the first follower and removed with the last.
+let sidebarVcsOff = null;
+
+function sidebarOnVcsStatus(payload) {
+  for (const entry of [...sidebarVcsFollowers]) {
+    const root = entry.sidebar;
+    const section = root && root.querySelector('.ssb-group[data-group="repository"]');
+    if (!section || !section.open || sidebarSectionHidden(section)) { sidebarUnfollowVcs(entry); continue; }
+    if (!payload || !payload.summary || payload.cwd !== sidebarSessionOf(entry).projectPath) continue;
+    if (repositorySignature(payload.summary) === entry.sidebarRepoSig) continue;
+    if (!sidebarInView(entry)) { section._stale = true; continue; }
+    loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === 'repository'), section);
+  }
+}
+
+function sidebarFollowVcs(entry) {
+  if (sidebarVcsFollowers.has(entry) || !window.api || typeof window.api.onVcsStatusChanged !== 'function') return;
+  if (!sidebarVcsFollowers.size) {
+    const off = window.api.onVcsStatusChanged(sidebarOnVcsStatus);
+    sidebarVcsOff = typeof off === 'function' ? off : null;
+  }
+  sidebarVcsFollowers.add(entry);
+  sidebarReportFollowed();
+}
+
+function sidebarUnfollowVcs(entry) {
+  if (!sidebarVcsFollowers.delete(entry)) return;
+  if (!sidebarVcsFollowers.size && sidebarVcsOff) { sidebarVcsOff(); sidebarVcsOff = null; }
+  sidebarReportFollowed();
+}
+
 // Each group reads when it is open, in view and not hidden (#835), and answers markup. All of it is escaped: a task
 // title, an issue and a skill name are all text somebody else may have written. The groups' NAMES are in
 // lib/sidebar-groups.js, which the settings window loads too; these ids are the same ones in the same order.
@@ -651,12 +700,16 @@ const SESSION_SIDEBAR_GROUPS = [
   {
     // First, as the owner decided (#821): where the session runs. Read from the poller's cache, else one status run.
     id: 'repository',
-    async load(entry, draw, force) {
+    async load(entry, draw, force, current = () => true) {
       const cwd = sidebarSessionOf(entry).projectPath;
       if (!cwd) return sidebarNote('This session has no project.');
       // The reload button reads the status afresh; an open reads the poller's cache when it has one.
       const answer = await window.api.vcsDescribe(cwd, { fresh: force === true });
       if (!answer || !answer.ok) return sidebarNote('The repository could not be read.');
+      entry.sidebarRepoSig = repositorySignature(answer);
+      // Only while this read is still the latest and the session is still open: closing the session or the sidebar
+      // during the await has already unfollowed, and a late follow would never be ended.
+      if (current() && entry.sidebar && openSessions.get(sidebarSessionOf(entry).sessionId) === entry) sidebarFollowVcs(entry);
       const rows = repositoryRows(answer);
       if (!rows) return sidebarNote('This project is not under version control.');
       return rows.length ? rows.map(repositoryRowHtml).join('') : sidebarNote('Nothing to show.');
@@ -1076,6 +1129,7 @@ function applySidebarHidden(entry, ids) {
     const section = slot.querySelector('.ssb-group');
     // A collapsed Processes group shown again starts its slow poll for the header figure (#840).
     if (!hide && section && !section.open && section.dataset.group === 'processes') sidebarStartCollapsedProcesses(entry);
+    if (hide && section && section.dataset.group === 'repository') sidebarUnfollowVcs(entry);
     if (hide || !section || !section.open) continue;
     const group = SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group);
     if (inView && group) loadSidebarGroup(entry, group, section);
@@ -1358,6 +1412,7 @@ function buildSidebar(entry) {
     writeSidebarState(sessionId(), { groups: open });
     // A group drawn open fires this once by itself, and `showSidebar` has already read it.
     const action = sidebarToggleAction({ open: section.open, closedOnce: !!section._closedOnce, inView: sidebarInView(entry) });
+    if (!section.open && section.dataset.group === 'repository') sidebarUnfollowVcs(entry);
     if (action === 'closed') section._closedOnce = true;
     else if (action === 'load') loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group), section);
     else if (action === 'stale') section._stale = true;
@@ -1477,6 +1532,7 @@ function showSidebar(entry, width) {
 }
 
 function hideSidebar(entry) {
+  sidebarUnfollowVcs(entry);
   if (sidebarGroupsPop && sidebarGroupsPop.root === entry.sidebar) closeSidebarGroupsPop(false);
   clearTimeout(entry.sidebarProcessTimer);
   entry.sidebarProcessTimer = null;

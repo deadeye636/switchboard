@@ -49,6 +49,47 @@ function detect(cwd) {
   return findRepo(cwd) != null;
 }
 
+// The main repository's working tree, or null when it has none (a bare repository: the worktree is then the only
+// checkout there is). Usually the git directory is `<root>/.git`, and that is the whole answer. Otherwise (#858) its
+// `config` decides, read from disk, bounded, no spawn: `core.bare = true` is a bare repository; `core.worktree` names the
+// working tree (relative to the git directory) as a submodule's repository records it; with neither, as for
+// `git init --separate-git-dir`, nothing records where the working tree is and the git directory itself stands for the
+// repository (git's own `worktree list` names it the same way).
+function mainWorkingTree(commonDir) {
+  if (path.basename(commonDir) === '.git') return path.dirname(commonDir);
+  const core = readCoreConfig(path.join(commonDir, 'config'));
+  if (core.bare) return null;
+  return core.worktree ? path.resolve(commonDir, core.worktree) : commonDir;
+}
+
+// `bare` and `worktree` from the `[core]` section of a git config file. A read of the first 64 KiB: the section sits at
+// the top of a file git writes, and a huge config is not worth a stall.
+function readCoreConfig(file) {
+  const out = { bare: false, worktree: null };
+  let text = '';
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(65536);
+    text = buf.toString('utf8', 0, fs.readSync(fd, buf, 0, buf.length, 0));
+  } catch { return out; } finally { if (fd != null) try { fs.closeSync(fd); } catch { /* closed */ } }
+  let inCore = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    const section = line.match(/^\[\s*([^\s\]"]+)/);
+    if (section) { inCore = section[1].toLowerCase() === 'core'; continue; }
+    // A key with no `=` is true in git. A `#` or `;` starts a comment unless it sits inside a quoted value.
+    const m = inCore && line.match(/^(bare|worktree)\s*(?:=\s*(.*))?$/i);
+    if (!m) continue;
+    const rest = m[2] == null ? null : m[2];
+    const quoted = rest != null && rest.match(/^"((?:[^"\\]|\\.)*)"/);
+    const value = rest == null ? 'true' : quoted ? quoted[1] : rest.replace(/[#;].*$/, '').trim();
+    if (m[1].toLowerCase() === 'bare') out.bare = /^(true|yes|on|1)$/i.test(value);
+    else if (rest != null) out.worktree = value.replace(/\\\\/g, '\\') || null;
+  }
+  return out;
+}
+
 // Where a working directory sits (#821): the checkout's root, and the main repository's root when that checkout is a
 // linked worktree, else null. Filesystem only, no spawn. A linked worktree's gitdir holds a `commondir` file naming the
 // main repository's git directory (relative to the gitdir); a submodule's gitdir has none, so it is no worktree.
@@ -60,8 +101,7 @@ function describeRepo(cwd) {
     const common = fs.readFileSync(path.join(repo.gitDir, 'commondir'), 'utf8').trim();
     if (common) {
       const commonDir = path.resolve(repo.gitDir, common);
-      // A bare main repository has no working tree to name; the worktree is then the only checkout there is.
-      if (path.basename(commonDir) === '.git') mainRoot = path.dirname(commonDir);
+      mainRoot = mainWorkingTree(commonDir);
     }
   } catch { /* no commondir: a plain checkout or a submodule */ }
   return { root: repo.root, mainRoot };

@@ -28,7 +28,7 @@ shipped provider; hg/svn would be sibling files, registered with one line, no co
 | `diffArgs(opts)` | `['--no-optional-locks','diff','--no-color', …('--cached' when `staged`), '--', path]` — one tracked file's diff (#285) |
 | `showArgs(opts)` | `['--no-optional-locks','show','<ref>:<path>']` — one version's raw content; `ref: ''` is the index (#287) |
 | `detectState(cwd)` | in-progress op from `.git/` markers (MERGE_HEAD → merging, rebase-merge → rebasing, …) — filesystem only, no extra spawn |
-| `describeRepo(cwd)` | `{ root, mainRoot }`: the checkout's root, and the main repository's root when it is a linked worktree (git: the gitdir's `commondir`), else `null`. Filesystem only. Optional: the session sidebar's Repository group (#821, spec 43) and the `vcs-describe` IPC behind it; a provider without it shows no repository row |
+| `describeRepo(cwd)` | `{ root, mainRoot }`: the checkout's root, and the main repository's root when it is a linked worktree (git: the gitdir's `commondir`), else `null`. Filesystem only. For a `--separate-git-dir` repository nothing records the working tree, so `mainRoot` is the git directory itself (a bare repository gives `null`; `core.worktree` in that directory's `config` names the tree when present, #858). Optional: the session sidebar's Repository group (#821, spec 43) and the `vcs-describe` IPC behind it; a provider without it shows no repository row |
 | `probe()` | is the binary on PATH |
 | `netFree` | `true` — the status path must never hit the network (parity-asserted) |
 

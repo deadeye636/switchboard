@@ -1851,6 +1851,9 @@ function destroySession(sessionId, opts) {
   if (typeof closeSelectionBarForSession === 'function') closeSelectionBarForSession(sessionId);
   // Same reason for a picker palette (#207): it holds the terminal for its insert.
   if (typeof closePaletteForSession === 'function') closePaletteForSession(sessionId);
+  // The sidebar's Repository group follows the VCS poller while open (#858); the subscription holds this entry, so it
+  // ends with it. A session moved to another window passes through here as well.
+  if (typeof sidebarUnfollowVcs === 'function') sidebarUnfollowVcs(entry);
   window.api.closeTerminal(sessionId);
   // Drop any pending write buffer before disposing — a scheduled rAF/timeout
   // flush would otherwise call terminal.write() on a disposed instance if

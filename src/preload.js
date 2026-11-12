@@ -346,8 +346,16 @@ contextBridge.exposeInMainWorld('api', {
   vcsStatus: (cwd) => ipcRenderer.invoke('vcs-status', cwd),
   // The session sidebar's Repository group (#821): repository, branch and worktree of one cwd.
   vcsDescribe: (cwd, opts) => ipcRenderer.invoke('vcs-describe', cwd, opts),
+  // The directories this window's open Repository groups follow (#858): polled even with the chip off. The whole list.
+  vcsFollow: (cwds) => ipcRenderer.send('vcs-follow', cwds),
   vcsRefresh: (cwd) => ipcRenderer.invoke('vcs-refresh', cwd),
-  onVcsStatusChanged: (cb) => ipcRenderer.on('vcs-status-changed', (_e, payload) => cb(payload)),
+  // Returns the function that ends the subscription: the session sidebar's Repository group follows the poller only
+  // while it is open (#858).
+  onVcsStatusChanged: (cb) => {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('vcs-status-changed', listener);
+    return () => ipcRenderer.removeListener('vcs-status-changed', listener);
+  },
   openChangesWindow: (cwd, label) => ipcRenderer.send('open-changes-window', { cwd, label }),
   vcsReveal: (req) => ipcRenderer.invoke('vcs-reveal', req),
   vcsDiff: (req) => ipcRenderer.invoke('vcs-diff', req),

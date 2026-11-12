@@ -361,8 +361,33 @@ async function describeCwd(cwd, { fresh = false } = {}) {
 }
 
 function pushStatus(cwd, summary) {
-  const w = ctx && ctx.getMainWindow && ctx.getMainWindow();
-  if (w && !w.isDestroyed()) w.webContents.send('vcs-status-changed', { cwd, summary });
+  // The main window and every detached one: a detached window's session sidebar follows the poller as well (#858).
+  // `getDetachedWindows` arrives through ctx like the other modules'; without it only the main window hears.
+  const main = ctx && ctx.getMainWindow && ctx.getMainWindow();
+  const detached = ctx && typeof ctx.getDetachedWindows === 'function' ? ctx.getDetachedWindows() : [];
+  for (const w of new Set([main, ...detached])) {
+    if (w && !w.isDestroyed()) w.webContents.send('vcs-status-changed', { cwd, summary });
+  }
+}
+
+// Directories the session sidebars follow (#858): window id -> cwds of its open Repository groups. They are polled
+// whether or not the version-control chip is on, the way an open changes window's directory is kept.
+const followedByWindow = new Map();
+const followWatched = new Set();   // window ids whose `destroyed` is already listened to
+let rendererCwds = [];   // what the last `vcs-watch` reported (the chip's directories)
+
+function followedCwds() {
+  const out = new Set();
+  for (const list of followedByWindow.values()) for (const c of list) out.add(c);
+  return [...out];
+}
+
+// The poller's watch list: the chip's directories when the chip is on, plus the open changes windows' and the
+// followed ones, which stay regardless.
+function rewatch() {
+  if (!scheduler) return;
+  const keep = [...changesWindows.keys(), ...followedCwds()];
+  scheduler.watch(readConfig().enabled ? [...rendererCwds, ...keep] : keep);
 }
 
 // --- The standalone changes window: one per cwd, destroy-on-close (#277 F3) ---
@@ -443,6 +468,8 @@ function destroyAllVcsWindows() {
 function init(context) {
   ctx = context;
   stopped = false;
+  followedByWindow.clear();
+  rendererCwds = [];
   scheduler = createScheduler({
     detect: (cwd) => vcs.detect(cwd),
     runStatus: runStatusReal,
@@ -452,7 +479,7 @@ function init(context) {
   });
   // 1s heartbeat: cheap, and the actual poll cadence is governed by each cwd's nextDue.
   heartbeat = setInterval(measured('vcs:heartbeat', () => {
-    try { if (readConfig().enabled) scheduler.tick(); } catch (e) { ctx.log && ctx.log.debug && ctx.log.debug('[vcs] tick error', e); }
+    try { if (readConfig().enabled || followedByWindow.size) scheduler.tick(); } catch (e) { ctx.log && ctx.log.debug && ctx.log.debug('[vcs] tick error', e); }
   }), 1000);
   if (heartbeat.unref) heartbeat.unref();
 }
@@ -468,9 +495,31 @@ function registerIpc(ipc) {
   ipc.on('vcs-watch', (_event, cwds) => {
     if (!scheduler) return;
     // Keep polling any open changes-window cwd even if its project scrolled off the sidebar.
-    const windowCwds = [...changesWindows.keys()];
-    if (!readConfig().enabled) { scheduler.watch(windowCwds); return; }
-    scheduler.watch([...(Array.isArray(cwds) ? cwds : []), ...windowCwds]);
+    rendererCwds = Array.isArray(cwds) ? cwds : [];
+    rewatch();
+  });
+
+  // The directories one window's open Repository groups follow (#858): the whole list, replaced on every change, and
+  // dropped when the window goes. No chip needed: an open group is a reader.
+  ipc.on('vcs-follow', (event, cwds) => {
+    const sender = event && event.sender;
+    const id = sender && sender.id != null ? sender.id : 'main';
+    const list = (Array.isArray(cwds) ? cwds : []).filter((c) => typeof c === 'string' && c);
+    if (list.length) {
+      if (!followWatched.has(id) && sender && typeof sender.once === 'function') {
+        followWatched.add(id);
+        sender.once('destroyed', () => { followWatched.delete(id); followedByWindow.delete(id); rewatch(); });
+        // A reload, a crash recovery or a dev reload builds the sidebars anew, so what the old page followed is stale
+        // the moment the navigation starts (as `file-watch.js` does for its subscriptions).
+        if (typeof sender.on === 'function') {
+          sender.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
+            if (isMainFrame && !isInPlace) { followedByWindow.delete(id); rewatch(); }
+          });
+        }
+      }
+      followedByWindow.set(id, list);
+    } else followedByWindow.delete(id);
+    rewatch();
   });
 
   ipc.on('open-changes-window', (_event, payload) => {
@@ -586,4 +635,4 @@ function registerIpc(ipc) {
   });
 }
 
-module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, readUntrackedDiff, readWorkingFile, fileVersions, _readConfig: readConfig };
+module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, readUntrackedDiff, readWorkingFile, fileVersions, _readConfig: readConfig, _scheduler: () => scheduler, _push: pushStatus };

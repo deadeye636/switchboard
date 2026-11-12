@@ -126,6 +126,77 @@ test('git: describeRepo names the checkout root, and the main repository only fo
   }
 });
 
+test('git: a --separate-git-dir repository is the repository with its worktrees, a bare one is not (#858)', () => {
+  const { execFileSync } = require('child_process');
+  const git = vcs.get('git');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'vcs-sepgit-'));
+  const run = (cwd, ...args) => execFileSync(git.bin, args, { cwd, stdio: 'pipe', windowsHide: true });
+  try {
+    const main = path.join(base, 'app');
+    const gitDir = path.join(base, 'app.git');
+    fs.mkdirSync(main);
+    run(base, 'init', '-q', '--separate-git-dir', gitDir, main);
+    run(main, '-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-q', '--allow-empty', '-m', 'init');
+    const wt = path.join(base, 'app-wt');
+    run(main, 'worktree', 'add', '-q', '-b', 'side', wt);
+    assert.ok(fs.statSync(path.join(main, '.git')).isFile(), 'the main working tree holds a .git file');
+    const real = fs.realpathSync.native;
+    const norm = (d) => ({ root: real(d.root), mainRoot: d.mainRoot && real(d.mainRoot) });
+    // The linked worktree is a worktree of the repository. Nothing on disk or in the tool names the main working tree
+    // from the git directory's side (the tool lists the git directory itself), so that directory stands for it.
+    assert.deepStrictEqual(norm(git.describeRepo(wt)), { root: real(wt), mainRoot: real(gitDir) });
+    // The main working tree is the repository, with no worktree of its own.
+    assert.deepStrictEqual(norm(git.describeRepo(main)), { root: real(main), mainRoot: null });
+
+    // A bare repository has no working tree: its worktree is the only checkout there is.
+    const bare = path.join(base, 'bare.git');
+    run(base, 'init', '-q', '--bare', bare);
+    run(main, 'push', '-q', bare, 'HEAD:refs/heads/main');
+    const bareWt = path.join(base, 'bare-wt');
+    run(bare, 'worktree', 'add', '-q', bareWt, 'main');
+    assert.deepStrictEqual(norm(git.describeRepo(bareWt)), { root: real(bareWt), mainRoot: null });
+
+    // A git directory that records its working tree (`core.worktree`, as a submodule's does) names that tree.
+    const tree = path.join(base, 'tree');
+    const recorded = path.join(base, 'recorded.git');
+    fs.mkdirSync(path.join(recorded, 'worktrees', 'w1'), { recursive: true });
+    fs.mkdirSync(tree);
+    fs.writeFileSync(path.join(recorded, 'config'), '[core]\n\tbare = false\n\tworktree = ../tree\n');
+    fs.writeFileSync(path.join(recorded, 'worktrees', 'w1', 'commondir'), '../..\n');
+    const w1 = path.join(base, 'w1');
+    fs.mkdirSync(w1);
+    fs.writeFileSync(path.join(w1, '.git'), `gitdir: ${path.join(recorded, 'worktrees', 'w1')}\n`);
+    assert.deepStrictEqual(norm(git.describeRepo(w1)), { root: real(w1), mainRoot: real(tree) });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('git: core config parsing, a bare key without = is true, ; or # inside quotes stays and outside it is a comment (#858)', () => {
+  const git = vcs.get('git');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'vcs-cfg-'));
+  try {
+    const mk = (name, config) => {
+      const gd = path.join(base, name);
+      fs.mkdirSync(path.join(gd, 'worktrees', 'w'), { recursive: true });
+      fs.writeFileSync(path.join(gd, 'config'), config);
+      fs.writeFileSync(path.join(gd, 'worktrees', 'w', 'commondir'), '../..\n');
+      const wt = path.join(base, name + '-wt');
+      fs.mkdirSync(wt);
+      fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(gd, 'worktrees', 'w')}\n`);
+      return wt;
+    };
+    const a = mk('a.git', '[core]\n\tbare\n');
+    assert.strictEqual(git.describeRepo(a).mainRoot, null, 'a bare key alone is true');
+    const b = mk('b.git', '[core]\n\tworktree = "../x;y" ; a comment\n');
+    assert.strictEqual(git.describeRepo(b).mainRoot, path.resolve(base, 'b.git', '../x;y'), 'a quoted ; stays');
+    const c = mk('c.git', '[core]\n\tbare = false # not bare\n\tworktree = ../t # tree\n');
+    assert.strictEqual(git.describeRepo(c).mainRoot, path.resolve(base, 'c.git', '../t'));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('git: --no-optional-locks off adds -uno for git specifically', () => {
   const git = vcs.get('git');
   assert.ok(git.statusArgs({ countUntracked: false }).includes('-uno'));

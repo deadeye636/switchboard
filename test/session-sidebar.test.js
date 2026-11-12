@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   sidebarStateOf, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
-  sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails, repositoryRows,
+  sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails, repositoryRows, repositorySignature,
   SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
 } = require('../src/renderer/session/session-sidebar');
 
@@ -30,6 +30,15 @@ test('a write in a session with no row keeps the start state the default gave it
   // The patch wins over the default, and a stored row over both.
   assert.equal(patchSidebarState({}, 's1', { open: false }, true, 7).s1.open, false, 'closing by hand under default open');
   assert.equal(patchSidebarState({ s1: { open: false } }, 's1', { width: 320 }, true, 7).s1.open, false, 'a stored close survives a width change');
+});
+
+test('repository signature (#858): a branch switch changes it, a poll with the same figures does not', () => {
+  const a = { branch: 'main', state: null, ahead: 0, behind: 0, staged: 0 };
+  assert.equal(repositorySignature(a), repositorySignature({ ...a, staged: 3 }), 'file counts are not drawn by the group');
+  assert.notEqual(repositorySignature(a), repositorySignature({ ...a, branch: 'dev' }));
+  assert.notEqual(repositorySignature(a), repositorySignature({ ...a, state: 'rebasing' }));
+  assert.notEqual(repositorySignature(a), repositorySignature({ ...a, ahead: 1 }));
+  assert.equal(repositorySignature(null), '');
 });
 
 test('repository rows (#821): repository, branch with ahead/behind and state, worktree; none for a directory under no VCS', () => {

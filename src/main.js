@@ -799,6 +799,7 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
 const vcsPoll = require('./app/vcs');
 vcsPoll.init({
   getMainWindow: () => mainWindow,
+  getDetachedWindows: () => [...detach.detachedWindows.values()],   // a detached sidebar follows the poller (#858)
   getSetting,
   log,
   parseWorktreePath,

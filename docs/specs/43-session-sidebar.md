@@ -156,6 +156,24 @@ Where the session runs: the repository, the branch and, when the session's direc
 - **No VCS:** "This project is not under version control." A status that could not be read leaves the branch row out.
 - **Repository name in a worktree** is the MAIN repository's folder, not the worktree's: the worktree has a row of its own.
   A bare main repository has no folder to name, so there the worktree itself is the repository.
+- **A separate git directory** (`git init --separate-git-dir`, #858): the main working tree's `.git` is a file, and the
+  git directory lives elsewhere, so `<root>/.git` does not name the repository. `describeRepo` then reads that git
+  directory's `config` (a bounded read, no spawn): `bare = true` is a bare repository as above; `core.worktree`, which a
+  submodule's repository records, names the working tree; with neither, nothing on disk or in git records where the
+  working tree is, so for a worktree session the repository row names the git directory (for example `app.git`), with
+  the worktree row beside it. A session in the main working tree itself names that folder. The same repository can
+  therefore carry two names, depending on where the session runs.
+- **Follows the poller** (#858): while the group is open and shown, the sidebar subscribes to the `vcs-status-changed`
+  pushes the poller already sends (`window.api.onVcsStatusChanged` returns the function that ends the subscription).
+  A push for the session's directory whose branch, state, ahead or behind differs from what the group drew reads the
+  group again from the poller's cache; there is no timer of its own. Closing the group, hiding it and closing the
+  sidebar end the subscription, and so does closing the session's tab (`destroySession`, which a move to another window
+  passes through too).
+- **The poller watches what is followed** (#858): the renderer reports the folders of its open Repository groups
+  (`window.api.vcsFollow`, message `vcs-follow` in `src/app/vcs.js`, the whole list per window, dropped with the
+  window, and on a reload or crash recovery of that window). Main adds them to the poller's watch list whether or not the version-control chip is on, as an open changes
+  window's folder is kept, and the heartbeat runs while any is followed. Closing a group removes its folder. A push
+  goes to the main window and to every detached window, so a detached session's sidebar follows too.
 
 ## The section order (#829)
 
@@ -277,10 +295,6 @@ ids, and every session sidebar in every window hides the same sections.
   sidebar writes its whole list from its window's cached copy.
 - An open settings window does not follow a section hidden from a sidebar: its switch shows the state the window opened
   with until one of its switches is used, which reads the stored list and sets every switch from it.
-- The Repository group does not follow the poller: it shows what it read at open or reload. A branch switch while it is
-  open shows after the reload button, which skips the poller's cache and runs the status afresh.
-- A main repository whose git directory is not a `.git` folder in its working tree (`--separate-git-dir`) looks bare to
-  `describeRepo`: a linked worktree of it is named as the repository and gets no worktree row. Both gaps: #858.
 
 - A backend that measures no context fill shows "No figure for this session yet." rather than leaving the group out, as
   does a session that has not reported yet. A projected capability could tell the two apart; nothing does yet.
