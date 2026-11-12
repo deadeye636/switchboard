@@ -148,6 +148,11 @@ chart rather than a row of zeroes.
   from the row, the pane menu, the command palette or *Resume with config*. A running session is stopped
   and opened there again in the same tab, once it is idle. The choice is remembered for that session until
   you pick *Use the default view*.
+- **One row per CLI** — Claude and Claude (GUI), Pi and Pi (GUI) are one row in Settings with a mode badge (Terminal,
+  GUI or Both, click to change), one launch-defaults page, and one pane per project. Fields both modes share, such as the model, are set once.
+  The New Session list and the welcome tour group them the same way. With both modes on, the row starts the mode you
+  pick on the row's "Picker" badge (Terminal unless you change it) and a button beside it starts the other one.
+  → [`docs/specs/26-settings-screen.md`](docs/specs/26-settings-screen.md)
 - **Subagents for Pi** — an opt-in `subagent` tool that hands one task to an agent from a markdown
   definition, run as a separate Pi process with a fresh context; the result says what it cost.
   → [`docs/settings-reference.md`](docs/settings-reference.md)

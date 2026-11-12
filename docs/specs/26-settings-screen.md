@@ -1,6 +1,6 @@
 # 26 — The settings screen
 
-Status: **built** (#471, #472, #490; later #565, #593, #803).
+Status: **built** (#471, #472, #490; later #565, #593, #803, #761).
 Written after the fact, as a design record.
 
 The enforceable half is the *settings screen* section of [`.claude/rules/renderer.md`](../../.claude/rules/renderer.md);
@@ -85,6 +85,8 @@ had to move for it:
   generic field counter off that badge: every backend has roughly the same number of launch options, so
   counting them says nothing, and counting the overrides says everything.
 
+Since #761 that page belongs to a CLI and not to one backend id; see "A CLI is one row and one page" below.
+
 **Resources stay lazy through a different door.** `showCat` fires `settings-cat-shown`, the backend's page
 opens its own disclosure, and the existing `toggle` fetch does the rest. One backend's walk, when that
 backend is looked at.
@@ -163,8 +165,114 @@ that page names, in order, into one jsdom vm context — and clicks both buttons
 that reaches this file's click-time surface; `settings-modules-smoke.test.js` is a load-time guard and
 says so.
 
+## A CLI is one row and one page (#761)
+
+Claude and the mode that drives it over a pipe are two backends in the registry, and they used to be two rows, two
+gears, two pages and, in a project, two panes, each with its own copy of `model`, `worktree` and the rest. A user who
+ran both set everything twice and had no way to see that the two copies had drifted. They are now one row, one page
+and one project pane per CLI. The registry did not change: the GUI mode is still its own backend with its own
+descriptor, and `src/shared/backend-modes.js` is the one answer to which backends form a CLI (`cliGroups`). Main, the
+panel, the tour and the New Session picker all ask it, and `test/backend-modes.test.js` compares its owner with
+`cliOwnerOf` in `src/backends/index.js`. No renderer code names a backend; the mode word comes from the descriptor
+(`modeLabel`), so a third mode is a line in its own folder.
+
+**The row.** The owner's icon and label; in the control column, left to right, a mode badge, the picker-default badge,
+the on/off toggle and the gear. The mode badge (a `.conversation-bg-chip` pill) names the current choice: Terminal, GUI,
+Both. A click opens a small popover under it with the choices side by side and the current one marked, the session
+line's idle chooser (`.conversation-bg-pop`, `.conversation-idle-choices`, `aria-pressed`). The popover sits on the
+page body with `position: fixed`, placed from the badge: below it and right-aligned to it, flipped above it when below would leave the
+window at the bottom, and clamped inside the window horizontally, because inside the row the settings list clipped it to one scrolling line. A pick applies and
+closes; Escape, a click outside, a second click on the badge, a scroll or a resize closes it and returns the focus to
+the badge. The badge is not a setting. `backendEnabled` stays
+one flag per id, so nothing in main, the scan or the watchers had to learn about groups, and a choice only writes the
+flags of the group (`enabledForChoice`). A CLI without a second mode shows no badge. A subset the choices cannot name
+(possible with three modes) is the badge's text ("Terminal + GUI"), with no choice marked and a line saying so in the
+popover, and is not rewritten. The badge is disabled while the toggle is off. The owner chose badges over a dropdown
+and over an inline segmented switch after seeing both; the welcome tour keeps the segmented switch.
+Toggling off writes every flag `false`; toggling on restores the mode the group had earlier in the open window, or
+Terminal when there is none. The default launch target follows the mode (`targetAfterModeChange`): if the target is
+the GUI mode and the user switches to Terminal only, the target moves to Terminal. Main does the same in
+`getDefaultLaunchTarget` for any path that flips the flags without the panel, such as an import.
+
+**Default in the picker (E6 d).** With more than one mode on, a second badge directly right of the mode badge
+("Picker: Terminal") opens the same kind of popover with the enabled modes and picks the mode the New Session row
+starts. It is global, one entry per CLI keyed by the owner's id
+(`pickerModeByBackend`), held in the panel like the enabled flags and saved with Save through `readGlobal`. The value
+is a mode id from the registry. `pickerModeOf` in `src/shared/backend-modes.js` is the one fallback: the stored id while it is an
+enabled mode of the CLI, else the terminal mode while it is enabled, else the first enabled mode. The welcome tour draws it as a segmented switch on the CLI's row when Both
+is chosen and writes the same key whole-blob.
+
+**The page.** One gear. A block "Launch defaults" holds the fields every mode shares, then one section per enabled
+mode holds the fields only that mode has, then that mode's env variables, prompt overrides and integrations. A
+CLI with every mode switched off shows every section, so it stays editable. A CLI with one mode renders as before,
+with no section titles. In a project the pane is the same page with the "use global default" checkbox per option.
+The "N overrides" count on the nav entry counts every set value of the group, hidden sections included, because a
+hidden value still applies when the mode is switched on.
+
+**Why storage stayed per id while the page did not.** The edit machinery (`recordDefault`, `readDefaults`,
+`readProjectDefaults`, `pendingDefaults`) is keyed by `data-backend` and `data-opt`. Putting a shared field under the
+owner is therefore a drawing decision: the row names the owner's id. Nothing in the read and write path had to change,
+and a section hidden by a mode choice keeps its pending edits. The alternative, one merged descriptor, would have
+broken the rule that a backend stays its own folder.
+
+**What "shared" means (D10).** The same field id in the CLI and in every one of its modes, with the same `type`, the
+same `default` and, for a select, the same set of choices. It is computed (`sharedIdsOfGroup`), never listed. The
+reason for the strict test: a value is only safe to store once when both launches read it with the same meaning and
+the same vocabulary. The one place this bites is `permissionMode`: Claude's GUI mode offers a shorter list, because
+the skip-permissions mode cannot work where no approval card could appear. A shared value `dangerously-skip` would
+sit under the owner, be refused by the GUI launch and still be shown on the page as if it applied. So the permission
+mode is set per mode, in each mode's section. `restricted` is shared even though its description differs; the page
+shows the CLI's description and adds a line with the mode's description (`fieldSplit` notes).
+
+**What a launch reads (D17).** The readers that build a launch's options from stored defaults all go through
+`launchLayer`: the renderer's `storedDefaultsFor`, `spawnOptionsFor` in `src/app/terminal/spawn.js`, the context-window
+resolver in `src/index/context-window.js` and the skill detail in `src/app/skills.js`. The GUI mode's own entry is laid
+under the CLI's value for every shared field. Main computes the layered result per scope (`launchDefaults` in
+`effectiveSettings`) because the merged blob cannot be layered afterwards: a project value under the GUI id would lose
+against a global value under the CLI. `approval-memory.js` reads Pi (GUI)'s own `approvalRules`, which only that mode
+has, so it stays on its own id.
+
+**The move.** A value already stored under the GUI id for a shared field moves to the CLI's id, at startup and at the
+write door (`scrubBlobForDisk`), in the global blob and in every project blob. If the CLI has a different value, the CLI
+wins and the GUI value is kept in `backendDefaultsReplaced.<driverId>.<field>`. The write door matters because a
+settings import and a form that was open before the startup move can both write the old shape back. Details and the
+key are in [`docs/settings-reference.md`](../settings-reference.md#one-row-per-cli-and-launch-defaults-stored-once).
+
+**What it takes away.** Two things change for a user who had both modes. First, a value that was set differently
+for the two modes is now one value, the CLI's: a `model` of `opus` for Claude and `sonnet` for Claude (GUI) means both
+run `opus` after the move, and the old value sits in `backendDefaultsReplaced`. Second, the permission mode is
+still set twice. A user with only the GUI mode on loses nothing: shared values are stored under the CLI's id even when the CLI's
+terminal mode is off, and the page shows only the GUI section.
+
+**The New Session picker (the issue first listed it as out of scope).** A single list that shows `Claude` and
+`Claude (GUI)` as two rows next to a settings page that shows one would have been the one place the old split stayed
+visible, so it follows the same grouping. One row per CLI. With only the terminal mode on, the row is as before.
+With both on, a click on the row starts the mode chosen as "Default in the picker" (the terminal mode unless the GUI
+was picked) and a button on the right of the row, before the gear, starts the other mode and is labelled with it
+("GUI", or "Terminal" when the row starts the GUI). The row keeps the CLI's label either way. With only the GUI mode on,
+the row starts it and carries the GUI label. The DEFAULT badge stays on the row when the default target is in the
+group. The gear opens the Configure dialog on the mode the row starts, and when both modes are on that dialog has a
+Terminal | GUI switch at the top that redraws the fields for the chosen mode and starts it. Nothing else in the dialog
+changed.
+
 ## Known gaps
 
+- **The permission mode is set once per mode** (D11). Narrowing the owner's list the same way as the GUI mode's would
+  make it shared with no further work.
+- **Toggling a CLI off and reloading starts from Terminal.** The mode the group had is remembered only for the open
+  window (D14); no new stored key was added for it.
+- **The settings search does not find "Claude (GUI)" by its label.** The page is Claude's, and the GUI mode's section
+  carries the mode word only.
+- **The Configure dialog's Terminal | GUI switch drops values typed before the switch.** The fields are redrawn for the
+  other mode from the stored defaults.
+- **When the default launch target is the mode the side button starts, the row's DEFAULT badge sits on the row's
+  launch** for a screen reader. The side button says "(default)" in its label; the badge text on the row does not.
+- **The picker default is not moved when a mode goes off.** A stored GUI preference stays stored while the GUI mode is
+  off and applies again when it is switched back on; until then the row starts the terminal mode.
+- **A later conflicting GUI value is dropped once one is set aside** (O1). The first value kept in
+  `backendDefaultsReplaced` stays; a second one for the same field is only logged.
+- **The tour and the settings badge cannot disagree**: both build their writes from `enabledForChoice`. That is by
+  construction, not by a test of the two together.
 - **No test covers the search.** The fix is a one-line condition in `settings-panel.js`. The harness that
   arrived with #565 clicks the two project buttons and could be pointed at the search box, but nothing
   does that yet; until then the guard against a regression is the rule and this document.

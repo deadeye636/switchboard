@@ -492,6 +492,19 @@ older line "a disabled backend's store is not re-scanned" holds for a store nobo
 `custom` entry the driver writes, Claude's is the `entrypoint` Claude Code writes itself from
 `CLAUDE_CODE_ENTRYPOINT` (`claude/transport-marker.js`).
 
+**A driver's shared launch fields live under its owner (#761).** The settings screen shows an owner and its drivers as one
+CLI, and `src/shared/backend-modes.js` is the one answer for it: `cliGroups` for the grouping, `sharedIdsOfGroup` for
+which fields are stored once (the same id, type, default and choices in the owner and in every driver; computed, never
+listed), `launchLayer` for what a launch reads, `targetAfterModeChange` for where the default target goes, `pickerModeOf` for which mode the New Session row starts. A driver
+declares `modeLabel` (the word on the mode badge and switch), and `test/backend-parity.test.js` requires it of every descriptor
+with `transcriptsOf`. The readers that build a launch's options all go through `launchLayer`: `storedDefaultsFor`
+in `src/renderer/dialogs/dialogs.js`, `spawnOptionsFor` in `src/app/terminal/spawn.js`, the context-window resolver
+in `src/index/context-window.js` and `getSkillDetail` in `src/app/skills.js`. Do not read `backendDefaults[backend.id]`
+for a launch anywhere else; a driver would miss the values stored under its owner. A field you give a driver that its
+owner declares differently (other choices, other default) stops being shared on its own, which is how Claude's
+`permissionMode` stays per mode. `src/app/approval-memory.js` reads a field only Pi (GUI) has and stays on its own id.
+`backendEnabled` is still one flag per id. Spec 26 has the reasoning.
+
 A descriptor with `transport` spawns on a pipe (`src/app/agent-rpc.js`), and its `rpc` half is where the
 protocol lives: it turns the CLI's lines into the app's own ops and the app's requests into lines. The
 core names no event of it. Its per-spawn extension is a hook pair on the descriptor

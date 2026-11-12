@@ -433,6 +433,13 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:
   [`specs/32-claude-native.md`](specs/32-claude-native.md).
+- **One row per CLI (#761)** — a CLI and its GUI mode (`Claude` / `Claude (GUI)`, `Pi` / `Pi (GUI)`) are one row,
+  one launch-defaults page and one project pane, with a mode badge (Terminal, GUI or Both; a click opens the choices) that
+  writes the per-id `backendEnabled` flags. Launch fields every mode declares alike are stored once under the CLI; the permission mode
+  stays per mode. The New Session list and the welcome tour use the same grouping
+  (`src/shared/backend-modes.js`), and the tour gained panes for the session sidebar and for keep warm. With both
+  modes on, a second badge beside it, "Picker: …" (`pickerModeByBackend`), decides which mode the New Session row
+  starts; the button beside the row starts the other one, and the Configure dialog opens on the chosen mode. Spec 26.
 - **Terminal or GUI, per session (#670)** — a session of an owner/driver pair (`Claude` / `Claude (GUI)`,
   `Pi` / `Pi (GUI)`) opens where the user last put it, stored per session in `session_meta.opener`.
   Without a stored choice the old routing applies: the transcript marker while the driver can launch,

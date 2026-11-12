@@ -13,6 +13,10 @@ events and sends turns down the same pipe.
 The terminal backend (`src/backends/pi/`) stays. Anyone who wants Pi's own TUI keeps it, and no backend
 carries two surfaces that have to be kept in step. An unfinished conversation view takes nothing away.
 
+In Settings, Pi and Pi (GUI) are one row and one page (#761, [spec 26](26-settings-screen.md)). The launch fields
+both declare alike are stored once under Pi; `approvalGate` and `approvalRules` are this backend's own and stay
+under its id.
+
 ## Decisions
 
 | | Decision | Why |

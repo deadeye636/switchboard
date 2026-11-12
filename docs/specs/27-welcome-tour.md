@@ -28,30 +28,35 @@ None of that is a defect. Each is a decision with a reason, and each is a thing 
 
 ## What it is
 
-Nine panes over one dialog, shown once on a profile whose global settings carry no `welcomeDismissed`,
-and reachable again from **Settings → Maintenance**. Pane 0 is the welcome pane and carries #146's two
-actions (Import settings, Open settings); the other eight are one topic each.
+A welcome pane and one topic pane per `PANES` entry over one dialog, shown once on a profile whose global settings carry no
+`welcomeDismissed`, and reachable again from **Settings → Maintenance**. The welcome pane carries #146's two
+actions (Import settings, Open settings); the others are one topic each. The list is the `PANES` array in
+`src/renderer/dialogs/welcome-tour.js`, and the rail and the dots follow it, so no number is written down
+here. One pane can drop out: the keep-warm pane is skipped when no installed, enabled backend declares the
+`idleMaintenance` capability (D6).
 
 Two properties separate it from a splash screen, and both were asked for after the first draft:
 
 **Every pane that names a setting also writes it.** A pane that says "switch this on" and then sends the
 user looking for the switch has explained a problem and left it standing.
 
-**Five panes draw what the setting does, and redraw as the controls change** — the split zones against an
-equal-cell grid, the sidebar with its fold, the × on a tab against a still-running agent, the review panel
-against a prompt in the terminal, the directories a plan and a handoff are written to.
+**Every pane with a `figureOf` draws what the setting does, and redraws as the controls change** — the split zones against an
+equal-cell grid, the sidebar with its fold, the session sidebar open or closed, the × on a tab against a
+still-running agent, the review panel against a prompt in the terminal, the directories a plan and a handoff are
+written to, and the keep-warm timeline. A figure that follows a control is a `figureOf` on the pane; the
+attention pane's figure is fixed.
 
 ## The decisions
 
 ### D1 — the panes are data, not markup
 
 One array of descriptors (title, where-line, body, controls, figure) and one renderer. That is what keeps
-nine panes consistent, and it is what makes the guard possible at all: a test can read the descriptors and
+the panes consistent, and it is what makes the guard possible at all: a test can read the descriptors and
 ask what they write.
 
 ### D2 — a control appears only where the pane's point IS that decision
 
-Not "every setting mentioned". Pane 8 (F1 opens the palette) names a setting and deliberately carries no
+Not "every setting mentioned". The palette pane (F1) names a setting and deliberately carries no
 control: rebinding needs the key capture in `settings-shortcuts.js`, which `index.html` does not load, so
 a control there would be a button that cannot capture a key.
 
@@ -73,10 +78,10 @@ does not use it for any of these settings: it builds one full object and calls `
 
 | Pane | Route | What the merge would have done |
 |---|---|---|
-| 1 — the CLIs | read the blob, patch `backendEnabled`, `set-setting` | replaced the whole map, dropping every other backend's state, and skipped the re-arm — a backend switched on would not be watched until relaunch |
-| 2 — attention | the flag **plus** `configureAttentionHook` | stored an intent nothing acts on; the hook is a file in the CLI's own home |
-| 3, 4, 5, 7 | `merge-setting` — flat keys | fine |
-| 6 — the review panel | read-modify-write of `backendDefaults`, `set-setting` | wiped every other backend's defaults and every other option of this one |
+| Your CLIs | read the blob, patch `backendEnabled` (and `defaultLaunchTarget` when the mode moves it) or `pickerModeByBackend.<owner>` (the "Default in the picker" switch), `set-setting` | replaced the whole map, dropping every other backend's state, and skipped the re-arm — a backend switched on would not be watched until relaunch |
+| Attention | the flag **plus** `configureAttentionHook` | stored an intent nothing acts on; the hook is a file in the CLI's own home |
+| Keep warm, Splitting, Sidebar, Session sidebar, Closing, Documents | `merge-setting` — flat keys (`idleMaintenanceMode`, `sessionSidebarDefault` among them) | fine |
+| Edits (the review panel) | read-modify-write of `backendDefaults`, `set-setting` | wiped every other backend's defaults and every other option of this one |
 
 ### D5 — the window that writes is the one window the broadcast skips
 
@@ -88,7 +93,7 @@ setting IS written.
 
 ### D6 — it names no backend
 
-Panes 2 and 6 are about a CLI's own options, and the tour is in `src/renderer/**`, where a backend id may
+The attention and edits panes are about a CLI's own options, and the tour is in `src/renderer/**`, where a backend id may
 not appear (CLAUDE.md reflex 5). So the tour names a **capability** id — `attentionHooks`, `mcpEmulation`
 — and asks the registry which backend declares it. A pane whose capability nothing installed declares is
 skipped rather than rendered empty.
@@ -100,12 +105,31 @@ declares the capability, which is unambiguous today and would not be if two decl
 
 ### D7 — the figures are drawn, not photographed
 
-A picture that has to answer to a number cannot be a PNG, and five of these do. They are inline SVG in the
+A picture that has to answer to a number cannot be a PNG, and most of these do. They are inline SVG in the
 module: crisp at any size, a fraction of a screenshot's weight, and they do not go stale when the app is
 restyled. The plan called for pane 2's to be a real screenshot, since it is about *where* a control is
 rather than what it does; it is drawn too, and the reason is in the code — a screenshot of the settings
 screen has to be re-shot and re-checked for a stray project name every time the screen changes (rule 6).
 **There is no image file and no `src/renderer/assets/`.**
+
+### D7b — the CLIs pane groups by CLI, like the Backends list (#761)
+
+The pane builds its controls from `backendModes.cliGroups` (`src/shared/backend-modes.js`), the module the Backends
+list asks, so the two never group differently and the tour still names no backend. A CLI with one mode gets the
+toggle it always had. A CLI with a GUI mode gets a segmented switch (Terminal | GUI | Both; the Backends list offers the same
+choices behind a badge with a popover) beside the toggle, disabled while the toggle is off; a combination it cannot offer presses no segment and is named beside
+it. With Both chosen, the row also shows "Default in the picker" (Terminal | GUI) under its name, which writes
+`pickerModeByBackend.<owner>` through the same whole-blob route, the value Settings saves. A choice writes
+`enabledForChoice` into `backendEnabled` through the same whole-blob route as before, and moves
+`defaultLaunchTarget` with `targetAfterModeChange` when the target was the mode that went off. With no target
+stored it starts from the target the app resolved, as the Backends list does. Toggling a CLI off and on again
+brings back the mode it had in this tour, else Terminal. A group with a mode that is not installed lists that
+mode's reason under its name.
+
+Switching a CLI on or off can change which panes exist, because the keep-warm pane needs an enabled backend with
+the capability. The tour therefore rebuilds its panes after a change in this pane (`rebuildPanes`). The pane on
+screen and the panes already seen are kept by their rail label, since their positions move. The Backends list and
+the tour build their writes from `enabledForChoice`, so a mode chosen in one reads the same in the other.
 
 ### D8 — reopening opens the tour; it does not reset the flag
 
@@ -125,6 +149,17 @@ own shape: Import and Open settings are alternatives to the tour, not companions
 
 Neither of those two actions writes the flag. Cancelling an import file dialog must not cost the tour
 permanently.
+
+### D9b — two panes were added with #761
+
+**Session sidebar** (`sessionSidebarDefault`, open or closed) says what the per-session sidebar holds, how to open
+it and that order and hidden sections are set on the sidebar itself, and draws a session with the sidebar open or
+closed. The section names come from `src/renderer/lib/sidebar-groups.js` when the pane is drawn, not from a second
+list in the tour. **Keep warm** (`idleMaintenanceMode`: Off, Keep warm, Compact only, Warm then compact) says plainly
+that every refresh and every compaction is a real model turn and that a compaction cannot be undone, and draws a
+timeline from the last turn that changes with the mode. It is skipped without an enabled backend declaring
+`idleMaintenance`, the same capability rule as D6. The what and why of idle maintenance is
+[spec 45](45-idle-maintenance.md).
 
 ### D10 — four ways out
 

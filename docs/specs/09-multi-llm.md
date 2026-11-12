@@ -365,6 +365,17 @@ The state stays **unknown** — and the user is told that it is unknown, and why
 renderer → `sessionOptions` → `buildLaunch` → spawn. Both the per-backend settings page and the Configure
 dialog are **generated** from `configFields`, so a new backend needs no UI code.
 
+**A CLI and its GUI mode are one row (#761).** In the New Session picker the owner and a driver that names it in
+`transcriptsOf` are grouped by `backendModes.cliGroups` (`src/shared/backend-modes.js`), and only modes that are ready
+and enabled count. With only the terminal mode on, the row is as before. With both on, a click on the row starts the
+mode chosen as "Default in the picker" (`pickerModeByBackend`, the terminal mode unless the user picked the GUI), a
+button on the right of the row, before the gear, starts the other mode and is labelled with it, and the gear's
+Configure dialog gets a Terminal | GUI switch that opens on the chosen mode and redraws the fields for the mode it
+shows. With only the GUI mode on, the row starts it under the GUI label. The DEFAULT badge stays on the row when the default target is in the group. The
+picker names no backend: the labels are the descriptors' `label` and `modeLabel`. Resume, handoff and templates are
+unchanged. `test/new-session-picker-modes.test.js` holds the cases; the settings side is in
+[spec 26](26-settings-screen.md).
+
 Env bundles resolve at spawn. Backend-owned default auth refs, such as Codex' `OPENAI_API_KEY` /
 `CODEX_API_KEY` and Pi's `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, are optional and may drop quietly when
 unset because the CLIs also support their own login stores. Missing refs from user `backendEnv`, templates

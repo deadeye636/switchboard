@@ -794,11 +794,12 @@ the check is drawn as plain text. Loosening the check means an agent's text can 
 ## `src/shared/`
 
 The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,
-`preview-kind`, `worktree-path` (#582), `convention-dir-name` (#630), `partial-args` (#664), the Flow trio
+`preview-kind`, `worktree-path` (#582), `convention-dir-name` (#630), `partial-args` (#664), `backend-modes` (#761: the CLI grouping, mode choices, shared launch fields and the picker default), the Flow trio
 `flow-snapshot` / `flow-layout` / `flow-text` (#826: the neutral shape, the pure layout the Flow tab in `session/flow-view.js` draws, and the words the tab and every export in main (SVG, PDF pages, Mermaid) draw with; each adds one
 global and no helper name), and two that only `settings.html` loads on the renderer side: `external-mcp-validate` (main's
 `external-mcp.js` and `external-mcp-check.js` validate with it too) and `mcp-addon-catalog` (main's `mcp-registry.js` and
-`windows.js`). **List the directory rather than trusting this line.**
+`windows.js`). The Backends panel, the welcome tour and the New Session picker read a CLI's modes from `backend-modes` (#761) and derive no
+group of their own. **List the directory rather than trusting this line.**
 `require()`d in main, a global in the renderer (which has no require — plain `<script>` tags). The
 preview in main must compute with the same code the insert runs in the renderer; two copies would be
 a bug factory. `worktree-path` is what that reads like when it is ignored: the pairing that decides

@@ -14,7 +14,7 @@ Settings are **one JSON blob per scope** in the `settings` table of `switchboard
 | Global | `global` | Settings → any category |
 | Per project | `project:<absolute path>` | Settings opened from a project's gear |
 | Per worktree | *(none — it reads its project's)* | nobody; see below |
-| Per backend | inside `global` under `backendDefaults.<backendId>` | Settings → Backends → a backend's page |
+| Per backend | inside `global` under `backendDefaults.<backendId>` | Settings → Backends → a CLI's page. Fields its modes share are stored under the CLI's own id ([One row per CLI](#one-row-per-cli-and-launch-defaults-stored-once)) |
 
 **A worktree has no scope of its own.** It is a sub-unit of its project, so `effectiveSettings` resolves
 the owner first (`settingsOwnerPath`, `src/shared/worktree-path.js`) and then cascades the ordinary two
@@ -498,9 +498,11 @@ screen.
 
 | Key | Shape | Default |
 |---|---|---|
-| `backendEnabled` | `{[backendId]: bool}` | an absent key reads **on for Claude and for a profile, off for every other built-in** — and a profile is off whenever its base backend is off, whatever its own key says (`isEnabled`, `src/backends/index.js`). A `planned` backend is off regardless. So a fresh install has Claude and nothing else, and switching another CLI on is a deliberate act. This line has been wrong twice: "enabled unless switched off" was the profile half stated as the whole rule, and "off for a built-in" forgot that Claude is one |
-| `defaultLaunchTarget` | backend or profile id | the stored target while it is launchable, else the first launchable, else `''` |
-| `backendDefaults` | `{[backendId]: {[optionId]: value}}` | `{}` — cascades **per option**, global → project |
+| `backendEnabled` | `{[backendId]: bool}` | an absent key reads **on for Claude and for a profile, off for every other built-in** — and a profile is off whenever its base backend is off, whatever its own key says (`isEnabled`, `src/backends/index.js`). A `planned` backend is off regardless. So a fresh install has Claude and nothing else, and switching another CLI on is a deliberate act. This line has been wrong twice: "enabled unless switched off" was the profile half stated as the whole rule, and "off for a built-in" forgot that Claude is one. The Backends list shows one row per CLI with a mode badge (Terminal, GUI or Both); the badge is not a setting but a view over these per-id flags (see [One row per CLI](#one-row-per-cli-and-launch-defaults-stored-once)) |
+| `defaultLaunchTarget` | backend or profile id | the stored target while it is launchable. If it is not launchable but another mode of the same CLI is, that mode (`getDefaultLaunchTarget`, `src/backends/index.js`). Otherwise the first launchable, else `''` |
+| `pickerModeByBackend` | `{[ownerBackendId]: modeBackendId}` — per CLI, keyed by the id of its terminal mode, the id of the mode the New Session picker row starts while more than one mode of that CLI is on (#761) | `{}` = the terminal mode, today's behaviour. A stored id that is not a mode of that CLI, or a mode that is off, falls back to the terminal mode, and with that off too to the first enabled mode (`pickerModeOf`, `src/shared/backend-modes.js`); nothing rewrites the stored value. **Global only.** Set in Settings → Backends (the "Picker: …" badge beside the mode badge, shown only with both modes on, saved with Save) and in the welcome tour. Main does not read it |
+| `backendDefaults` | `{[backendId]: {[optionId]: value}}` | `{}` — cascades **per option**, global → project. A launch option every mode of a CLI shares is stored under the CLI's own id, not under its GUI mode's |
+| `backendDefaultsReplaced` | `{[driverId]: {[optionId]: value}}` | absent. Written by the startup move below, never read by a launch. Holds the GUI mode's value where it disagreed with the CLI's |
 | `backendEnv` | `{[backendId]: {VAR: '$REF'}}` | `{}` — values are `$VAR` references, resolved at spawn |
 | `externalMcpServers` | `[{name, transport: 'stdio'\|'http', enabled?, backends?, command, args?, env?, cwd?}` or `{…, url, headers?}]` — MCP servers a project's launched sessions get (#789, spec 36) | `[]` — **project only**, no cascade; a worktree reads its project's list. `name` is `[A-Za-z0-9_-]+` and not `switchboard`. Edited in the project's settings, Plugins → MCPs (#803; category MCP servers before it): a one-line row per server with an on/off switch, a detail page with the facts and an add/edit form, and an *Edit as JSON* view for the raw list (Save is refused with the reason while an entry is invalid). Read and validated by `src/app/external-mcp.js` (the check itself is `src/shared/external-mcp-validate.js`); a bad entry is skipped with a reason. **Dropped on settings import** (a stdio entry is a command run at launch; re-add it by hand). Values in `env` and `headers` should be `${VAR}` references, not secrets |
 | `externalMcpPrune` | `boolean` — start a project's Claude sessions with only the MCP servers Switchboard injects (#789 slice A2, spec 36) | `false` — **project only**, no cascade; a worktree reads its project's value. Acts only on exactly `true`; any other value launches as before. Read by `src/app/external-mcp.js`. Only Claude and claude-native implement it; every other backend declines. If the project has servers for the backend and none reached the launch, the prune is skipped with a warning (spec 36, D-P6). **Dropped on settings import** |
@@ -528,6 +530,44 @@ Pi's `model` field supports backend-owned suggestions from `pi --list-models`; a
 
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.
+
+### One row per CLI and launch defaults stored once
+
+A CLI and the mode that drives it over a pipe (Claude and Claude (GUI), Pi and Pi (GUI)) are two backends in the
+registry and one row, one page and one project pane on the screen (#761, [spec 26](specs/26-settings-screen.md)).
+`src/shared/backend-modes.js` is the one place that decides the grouping; the descriptor of the GUI mode says
+`transcriptsOf` (its CLI) and `modeLabel` (the word on the mode badge).
+
+- **`backendEnabled` stays one flag per id.** The mode badge's choices write the flags of the whole group: Terminal sets the CLI
+  on and the GUI mode off, GUI the other way round, Both sets both. The toggle beside it writes every flag of the
+  group `false`, and on again restores the mode the group had earlier in that window, else Terminal only. After a
+  reload that memory is gone, so off, save, reopen, on starts from Terminal. A combination the choices cannot offer
+  (three modes and up) is the badge's text, with no choice marked; opening the page rewrites nothing.
+- **Default in the picker** (`pickerModeByBackend`). With more than one mode on, a second badge right of the mode badge
+  ("Picker: Terminal") picks the mode the New Session row starts. The button on the right of the row then starts the other mode and is
+  labelled with it, and the gear's Configure dialog opens on the chosen mode. The DEFAULT badge does not change.
+- **Which launch fields are shared** is computed, not listed: the same field id in the CLI and in every one of its
+  GUI modes, with the same `type`, the same `default` and, for a select, the same set of choices (`sharedIdsOfGroup`).
+  `model`, `worktree` and `addDirs` are shared for Claude; Claude's `permissionMode` is not, because the GUI mode
+  offers a shorter list of choices. A field only one mode has (`mcpEmulation` for Claude, `approvalGate` for Pi
+  (GUI)) is stored under that mode's own id.
+- **Where it is stored.** A shared field is stored under the CLI's id, in the global blob and in a project blob. A
+  field of one mode stays under that mode's id. Env variables, handoff and plan prompt overrides and integrations
+  are not shared at all: each stays under the id that launches.
+- **Read order for a launch** (`launchLayer`): the GUI mode's own entry, with the CLI's value laid over it for every
+  shared field. This is done per scope, then the project value wins over the global one per option as before. A
+  value still sitting under the GUI id for a shared field applies where the CLI has none. A `null` counts as not set
+  in every scope; `''` and `false` are values. Main hands the layered result to the renderer as
+  `launchDefaults` in the effective settings.
+- **The move.** At startup and on every write of `backendDefaults` (the settings form, a settings import, and a
+  `merge-setting` that touches that key), a shared value stored under the GUI id moves to the CLI's id, in the global
+  blob and in every project blob. Where the CLI already has a different value, the CLI's value wins and the GUI
+  mode's value goes to `backendDefaultsReplaced.<driverId>.<field>` in the same blob; only the first one set aside
+  is kept, a later conflicting one is dropped. The log names scope and field at `info` and the values at `debug`
+  only, because a value can be a path or prompt text. The move changes what a launch gets in one case: the CLI's
+  value now applies to the GUI mode as well, and a value moved to a CLI that had none now also applies to the
+  CLI's terminal launch. `test/settings-shared-defaults-migration.test.js` holds the cases.
+- **Per-session options** (the Configure dialog, Resume with config) read the same layered values.
 
 A launch option whose value the CLI has **retired** is rewritten once as well: the backend declares what the dead
 value becomes (`retiredChoices`, `docs/backend-formats.md`), and the rewrite runs over the global blob, every
