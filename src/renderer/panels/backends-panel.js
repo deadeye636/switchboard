@@ -52,7 +52,12 @@
   // Reading them off the DOM at save time therefore found nothing whenever a gear page was open, and the
   // save silently dropped EVERY backend setting the user had just made on that page (#163).
   let mountedGlobal = false;      // has the global section been rendered in this settings session?
-  let liveEnabled = {};           // backendId -> bool, as last shown in the list
+  // The ONE live answer to "is this id enabled", for every ready built-in: the rows' toggles and mode selects
+  // write it, the default-target select, the gear page and the save read it (#761). Nothing reads a checkbox.
+  let liveEnabled = {};           // backendId -> bool
+  // Per CLI (owner id): the `liveEnabled` slice its toggle switched off, so switching it on again in this
+  // settings session restores that mode (D14). Not stored: after a save and reopen, on means Terminal.
+  let rememberedModes = {};
   // '' = "nothing has said what the target is yet", which is what this genuinely means before the list is
   // mounted. It used to start at 'claude' — a guess that outlived its truth once Claude became disablable
   // (#162): a user with Claude off could have this stale value reach the saved settings as their default.
@@ -1384,7 +1389,7 @@
     storedBackendEnv = isProject ? {} : (ctx.fieldValue('backendEnv', {}) || {});
     if (!ctx.keepPending) {
       pendingDefaults = {}; clearedDefaults = {}; pendingPromptOverrides = {};
-      pendingBackendEnv = {}; mountedGlobal = false;
+      pendingBackendEnv = {}; mountedGlobal = false; rememberedModes = {};
       stagedTemplates = new Map(); deletedTemplates = new Set();
     }
     storedPromptOverrides = {
@@ -1574,6 +1579,29 @@
       if (enabledMap[b.id] !== undefined) return !!enabledMap[b.id];
       return !!b.enabled;
     };
+    // The live map is seeded from the stored state when the panel opens. A re-mount inside the same settings
+    // session (Back from a gear page, a staged template) keeps what the user switched, and the target with it.
+    if (!mountedGlobal) liveEnabled = {};
+    else if (liveLaunchTarget) defaultLaunchTarget = liveLaunchTarget;
+    for (const b of builtins) if (b.status === 'ready' && liveEnabled[b.id] === undefined) liveEnabled[b.id] = isEnabled(b);
+
+    // One row per CLI (#761): the modes of a CLI share the owner's row; a planned built-in keeps a row of its own.
+    const groups = backendModes.cliGroups(builtins);
+    const groupByOwner = new Map(groups.map(g => [g.owner.id, g]));
+    const ownerOnly = (g) => Object.fromEntries(g.ids.map(id => [id, id === g.owner.id]));
+    const groupOn = (g) => g.ids.some(id => liveEnabled[id] === true);
+    // What the select shows: the enabled modes; while the toggle is off, the mode it would switch back on (D14).
+    const shownChoice = (g) => backendModes.choiceFor(g, liveEnabled)
+      || backendModes.choiceFor(g, rememberedModes[g.owner.id] || ownerOnly(g));
+    const modeOptionsHtml = (g) => {
+      const shown = shownChoice(g);
+      const choices = backendModes.modeChoices(g);
+      // A combination the select cannot offer (three modes and up) is shown as it is, never rewritten (D13).
+      const extra = shown && shown.readOnly
+        ? `<option value="${esc(shown.value)}" disabled selected>${esc(shown.label)}</option>` : '';
+      return extra + choices.map(c =>
+        `<option value="${esc(c.value)}" ${shown && !shown.readOnly && shown.value === c.value ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
+    };
 
     // Same affordance as the launch picker's gear: this icon means "configure this backend".
     const gearBtn = (b) => `
@@ -1582,9 +1610,16 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>`;
 
-    const builtinRow = (b) => {
+    // A CLI's row: the owner's face, a line per mode that is not installed, then gear, mode select (only with
+    // more than one mode) and the toggle. A planned built-in is passed as `{ owner, modes: [] }`.
+    const cliRow = (g) => {
+      const b = g.owner;
       const ready = b.status === 'ready';
-      const on = isEnabled(b);
+      const on = ready && groupOn(g);
+      const multi = g.modes.length > 1;
+      const missing = ready ? g.modes
+        .map(m => ({ m, d: m.id === b.id ? b : g.drivers.find(x => x.id === m.id) }))
+        .filter(x => x.d && x.d.available === false && x.d.unavailableReason) : [];
       return `
         <div class="settings-field backend-row ${ready ? '' : 'backend-row-planned'}" data-backend-row="${esc(b.id)}">
           <div class="settings-field-info">
@@ -1595,18 +1630,25 @@
               ${ready && b.available === false ? '<span class="backend-pill missing">not installed</span>' : ''}
             </div>
             <div class="settings-description">${esc(b.description || '')}</div>
-            ${ready && b.available === false && b.unavailableReason
-              ? `<div class="settings-description backend-unavailable">${esc(b.unavailableReason)}</div>`
-              : ''}
+            ${missing.map(x =>
+              `<div class="settings-description backend-unavailable">${multi ? `${esc(x.m.label)}: ` : ''}${esc(x.d.unavailableReason)}</div>`).join('')}
           </div>
           <div class="settings-field-control">
             ${ready ? gearBtn(b) : ''}
+            ${ready && multi
+              ? `<select class="settings-select backend-mode-select" data-group="${esc(b.id)}" aria-label="Mode of ${esc(b.label)}" ${on ? '' : 'disabled'}>${modeOptionsHtml(g)}</select>`
+              : ''}
             ${ready
-              ? `<label class="settings-toggle"><input type="checkbox" class="backend-enable" data-id="${esc(b.id)}" ${on ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`
+              ? `<label class="settings-toggle"><input type="checkbox" class="backend-cli-toggle" data-group="${esc(b.id)}" aria-label="Enable ${esc(b.label)}" ${on ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`
               : '<span class="backend-planned-note">not built yet</span>'}
           </div>
         </div>`;
     };
+    const listRows = () => builtins.map(b => {
+      if (b.status !== 'ready') return cliRow({ owner: b, drivers: [], modes: [], ids: [b.id] });
+      const g = groupByOwner.get(b.id);
+      return g ? cliRow(g) : '';   // a mode of a CLI is drawn in its owner's row
+    }).join('');
 
     // Say what the template actually runs. It used to read "Claude Code on an alternative endpoint" for
     // every profile, which was true only because Claude was the only base there could be (#161).
@@ -1648,7 +1690,7 @@
           <span>Built-in</span>
           ${capabilityMatrixButtonHtml()}
         </div>
-        ${builtins.map(builtinRow).join('')}
+        ${listRows()}
       </div>
 
       <div class="settings-section">
@@ -1808,9 +1850,10 @@
     // The one "default" marker: a select over ready && enabled backends/profiles. Rebuilt whenever
     // an enable toggle flips so a disabled backend can never stay the default target.
     const select = box.querySelector('#sv-default-launch-target');
-    function rebuildSelect() {
+    // `want` is a target the caller just moved (a mode change, D6); it is kept when it is launchable.
+    function rebuildSelect(want) {
       const eligible = backends.filter(b => b.status === 'ready' && isEnabledLive(b));
-      const keep = select.value || defaultLaunchTarget;
+      const keep = want || select.value || defaultLaunchTarget;
       // Fall back to the first LAUNCHABLE backend, not to a hardcoded 'claude' — Claude can be disabled
       // now (#162), and a default that points at a disabled backend is a spawn that gets refused.
       const target = eligible.some(b => b.id === keep) ? keep : (eligible[0] ? eligible[0].id : '');
@@ -1826,23 +1869,20 @@
       const warn = box.querySelector('#sv-no-backend-warning');
       if (warn) warn.hidden = eligible.length > 0;
     }
-    // Live enabled state = the checkbox in the DOM. A TEMPLATE has no toggle of its own: it follows the
-    // backend it runs on (#162), so read that backend's checkbox instead of assuming "always enabled".
+    // Live enabled state = `liveEnabled`. A TEMPLATE has no toggle of its own: it follows the backend it
+    // runs on (#162) — a driver base included, since every ready built-in id is in the map.
     function isEnabledLive(b) {
-      const cb = box.querySelector(`.backend-enable[data-id="${CSS.escape(b.id)}"]`);
-      if (cb) return cb.checked;
+      if (liveEnabled[b.id] !== undefined) return liveEnabled[b.id];
       if (b.isProfile) {
-        const baseCb = box.querySelector(`.backend-enable[data-id="${CSS.escape(b.baseId || LEGACY_TEMPLATE_BASE)}"]`);
-        if (baseCb) return baseCb.checked;
-        return true;
+        const baseId = b.baseId || LEGACY_TEMPLATE_BASE;
+        return liveEnabled[baseId] !== undefined ? liveEnabled[baseId] : true;
       }
       return isEnabled(b);
     }
-    // Snapshot the list-level values into module state on every change, so a save that happens while a
-    // gear page is open (i.e. with this list not in the DOM) still knows them.
+    // Snapshot the list-level target into module state on every change, so a save that happens while a
+    // gear page is open (i.e. with this list not in the DOM) still knows it. `liveEnabled` needs no
+    // snapshot: it IS the state.
     function snapshotList() {
-      liveEnabled = {};
-      box.querySelectorAll('.backend-enable').forEach(cb => { liveEnabled[cb.dataset.id] = !!cb.checked; });
       // `select.value` IS the resolved answer: rebuildSelect() runs first and lands it on the stored
       // default when that is still launchable, on the first launchable backend when it is not, and on ''
       // when nothing is. Reaching past it to the raw stored `defaultLaunchTarget` — as this did — is what
@@ -1854,8 +1894,34 @@
     rebuildSelect();
     snapshotList();
     select.addEventListener('change', () => { rebuildSelect(); snapshotList(); });
+    // A CLI's toggle or mode select writes `liveEnabled` for the group's ids, moves the default target along
+    // when it pointed at a mode that is now off (D6), then repaints the row's controls and the target select.
+    function applyGroupState(g, next) {
+      Object.assign(liveEnabled, next);
+      const moved = backendModes.targetAfterModeChange(select.value, g, next);
+      const row = box.querySelector(`.backend-row[data-backend-row="${CSS.escape(g.owner.id)}"]`);
+      const on = groupOn(g);
+      const toggle = row && row.querySelector('.backend-cli-toggle');
+      if (toggle) toggle.checked = on;
+      const modeSel = row && row.querySelector('.backend-mode-select');
+      if (modeSel) { modeSel.innerHTML = modeOptionsHtml(g); modeSel.disabled = !on; }
+      rebuildSelect(moved);
+      snapshotList();
+    }
     box.addEventListener('change', (e) => {
-      if (e.target.classList && e.target.classList.contains('backend-enable')) { rebuildSelect(); snapshotList(); }
+      const t = e.target;
+      const g = t && t.dataset && groupByOwner.get(t.dataset.group);
+      if (!g) return;
+      if (t.classList.contains('backend-mode-select')) {
+        applyGroupState(g, backendModes.enabledForChoice(g, t.value));
+      } else if (t.classList.contains('backend-cli-toggle')) {
+        if (t.checked) {
+          applyGroupState(g, rememberedModes[g.owner.id] || ownerOnly(g));
+        } else {
+          rememberedModes[g.owner.id] = Object.fromEntries(g.ids.map(id => [id, liveEnabled[id] === true]));
+          applyGroupState(g, Object.fromEntries(g.ids.map(id => [id, false])));
+        }
+      }
     });
 
     const refresh = () => mount(root, { ...ctx, keepPending: true });
@@ -1950,13 +2016,8 @@
   // the source of truth now; the DOM is only where the current page's edits are read from (#163).
   function readGlobal(root) {
     if (!mountedGlobal) return null;
-    const backendEnabled = {};
-    const fromDom = root ? root.querySelectorAll('.backend-enable') : [];
-    if (fromDom.length) {
-      fromDom.forEach(cb => { backendEnabled[cb.dataset.id] = !!cb.checked; });
-    } else {
-      Object.assign(backendEnabled, liveEnabled);   // the list is off-screen: use what it last showed
-    }
+    // The live map, whether the list or a gear page is on screen (#163, #761).
+    const backendEnabled = { ...liveEnabled };
     const select = root && root.querySelector('#sv-default-launch-target');
     readBackendEnvFromDom(root);
     const backendEnv = mergedBackendEnv();

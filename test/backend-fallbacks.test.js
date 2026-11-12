@@ -50,6 +50,8 @@ async function mountWith(backends, defaultLaunchTarget) {
     writable: true, configurable: true,
   });
 
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'shared', 'backend-modes.js'), 'utf8'),
+    dom.getInternalVMContext(), { filename: 'backend-modes.js' });
   vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'panels', 'backends-panel.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'backends-panel.js' });
 
@@ -94,12 +96,12 @@ test('with every backend disabled, the default target is empty — not a backend
     'with nothing launchable the honest answer is "none" — naming a disabled backend is what #212 removed');
 });
 
-test('the resolver follows the checkbox, not the stored state — an unsaved toggle counts', async () => {
+test('the resolver follows the toggle, not the stored state — an unsaved toggle counts', async () => {
   const { window, root } = await mountWith([CLAUDE(true), CODEX(true)], 'claude');
   assert.equal(window.backendsPanel.readGlobal(root).defaultLaunchTarget, 'claude');
 
   // Switch Claude off in the list without saving, exactly as a user would before pressing Save once.
-  const cb = root.querySelector('.backend-enable[data-id="claude"]');
+  const cb = root.querySelector('.backend-cli-toggle[data-group="claude"]');
   cb.checked = false;
   cb.dispatchEvent(new window.Event('change', { bubbles: true }));
 

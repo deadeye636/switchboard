@@ -53,24 +53,24 @@ const C_GUI = base('cli-c-gui', 'CLI C (GUI)', { transcriptsOf: 'cli-c', modeLab
 const C_SRV = base('cli-c-srv', 'CLI C (server)', { transcriptsOf: 'cli-c', modeLabel: 'Server', configFields: [MODEL] });
 const LONE = base('lone', 'Lone', { configFields: [MODEL, { id: 'x', label: 'X', type: 'toggle', default: false }] });
 
-async function setup(backends, stored = {}) {
+async function setup(backends, stored = {}, opts = {}) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true,
   });
   const { window } = dom;
   window.api = {
     backends: {
-      list: async () => ({ backends, defaultLaunchTarget: backends[0].id }),
+      list: async () => ({ backends, defaultLaunchTarget: opts.target || backends[0].id }),
       listResources: async () => ({ ok: true, resources: [] }),
     },
-    profiles: { list: async () => ({ profiles: [] }) },
+    profiles: { list: async () => ({ profiles: opts.profiles || [] }) },
   };
   Object.defineProperty(window, 'CSS', { value: { escape: (s) => String(s).replace(/([^\w-])/g, '\\$1') }, configurable: true });
   const ctxVm = dom.getInternalVMContext();
   vm.runInContext(fs.readFileSync(path.join(SRC, 'shared', 'backend-modes.js'), 'utf8'), ctxVm, { filename: 'backend-modes.js' });
   vm.runInContext(fs.readFileSync(PANEL, 'utf8'), ctxVm, { filename: PANEL });
   const root = window.document.getElementById('root');
-  const settings = { backendDefaults: stored };
+  const settings = { backendDefaults: stored, ...(opts.enabled ? { backendEnabled: opts.enabled } : {}) };
   const mountCtx = { isProject: false, settings, fieldValue: (k, fb) => (settings[k] !== undefined ? settings[k] : fb) };
   await window.backendsPanel.mount(root, mountCtx);
   return { window, root, mountCtx, close: () => window.close() };
@@ -97,24 +97,22 @@ function openGear(ctx, id) {
   return pageOf(ctx.root);
 }
 
-test('the gear of either row opens the one page of the CLI, headed by the owner', async () => {
+test('the CLI row has one gear, and it opens the one page of the CLI, headed by the owner', async () => {
   const ctx = await setup([A, A_GUI]);
   try {
-    for (const id of ['cli-a', 'cli-a-gui']) {
-      const page = openGear(ctx, id);
-      assert.equal(page.dataset.backendPage, 'cli-a');
-      assert.equal(page.querySelector('h3').textContent, 'CLI A');
-      assert.match(page.querySelector('.backend-caveat').textContent, /Owner caveat/);
-      assert.ok(page.querySelector('#sv-capability-matrix'), 'the matrix button stays');
-      await back(ctx);
-    }
+    assert.equal(ctx.root.querySelector('.backend-gear[data-id="cli-a-gui"]'), null, 'a mode has no gear of its own');
+    const page = openGear(ctx, 'cli-a');
+    assert.equal(page.dataset.backendPage, 'cli-a');
+    assert.equal(page.querySelector('h3').textContent, 'CLI A');
+    assert.match(page.querySelector('.backend-caveat').textContent, /Owner caveat/);
+    assert.ok(page.querySelector('#sv-capability-matrix'), 'the matrix button stays');
   } finally { ctx.close(); }
 });
 
 test('shared controls carry the owner id, own controls their mode id, and nothing is drawn twice', async () => {
   const ctx = await setup([A, A_GUI]);
   try {
-    const page = openGear(ctx, 'cli-a-gui');
+    const page = openGear(ctx, 'cli-a');
     for (const opt of ['model', 'worktree']) {
       assert.ok(input(page, 'cli-a', opt), `${opt} stored under the owner`);
       assert.equal(input(page, 'cli-a-gui', opt), null, `${opt} has no driver control`);
@@ -155,7 +153,7 @@ test('a section per ENABLED mode and none for a disabled one; with none enabled 
   } finally { ctx.close(); }
   const off = await setup([{ ...A, enabled: false }, { ...A_GUI, enabled: false }]);
   try {
-    assert.deepEqual(sections(openGear(off, 'cli-a-gui')), ['cli-a', 'cli-a-gui']);
+    assert.deepEqual(sections(openGear(off, 'cli-a')), ['cli-a', 'cli-a-gui']);
   } finally { off.close(); }
   const gui = await setup([{ ...A, enabled: false }, A_GUI]);
   try {
@@ -168,7 +166,7 @@ test('a section per ENABLED mode and none for a disabled one; with none enabled 
 test('a fake three-mode group draws a section for each enabled mode, titled by its mode label', async () => {
   const ctx = await setup([C, C_GUI, { ...C_SRV, enabled: false }]);
   try {
-    const page = openGear(ctx, 'cli-c-gui');
+    const page = openGear(ctx, 'cli-c');
     assert.deepEqual(sections(page), ['cli-c', 'cli-c-gui']);
     assert.ok(titles(page).includes('Terminal') && titles(page).includes('GUI'));
     assert.ok(!titles(page).includes('Server'));
@@ -176,7 +174,7 @@ test('a fake three-mode group draws a section for each enabled mode, titled by i
   } finally { ctx.close(); }
   const all = await setup([C, C_GUI, C_SRV]);
   try {
-    assert.deepEqual(sections(openGear(all, 'cli-c-srv')), ['cli-c', 'cli-c-gui', 'cli-c-srv']);
+    assert.deepEqual(sections(openGear(all, 'cli-c')), ['cli-c', 'cli-c-gui', 'cli-c-srv']);
   } finally { all.close(); }
 });
 
@@ -194,7 +192,7 @@ test('a lone backend renders exactly the single page: no mode sections, no mode 
 test('the page shows the OWNER\'s stored value for a shared field and an unticked box for it', async () => {
   const ctx = await setup([A, A_GUI], { 'cli-a': { model: 'big' }, 'cli-a-gui': { suggestOff: true } });
   try {
-    const page = openGear(ctx, 'cli-a-gui');
+    const page = openGear(ctx, 'cli-a');
     assert.equal(input(page, 'cli-a', 'model').value, 'big');
     assert.equal(inherit(page, 'cli-a', 'model').checked, false);
     assert.equal(inherit(page, 'cli-a', 'worktree').checked, true, 'an unset field still follows the default');
@@ -231,9 +229,9 @@ test('R2: a value edited in a section survives that section being hidden, and Sa
     fire(el, 'change');
     await back(ctx);
     // The mode is switched off in the list, then the page is opened again: its section is not drawn.
-    const enable = ctx.root.querySelector('.backend-enable[data-id="cli-a-gui"]');
-    enable.checked = false;
-    fire(enable, 'change');
+    const mode = ctx.root.querySelector('.backend-mode-select[data-group="cli-a"]');
+    mode.value = 'cli-a';
+    fire(mode, 'change');
     const again = openGear(ctx, 'cli-a');
     assert.deepEqual(sections(again), ['cli-a']);
     assert.equal(input(again, 'cli-a-gui', 'suggestOff'), null);
@@ -351,5 +349,138 @@ test('project scope: inherited values come from the layered global defaults and 
     assert.equal(input(ctx.root, 'cli-a-gui', 'suggestOff').checked, true);
     assert.equal(input(ctx.root, 'cli-a-gui', 'model'), null, 'a driver draws no control for a shared field');
     assert.match(pane(ctx.root, 'cli-a').querySelector('.backend-mode-note').textContent, /GUI: Driver wording/);
+  } finally { ctx.close(); }
+});
+
+test('project scope: Save keeps a hidden mode\'s stored overrides', async () => {
+  const own = { 'cli-a-gui': { suggestOff: true } };
+  const ctx = await setupProject([A, { ...A_GUI, enabled: false }], own);
+  try {
+    assert.deepEqual(sections(pane(ctx.root, 'cli-a')), ['cli-a'], 'the driver section is hidden');
+    assert.equal(input(ctx.root, 'cli-a-gui', 'suggestOff'), null);
+    assert.deepEqual(plain(ctx.window.backendsPanel.readProjectDefaults(ctx.root)), own);
+  } finally { ctx.close(); }
+});
+
+// --- T8: the list has one row per CLI, a toggle and a mode select, over one state map ----------------------------
+
+const rowOf = (root, id) => root.querySelector(`.backend-row[data-backend-row="${id}"]`);
+const modeSel = (root, id) => root.querySelector(`.backend-mode-select[data-group="${id}"]`);
+const toggleOf = (root, id) => root.querySelector(`.backend-cli-toggle[data-group="${id}"]`);
+const targetSel = (root) => root.querySelector('#sv-default-launch-target');
+const enabledOf = (ctx) => plain(ctx.window.backendsPanel.readGlobal(ctx.root).backendEnabled);
+const chooseMode = (root, id, value) => { const s = modeSel(root, id); s.value = value; fire(s, 'change'); };
+const flip = (root, id, on) => { const t = toggleOf(root, id); t.checked = on; fire(t, 'change'); };
+
+test('one row per CLI: a lone backend has a toggle and no select, a pair has Terminal / GUI / Both', async () => {
+  const ctx = await setup([LONE, A, A_GUI]);
+  try {
+    assert.deepEqual([...ctx.root.querySelectorAll('.backend-row[data-backend-row]')].map(r => r.dataset.backendRow), ['lone', 'cli-a']);
+    assert.equal(rowOf(ctx.root, 'cli-a-gui'), null, 'a mode draws no row of its own');
+    assert.equal(modeSel(ctx.root, 'lone'), null);
+    assert.ok(toggleOf(ctx.root, 'lone'));
+    const sel = modeSel(ctx.root, 'cli-a');
+    assert.ok(sel.classList.contains('settings-select'), 'the select reuses the settings class');
+    assert.deepEqual([...sel.options].map(o => o.textContent), ['Terminal', 'GUI', 'Both']);
+    assert.equal(sel.selectedOptions[0].textContent, 'Both');
+    // Control order: gear, select, toggle.
+    const control = rowOf(ctx.root, 'cli-a').querySelector('.settings-field-control');
+    const kinds = [...control.querySelectorAll('.backend-gear, .backend-mode-select, .backend-cli-toggle')].map(el => el.className.split(' ').pop());
+    assert.deepEqual(kinds, ['backend-gear', 'backend-mode-select', 'backend-cli-toggle']);
+    assert.equal(ctx.root.querySelector('.backend-enable'), null, 'no per-id checkbox is left');
+  } finally { ctx.close(); }
+});
+
+test('a mode not installed is named under the description', async () => {
+  const ctx = await setup([A, { ...A_GUI, available: false, unavailableReason: 'Needs a newer CLI.' }]);
+  try {
+    const lines = [...rowOf(ctx.root, 'cli-a').querySelectorAll('.backend-unavailable')].map(l => l.textContent);
+    assert.deepEqual(lines, ['GUI: Needs a newer CLI.']);
+  } finally { ctx.close(); }
+});
+
+test('choosing GUI writes the owner off and the driver on', async () => {
+  const ctx = await setup([A, A_GUI, LONE]);
+  try {
+    chooseMode(ctx.root, 'cli-a', 'cli-a-gui');
+    assert.deepEqual(enabledOf(ctx), { 'cli-a': false, 'cli-a-gui': true, lone: true });
+    assert.equal(modeSel(ctx.root, 'cli-a').selectedOptions[0].textContent, 'GUI');
+  } finally { ctx.close(); }
+});
+
+test('toggle off writes every id off; on restores the remembered mode, with none remembered the owner only', async () => {
+  const ctx = await setup([A, A_GUI]);
+  try {
+    chooseMode(ctx.root, 'cli-a', 'cli-a-gui');
+    flip(ctx.root, 'cli-a', false);
+    assert.deepEqual(enabledOf(ctx), { 'cli-a': false, 'cli-a-gui': false });
+    const sel = modeSel(ctx.root, 'cli-a');
+    assert.equal(sel.disabled, true, 'the select is disabled while the CLI is off');
+    assert.equal(sel.selectedOptions[0].textContent, 'GUI', 'and shows the last mode');
+    flip(ctx.root, 'cli-a', true);
+    assert.deepEqual(enabledOf(ctx), { 'cli-a': false, 'cli-a-gui': true });
+    assert.equal(sel.disabled, false);
+  } finally { ctx.close(); }
+  const off = await setup([A, A_GUI], {}, { enabled: { 'cli-a': false, 'cli-a-gui': false } });
+  try {
+    assert.equal(toggleOf(off.root, 'cli-a').checked, false);
+    assert.equal(modeSel(off.root, 'cli-a').disabled, true);
+    flip(off.root, 'cli-a', true);
+    assert.deepEqual(enabledOf(off), { 'cli-a': true, 'cli-a-gui': false });
+  } finally { off.close(); }
+});
+
+test('the default target follows the mode: a target on a mode switched off moves to its twin, otherwise it stays', async () => {
+  const ctx = await setup([A, A_GUI, LONE], {}, { target: 'cli-a-gui' });
+  try {
+    assert.equal(targetSel(ctx.root).value, 'cli-a-gui');
+    chooseMode(ctx.root, 'cli-a', 'cli-a');
+    assert.equal(targetSel(ctx.root).value, 'cli-a');
+    assert.equal(ctx.window.backendsPanel.readGlobal(ctx.root).defaultLaunchTarget, 'cli-a');
+    chooseMode(ctx.root, 'cli-a', 'cli-a|cli-a-gui');
+    assert.equal(targetSel(ctx.root).value, 'cli-a', 'Both keeps the owner target');
+    assert.deepEqual([...targetSel(ctx.root).options].map(o => o.value), ['cli-a', 'cli-a-gui', 'lone'],
+      'the target select still lists every enabled id');
+  } finally { ctx.close(); }
+});
+
+test('a three-mode group offers each mode and All, and shows an unofferable combination read-only', async () => {
+  const ctx = await setup([C, C_GUI, C_SRV], {}, { enabled: { 'cli-c': true, 'cli-c-gui': true, 'cli-c-srv': false } });
+  try {
+    const sel = modeSel(ctx.root, 'cli-c');
+    const labels = [...sel.options].map(o => o.textContent);
+    assert.deepEqual(labels, ['Terminal + GUI', 'Terminal', 'GUI', 'Server', 'All']);
+    assert.equal(sel.selectedOptions[0].textContent, 'Terminal + GUI');
+    assert.equal(sel.selectedOptions[0].disabled, true);
+    assert.deepEqual(enabledOf(ctx), { 'cli-c': true, 'cli-c-gui': true, 'cli-c-srv': false }, 'opening rewrites nothing');
+    chooseMode(ctx.root, 'cli-c', 'cli-c-srv');
+    assert.deepEqual(enabledOf(ctx), { 'cli-c': false, 'cli-c-gui': false, 'cli-c-srv': true });
+  } finally { ctx.close(); }
+});
+
+test('readGlobal while a gear page is open returns the live map (#163)', async () => {
+  const ctx = await setup([A, A_GUI, LONE]);
+  try {
+    chooseMode(ctx.root, 'cli-a', 'cli-a-gui');
+    openGear(ctx, 'cli-a');
+    const saved = plain(ctx.window.backendsPanel.readGlobal(ctx.root));
+    assert.deepEqual(saved.backendEnabled, { 'cli-a': false, 'cli-a-gui': true, lone: true });
+    assert.equal(saved.defaultLaunchTarget, 'cli-a-gui');
+    await back(ctx);
+    assert.equal(modeSel(ctx.root, 'cli-a').selectedOptions[0].textContent, 'GUI', 'Back keeps the unsaved mode');
+    assert.equal(targetSel(ctx.root).value, 'cli-a-gui');
+  } finally { ctx.close(); }
+});
+
+test('a template on a driver base follows that base', async () => {
+  const profiles = [{ id: 'tpl', name: 'Tpl', backendId: 'cli-a-gui' }];
+  const ctx = await setup([A, A_GUI], {}, { profiles });
+  try {
+    const listed = () => [...targetSel(ctx.root).options].map(o => o.value);
+    assert.ok(listed().includes('tpl'));
+    chooseMode(ctx.root, 'cli-a', 'cli-a');
+    assert.ok(!listed().includes('tpl'), 'the base is off, so the template is no launch target');
+    chooseMode(ctx.root, 'cli-a', 'cli-a-gui');
+    assert.ok(listed().includes('tpl'));
   } finally { ctx.close(); }
 });
