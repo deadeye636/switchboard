@@ -377,7 +377,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   **Pi** run side by side in one sidebar, one FTS index, one launch menu and one stats view. A backend is a folder under `backends/`
   with a single descriptor; the registry, scanner, watcher, launch menu, settings page, Configure
   dialog, badge, search, stats and resume all derive from it.
-- **Pi driven through its runtime (#568)** — `Pi (native)` starts `pi --mode rpc` instead of Pi's TUI and
+- **Pi driven through its runtime (#568)** — `Pi (GUI)` starts `pi --mode rpc` instead of Pi's TUI and
   draws the conversation from its events: the turn being streamed, tool calls and their output, and
   questions an extension is waiting on. It has no terminal. A text field sends, queues and steers turns,
   and before `bash`, `powershell`, `edit`, `write`, a delegation to the `subagent` tool, a taken-over
@@ -394,9 +394,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   with the next turn (#656); any other file is named in the text as `@path`, which Pi passes on for the
   model to read itself (#699). Spec:
   [`specs/30-pi-native.md`](specs/30-pi-native.md).
-- **Claude driven through its stream protocol (#653)** — `Claude (native)` starts the installed `claude` in
+- **Claude driven through its stream protocol (#653)** — `Claude (GUI)` starts the installed `claude` in
   print mode with stream-json on both sides, the protocol the Claude Agent SDK wraps, and draws the
-  conversation in the same view as `Pi (native)`. Tool approvals are Claude's own permission prompt,
+  conversation in the same view as `Pi (GUI)`. Tool approvals are Claude's own permission prompt,
   answered on a card: allow once, refuse, and "for this session" where Claude suggests something for the
   session, worded as what it allows, and "always allow in this project" where Claude suggests a rule for the
   project's local settings, which Claude then writes itself (#674). `AskUserQuestion` and `ExitPlanMode` arrive as a question card and a
@@ -433,8 +433,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:
   [`specs/32-claude-native.md`](specs/32-claude-native.md).
-- **Terminal or GUI, per session (#670)** — a session of an owner/driver pair (`Claude` / `Claude (native)`,
-  `Pi` / `Pi (native)`) opens where the user last put it, stored per session in `session_meta.opener`.
+- **Terminal or GUI, per session (#670)** — a session of an owner/driver pair (`Claude` / `Claude (GUI)`,
+  `Pi` / `Pi (GUI)`) opens where the user last put it, stored per session in `session_meta.opener`.
   Without a stored choice the old routing applies: the transcript marker while the driver can launch,
   otherwise the terminal. The sidebar row keeps the owner's backend badge and shows a terminal or a
   conversation glyph beside it; a hover button, a pane menu entry, a palette action and the View field of
@@ -443,7 +443,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   an answer), after a confirmation, by stopping it and opening it again in the same tab. When either half cannot
   launch, none of this is shown and a stored choice waits until it can. Specs:
   [`specs/32-claude-native.md`](specs/32-claude-native.md), [`specs/23-command-palette.md`](specs/23-command-palette.md).
-- **Document preview card (#755)** — in the conversation view of Claude (native) and Pi (native), and in the
+- **Document preview card (#755)** — in the conversation view of Claude (GUI) and Pi (GUI), and in the
   Message History viewer, a file the agent reads (a PDF page range, an image, Markdown, HTML) is drawn as one
   card with a first-page thumbnail, the name and a page label, instead of every page inline. A click opens a
   viewer over the conversation with a pager, zoom and Esc, built from the pages the result already holds. A
@@ -544,7 +544,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says
   what the run cost. The tool is passed as a per-spawn extension, so nothing is installed into Pi's own
-  configuration. It is off by default. Both Pi backends offer it, and `Pi (native)` asks before a
+  configuration. It is off by default. Both Pi backends offer it, and `Pi (GUI)` asks before a
   delegation unless `approvalGate` is off or that agent was allowed for the session, naming the agent's
   tools and model, because the child runs
   without the app's approval question. Settings: [`settings-reference.md`](settings-reference.md).
@@ -552,7 +552,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   behind. The `resourcesFrom` setting on both Pi backends names one source (Claude Code, Codex or the
   Antigravity CLI), and a Pi session then gets that CLI's skills as `--skill` directories and its commands
   through the session's resources extension, which expands arguments, `@file` and inline shell lines. A shell
-  line runs only where the command file's `allowed-tools` permits it, and `Pi (native)` asks first unless `approvalGate` is off. Pi's
+  line runs only where the command file's `allowed-tools` permits it, and `Pi (GUI)` asks first unless `approvalGate` is off. Pi's
   own skills and commands win by name (only the app's own `/handoff` and `/plan` give way to a source's), and a project's own directories are passed only when Pi trusts the
   project. The settings screen fills the choices from the backends that offer something and previews what a
   launch would get. **Agents (#639)** come along while the subagent tool is on: their tools are mapped through
@@ -561,7 +561,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   another. **MCP servers (#633)** come along while their own switch is on: the source's stdio servers are
   started by a small MCP client in the same extension, their tools are offered as `mcp__<server>__<tool>`,
   the server list reaches Pi through its environment rather than a file, a project's servers need Pi's
-  trust and the user's approval in the source CLI, and `Pi (native)` asks before each tool. **Hooks (#635)**
+  trust and the user's approval in the source CLI, and `Pi (GUI)` asks before each tool. **Hooks (#635)**
   come along while their own switch is on: a command the source attached to the session opening, a tool call
   finishing or the agent going idle runs at the matching moment in Pi; a hook that answers back does not come
   along. Spec:

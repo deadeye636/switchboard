@@ -143,8 +143,8 @@ chart rather than a row of zeroes.
   page or a Markdown document the agent writes into its answer as a code block has a Preview button that opens it
   rendered in the same viewer, HTML with scripts off. Every code block has a Copy button.
   → [`docs/specs/33-document-preview.md`](docs/specs/33-document-preview.md)
-- **Terminal or GUI, per session** — with both halves of a pair switched on (Claude and Claude (native),
-  Pi and Pi (native)), each sidebar row shows where it opens, and a session can be opened in the other view
+- **Terminal or GUI, per session** — with both halves of a pair switched on (Claude and Claude (GUI),
+  Pi and Pi (GUI)), each sidebar row shows where it opens, and a session can be opened in the other view
   from the row, the pane menu, the command palette or *Resume with config*. A running session is stopped
   and opened there again in the same tab, once it is idle. The choice is remembered for that session until
   you pick *Use the default view*.
@@ -172,8 +172,8 @@ chart rather than a row of zeroes.
   default. Claude takes them in the terminal and in the conversation view; Pi and Hermes cannot call them yet.
   → [`docs/specs/35-session-discovery-tools.md`](docs/specs/35-session-discovery-tools.md),
   [`docs/specs/37-claude-on-the-seam.md`](docs/specs/37-claude-on-the-seam.md)
-- **A second opinion from another backend** — an opt-in launch option for Claude and Claude (native) gives the
-  agent two tools: start a read-only review on Claude (native) or Pi (native) and poll for its answer. The review
+- **A second opinion from another backend** — an opt-in launch option for Claude and Claude (GUI) gives the
+  agent two tools: start a read-only review on Claude (GUI) or Pi (GUI) and poll for its answer. The review
   is a real session in the same folder, shown under the caller in the sidebar, in plan mode or behind Pi's approval
   gate, with every action it asks about refused. One at a time, ten minutes at most, no notifications. The prompt
   and the files the reviewer reads go to that backend's vendor, so it is off by default.

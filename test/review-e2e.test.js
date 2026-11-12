@@ -80,7 +80,7 @@ async function world(tag) {
   const answers = [];
   const ctx = {
     activeSessions,
-    listTargets: () => [{ id: 'pi-native', label: 'Pi (native)', options: { approvalGate: true } }],
+    listTargets: () => [{ id: 'pi-native', label: 'Pi (GUI)', options: { approvalGate: true } }],
     getAppQuitting: () => false,
     stopSession,
     timeline: { recordLifecycle() {} },

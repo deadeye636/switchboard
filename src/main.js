@@ -1822,6 +1822,8 @@ ipcMain.handle('backends-list', () => {
       // pairs a session's owner with its drivers through this field — the Resume dialog's View field — and
       // names no backend doing it.
       transcriptsOf: b.transcriptsOf || null,
+      // The short name of how a driver opens its owner's rows (#761), e.g. 'GUI'; null for a backend that is not one.
+      modeLabel: b.modeLabel || null,
       // Which images a turn of such a session may carry (#662): `{ types, maxBytes }`, or null for none. The
       // conversation view offers attaching only where this is set and refuses what it does not allow.
       imageInput: (b.rpc && b.rpc.imageInput) || null,

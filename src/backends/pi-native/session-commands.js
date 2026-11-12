@@ -208,15 +208,15 @@ function describeFailure(err, cap) {
 const TUI_ONLY = {
   fork: 'Fork the session from its row in the sidebar — it opens the copy in a tab of its own.',
   clone: 'Fork the session from its row in the sidebar; Pi\'s own clone would move this tab onto the copy.',
-  share: 'Pi (native) does not offer it yet.',
+  share: 'Pi (GUI) does not offer it yet.',
   new: 'Start a new session from the sidebar.',
   resume: 'Open the session from the sidebar to resume it.',
   trust: 'Trust the project in Switchboard\'s project manager.',
-  settings: 'Pi (native)\'s options are in Switchboard\'s settings.',
+  settings: 'Pi (GUI)\'s options are in Switchboard\'s settings.',
   hotkeys: 'There are no Pi key bindings without its terminal interface.',
   'scoped-models': 'Choose the model with /model.',
-  import: 'Pi (native) does not offer it yet.',
-  changelog: 'Pi (native) does not offer it yet.',
+  import: 'Pi (GUI) does not offer it yet.',
+  changelog: 'Pi (GUI) does not offer it yet.',
   quit: 'Close the session\'s tab to end it.',
 };
 
@@ -228,12 +228,12 @@ const ARGUMENT_COMMANDS = ['login', 'logout', 'model', 'thinking'];
 const COMPLETIONS_CAP = 300;
 
 const UNREACHABLE = 'This version of Pi does not let Switchboard reach its login. Log in once with /login in a '
-  + 'Pi terminal session — Pi (native) uses the same login.';
+  + 'Pi terminal session — Pi (GUI) uses the same login.';
 
 // What a `!!` line is answered with. It names the difference rather than the refusal: what the second `!`
 // buys in Pi's terminal interface is unavailable here, so the honest answer is that the output always
 // joins the conversation.
-const NO_QUIET_SHELL = 'Pi (native) has no quiet shell line: the output of a command always joins the '
+const NO_QUIET_SHELL = 'Pi (GUI) has no quiet shell line: the output of a command always joins the '
   + 'conversation, so the next turn sees it. Use one ! instead.';
 
 // The generated section. Plain strings joined by newlines, like the command bridge: no template literal, so a
@@ -458,7 +458,7 @@ function commandsSource() {
     '  pi.registerCommand("compact", {',
     '    description: "Summarise the conversation so far to free up context; anything after the command guides the summary",',
     '    handler: detached(async (args: string, ctx: any) => {',
-    '      if (!ctx || typeof ctx.compact !== "function") { say(ctx, "This version of Pi cannot compact from Pi (native).", "error"); return; }',
+    '      if (!ctx || typeof ctx.compact !== "function") { say(ctx, "This version of Pi cannot compact from Pi (GUI).", "error"); return; }',
     '      if (typeof ctx.isIdle === "function" && !ctx.isIdle()) { say(ctx, "Wait for the current turn to finish before compacting.", "warning"); return; }',
     '      const instructions = String(args || "").trim();',
     '      try { ctx.compact(instructions ? { customInstructions: instructions } : {}); }',
@@ -495,7 +495,7 @@ function commandsSource() {
     '  pi.registerCommand("name", {',
     '    description: "Give this session a name; anything after the command is the name",',
     '    handler: detached(async (args: string, ctx: any) => {',
-    '      if (typeof pi.setSessionName !== "function") { say(ctx, "This version of Pi cannot name a session from Pi (native).", "error"); return; }',
+    '      if (typeof pi.setSessionName !== "function") { say(ctx, "This version of Pi cannot name a session from Pi (GUI).", "error"); return; }',
     '      let name = String(args || "").trim();',
     '      if (!name) {',
     '        const typed = await question(ctx, "input", "What should this session be called?", "", false);',
@@ -520,7 +520,7 @@ function commandsSource() {
     '  pi.registerCommand("reload", {',
     '    description: "Reload Pi\'s extensions, skills, prompt templates and context files",',
     '    handler: detached(async (_args: string, ctx: any) => {',
-    '      if (!ctx || typeof ctx.reload !== "function") { say(ctx, "This version of Pi cannot reload its resources from Pi (native).", "error"); return; }',
+    '      if (!ctx || typeof ctx.reload !== "function") { say(ctx, "This version of Pi cannot reload its resources from Pi (GUI).", "error"); return; }',
     '      say(ctx, "Reloading Pi\'s extensions, skills, prompt templates and context files…", "info");',
     '      await ctx.reload();',
     '    }),',
@@ -558,7 +558,7 @@ function commandsSource() {
     '      try { req = JSON.parse(String(args || "")); } catch { return; }',
     '      if (!req || typeof req.token !== "string" || typeof req.target !== "string" || !req.target) return;',
     '      const done = (o: any) => say(ctx, NAVIGATED + JSON.stringify(Object.assign({ token: req.token }, o)), "info");',
-    '      if (!ctx || typeof ctx.navigateTree !== "function") { done({ ok: false, error: "This version of Pi cannot switch branches from Pi (native)." }); return; }',
+    '      if (!ctx || typeof ctx.navigateTree !== "function") { done({ ok: false, error: "This version of Pi cannot switch branches from Pi (GUI)." }); return; }',
     '      if (typeof ctx.isIdle === "function" && !ctx.isIdle()) { done({ ok: false, error: "Wait for the current turn to finish before switching branches." }); return; }',
     '      const sm: any = ctx.sessionManager;',
     '      let entry: any = null;',

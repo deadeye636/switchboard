@@ -101,7 +101,9 @@ const capabilities = {
 
 module.exports = {
   id: 'pi-native',
-  label: 'Pi (native)',
+  label: 'Pi (GUI)',
+  // What tells this backend from its owner in a pair: the renderer reads it, naming no backend (#761).
+  modeLabel: 'GUI',
   description: 'Pi driven through its runtime protocol — the conversation drawn by Switchboard, no terminal.',
   tier: 1,
   axis: 'B',

@@ -98,7 +98,7 @@ outright — that combination would send your key to someone else.
 
 ## Claude without a terminal
 
-**Claude (native)** drives the same `claude` over its stream-json protocol and draws the conversation in
+**Claude (GUI)** drives the same `claude` over its stream-json protocol and draws the conversation in
 Switchboard's own view: streamed replies, tool calls with their output, and Claude's permission questions,
 its questions to you and its plans as cards. It is off by default; switch it on under **Settings →
 Backends**. It needs the native Claude Code build (`claude.exe` on Windows), starts only in a project Claude
@@ -108,7 +108,7 @@ opens them in the terminal again. Details: [`specs/32-claude-native.md`](specs/3
 
 ## Pi: without a terminal, and with another CLI's setup
 
-Pi comes as two backends. **Pi** runs Pi's own terminal interface. **Pi (native)** drives the same `pi`
+Pi comes as two backends. **Pi** runs Pi's own terminal interface. **Pi (GUI)** drives the same `pi`
 over its RPC mode and draws the conversation itself: streamed replies, tool calls with their output and
 diffs, and a question before it runs a command, changes a file or delegates to an agent. Its sessions are
 ordinary Pi sessions. It has no login of its own, so log in once through the Pi backend (`/login`). Details:

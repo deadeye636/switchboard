@@ -816,6 +816,17 @@ test('a backend that drives another backend\'s transcripts owns none of them', (
   }
 });
 
+// #761: the short name of how a driver opens its owner's rows ("GUI"). Only a driver is a mode of something.
+test('exactly the backends that drive another backend transcripts declare a modeLabel', () => {
+  for (const b of READY) {
+    if (b.transcriptsOf) {
+      assert.ok(typeof b.modeLabel === 'string' && b.modeLabel.trim(), `${b.id}: a driver declares a non-empty modeLabel`);
+    } else {
+      assert.equal(b.modeLabel, undefined, `${b.id}: only a backend with transcriptsOf is a mode, so it declares no modeLabel`);
+    }
+  }
+});
+
 test('every file-mode backend exposes the incremental-parse contract with a schema version (§5.10)', () => {
   for (const b of FILE_MODE) {
     const id = b.id;

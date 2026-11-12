@@ -14,8 +14,8 @@ beforeEach(() => forgetRunning());
 
 const PROJECT = '/projects/example/alpha';
 const TARGETS = [
-  { id: 'pi-native', label: 'Pi (native)', options: { approvalGate: true } },
-  { id: 'claude-native', label: 'Claude (native)', options: { permissionMode: 'plan', promptSuggestionsOff: true } },
+  { id: 'pi-native', label: 'Pi (GUI)', options: { approvalGate: true } },
+  { id: 'claude-native', label: 'Claude (GUI)', options: { permissionMode: 'plan', promptSuggestionsOff: true } },
 ];
 
 // A fake world. `open` decides what openTerminal answers; everything the runner did is recorded.

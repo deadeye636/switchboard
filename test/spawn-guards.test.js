@@ -584,12 +584,12 @@ test('a trusted project passes the gate, and a backend that declares no gate is 
 
 test('a driver\'s refusal names the CLI whose trust it is — granting it trusts the project there too', async () => {
   const calls = [];
-  const driver = { ...trustBackend(false, calls), id: 'pi-native', label: 'Pi (native)', transcriptsOf: 'pi' };
+  const driver = { ...trustBackend(false, calls), id: 'pi-native', label: 'Pi (GUI)', transcriptsOf: 'pi' };
   setup({ backend: driver, registry: { 'pi-native': driver, pi: fakeBackend({ id: 'pi', label: 'Pi' }) } });
   const r = await spawn.openTerminal('s', CWD, true, { backendId: 'pi-native' });
   assert.equal(r.untrusted.trustLabel, 'Pi');
   assert.equal(r.untrusted.backendId, 'pi-native', 'the write still goes through the backend that asked');
-  assert.match(r.error, /Pi \(native\) starts only in a project Pi trusts/);
+  assert.match(r.error, /Pi \(GUI\) starts only in a project Pi trusts/);
 });
 
 test('a backend that declares the gate but has no trust answer to ask is refused, not started', async () => {

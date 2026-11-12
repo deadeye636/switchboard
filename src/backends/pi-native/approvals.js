@@ -137,7 +137,7 @@ function projectLabel(rule) {
   return `Always allow “${what.length > 60 ? what.slice(0, 57) + '…' : what}” in this project`;
 }
 function projectNote(rule) {
-  return `Rule: ${rule}. Switchboard keeps it in this project's settings for Pi (native), under "Allowed in this project", `
+  return `Rule: ${rule}. Switchboard keeps it in this project's settings for Pi (GUI), under "Allowed in this project", `
     + 'where it can be edited or removed. A rule ending in * covers every command that starts the same way.';
 }
 

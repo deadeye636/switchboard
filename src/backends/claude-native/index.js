@@ -94,7 +94,7 @@ function probe({ launch = false } = {}) {
   return installedVersion(file).then((version) => {
     // A version that could not be read says nothing about the install; the launch goes ahead.
     if (version && olderThan(version, MIN_VERSION)) {
-      return { ok: false, reason: `Claude (native) needs Claude Code ${MIN_VERSION.join('.')} or newer; ${version.join('.')} is installed.` };
+      return { ok: false, reason: `Claude (GUI) needs Claude Code ${MIN_VERSION.join('.')} or newer; ${version.join('.')} is installed.` };
     }
     return { ok: true };
   });
@@ -231,7 +231,9 @@ const capabilities = {
 
 module.exports = {
   id: 'claude-native',
-  label: 'Claude (native)',
+  label: 'Claude (GUI)',
+  // What tells this backend from its owner in a pair: the renderer reads it, naming no backend (#761).
+  modeLabel: 'GUI',
   description: 'Claude Code driven over its stream-json protocol — the conversation drawn by Switchboard, no terminal.',
   tier: 1,
   axis: 'B',
