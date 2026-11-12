@@ -51,7 +51,7 @@ runtime libraries installed, the build stops at **MSB8040**. We build node-pty w
 a desktop app with a local PTY, and there is no Spectre attack model here worth the dependency. (Since #834 the
 libraries are installed anyway, for `@vscode/windows-process-tree` — see Prerequisites; node-pty keeps its patch.)
 
-**Durable fix** — `patches/node-pty+1.2.0-beta.14.patch` sets `SpectreMitigation: 'false'` in exactly
+**Durable fix** — `patches/node-pty+1.2.0-beta.18.patch` sets `SpectreMitigation: 'false'` in exactly
 **one** place:
 - `node_modules/node-pty/binding.gyp` (once)
 
@@ -65,9 +65,11 @@ regenerate the patch (below) and delete the old file — read the pin in `packag
 sentence, which named beta.14 for a day after the bump to beta.15 (#498).
 
 **And that day is a worked example of the failure being quieter than expected.** The pin moved and the
-patch file did not, so `patches/` still holds a beta.14 file. patch-package v8 applied it anyway — the
-built `binding.gyp` does carry `SpectreMitigation: 'false'` — so nothing broke and nothing said
-anything. Do not read a working build as evidence that the patch name matches the pin.
+patch file did not, so `patches/` held a beta.14 file through beta.15 and the Dependabot bump to
+beta.18. patch-package v8 applied it anyway, with only a version-mismatch warning — the built
+`binding.gyp` did carry `SpectreMitigation: 'false'` — so nothing broke and nothing said anything. The
+file was renamed to beta.18 before 0.8.5-rc4 (checked: it applies without a warning). Do not read a
+working build as evidence that the patch name matches the pin.
 
 The `postinstall` hook re-applies it:
 ```json

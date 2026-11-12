@@ -100,5 +100,5 @@ unset NoDefaultCurrentDirectoryInExePath && npm run build:win
 ```
 
 The other two are durable in-repo: `"overrides": { "node-gyp": "13.0.0" }` in `package.json`, and
-`patches/node-pty+1.2.0-beta.14.patch` (Spectre mitigation off) re-applied by the `postinstall` hook. Don't
+`patches/node-pty+1.2.0-beta.18.patch` (Spectre mitigation off) re-applied by the `postinstall` hook. Don't
 remove either.
