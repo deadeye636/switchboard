@@ -124,6 +124,9 @@
     if (i == null) return { pct: null, text: inp && inp.basis === 'included' ? 'included' : 'input unknown', estimated: false };
     const pct = w ? clamp((i / w) * 100, 0, 100) : null;
     let text = fmtTokens(i) + (w ? ' / ' + fmtTokens(w) : '') + (pct != null ? ' · ' + Math.round(pct) + '%' : '');
+    // Said only where the reader resolves windows and states it could not for this request (`explicit`, spec 46): a backend
+    // that never attempts one (or reports none) shows the bare input as before.
+    if (!w && win && win.basis === 'unknown' && win.explicit === true) text += ' · window not known';
     if (estimated) text += ' estimated';
     return { pct, text, estimated };
   }

@@ -966,4 +966,4 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { shellPreface, shellPrefaceBlocks, shellOutputText, PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, isUsersPrompt, openedWithCommand, readModelFromTail };
+module.exports = { shellPreface, shellPrefaceBlocks, shellOutputText, PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, isUsersPrompt, openedWithCommand, readModelFromTail, modelCommandSpec };

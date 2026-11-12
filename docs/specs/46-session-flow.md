@@ -70,7 +70,7 @@ Step { id, laneId, ordinal, turn, kind, label, ts: null | number,
        tokens: null | Evidence,   // only where the transcript measures one value for THIS step
        flags: [Flag],
        detail: {} }               // key/value rows for the detail panel
-Evidence { value, unit, basis: 'measured' | 'estimated' | 'included' | 'unknown', note }
+Evidence { value, unit, basis: 'measured' | 'estimated' | 'included' | 'unknown', note, explicit? }   // explicit: an unknown the reader states on purpose (#852)
 Flag { axis: 'risk' | 'outcome' | 'attention' | 'lifecycle', code, why, evidence: 'structured' | 'heuristic' }
 ```
 
@@ -215,8 +215,21 @@ shell, so closing the viewer in one window must not cancel another's read): `get
   to the worker; the reader prefers it (`estimated`, "from the session's settings"), the model name is the fallback. On this request
   path the hint uses only the descriptor's `contextWindowAsync` (Claude: the settings files through `fs.promises`); a backend without
   one gets no hint, because its plain hook may read files synchronously (Pi's model catalog does). So no synchronous file read
-  blocks the main thread. Known gap: the hint is the session's current window and is applied to every checkpoint that fits in it,
-  so a session that switched to a 1M variant halfway reads its early checkpoints against the 1M window (#852).
+  blocks the main thread. **Per checkpoint (#852).** The hint is the window of ONE model, and says which: `windowHint` is `{ windowTokens, model }`, the model
+  the descriptor's `contextWindowAsync` resolved the window for (the stored row's last turn, or a pending `/model` switch). A
+  Claude checkpoint takes the hint only when its own request ran on that model (compared as parsed specs, dates and aliases folded)
+  and fit in it; the lane's own last model is the anchor only when the hint names none. The reader also tracks the `/model <spec>`
+  in force per request, with the session reader's own parser (`modelCommandSpec`: a user line at an idle prompt, or a system
+  `local_command` inside a turn; one typed inside a running turn applies from the next turn; one that does not name the model of
+  a later request has expired; the picker form clears it). A request that ran under a spec ending in `[1m]` is 1M, certain, and
+  keeps that over the hint; a spec naming the model by its exact id without `[1m]` is the CLI's own switch to the base window and is certain too (on a model other than the hint's). The next slash command, like a prompt, ends the wait of a `/model` typed in the previous turn. Any other checkpoint on another model gets the model-name answer where that is certain (the request
+  exceeded 200 000 tokens, or the model has no larger variant) and otherwise `window.basis: 'unknown'` with `explicit: true`
+  (an optional evidence flag: the reader resolves windows and says it cannot for this request). The card then reads the input and
+  "window not known", with no fill bar or percentage (`checkpointInfo`, so the screen and the SVG, PDF and Mermaid exports agree);
+  a backend whose window is unknown without `explicit` (Pi, a model missing from its catalog) shows the bare input as before.
+  Without a hint nothing else changes. Remaining gaps, all outside the transcript: the picker form, a settings edit and `--model`
+  on a resume change the window without a recorded spec, so earlier checkpoints on the hint's model still read against it. A
+  `[1m]` in `message.model` is not looked for: the CLI never writes it there.
 - **No source path in any answer** (a deep scan in `test/session-flow.test.js`); `sources` stay in main. Tool labels may carry the
   tool's own argument (a file the tool read, for example); instruction files are labelled relative to the project or with `~`.
 

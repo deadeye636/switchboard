@@ -276,19 +276,25 @@ test('a slash command and its output are one event, not a prompt, and start no t
   assert.equal(cmd.detail.output, 'Set model to fake');
 });
 
-test('the window follows #620: base window, 1M when the model string says so, 1M when the request exceeds the base window', async () => {
-  const line = (model, input) => ({ type: 'assistant', message: { id: `m${input}${model}`, role: 'assistant', model, content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: input } } });
+// A `/model <spec>` typed at an idle prompt: a user line of command markup (docs/backend-formats.md).
+const modelCmd = (spec) => ({ type: 'user', message: { role: 'user', content: `<command-name>/model</command-name><command-args>${spec}</command-args>` } });
+
+test('the window follows #620: base window, 1M when a /model spec says so, 1M when the request exceeds the base window', async () => {
+  const line = (model, input) => ({ type: 'assistant', message: { id: `m${input}${model}${Math.random()}`, role: 'assistant', model, content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: input } } });
   const t = tmpFile([
     line('claude-opus-4-6', 150000),
-    line('claude-opus-4-6[1m]', 150000),
     line('claude-opus-4-6', 250000),
+    { type: 'system', subtype: 'turn_duration' },
+    modelCmd('claude-opus-4-6[1m]'),
+    line('claude-opus-4-6', 150000),
     line('claude-sonnet-5-5', 250000),
     line('some-other-model', 1000),
   ]);
   try {
     const cps = (await read(t.file)).steps.filter(s => s.checkpoint).map(s => s.checkpoint.window);
     assert.deepEqual(cps.map(w => w.value), [200000, 1000000, 1000000, 1000000, null]);
-    assert.match(cps[2].note, /larger than the base window/);
+    assert.match(cps[1].note, /larger than the base window/);
+    assert.match(cps[2].note, /\/model/);
     assert.equal(cps[4].basis, 'unknown');
     assert.equal(cps[0].basis, 'estimated');
   } finally { t.cleanup(); }
@@ -354,6 +360,85 @@ test('a window hint from the session settings outranks the model name, unless th
     const sc = small.steps.filter(s => s.checkpoint).map(s => s.checkpoint.window);
     assert.equal(sc[0].value, 200000);
     assert.equal(sc[1].value, 1000000, 'a request over the hint falls back to the inference');
+  } finally { t.cleanup(); }
+});
+
+test('the hint stands only for the model it was resolved for; another model keeps its own answer or says it is not known (#852)', async () => {
+  const line = (id, model, input) => ({ type: 'assistant', message: { id, role: 'assistant', model, content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: input } } });
+  const t = tmpFile([
+    line('a1', 'claude-opus-4-6', 1000),       // another model with a 200k base and a 1M variant: ambiguous
+    line('a2', 'claude-haiku-4-5', 1000),      // another model with no 1M variant: certain
+    line('a3', 'claude-opus-4-6', 400000),     // another model, larger than the base window: the floor is certain
+    line('a4', 'claude-sonnet-4-6', 1000),     // the hint's model, fits
+    line('a5', 'claude-sonnet-4-6', 400000),   // the hint's model, does not fit: the floor
+  ]);
+  try {
+    const hint = { windowTokens: 300000, model: 'claude-sonnet-4-6' };
+    const w = (await read(t.file, { windowHint: hint })).steps.filter(s => s.checkpoint).map(s => s.checkpoint.window);
+    assert.equal(w[0].basis, 'unknown');
+    assert.equal(w[0].explicit, true);
+    assert.equal(w[1].value, 200000);
+    assert.equal(w[2].value, 1000000);
+    assert.equal(w[3].value, 300000);
+    assert.match(w[3].note, /session's settings/);
+    assert.equal(w[4].value, 1000000, 'a request over the hint falls back to the inference');
+    const none = await read(t.file);
+    assert.equal(none.steps.filter(s => s.checkpoint)[0].checkpoint.window.value, 200000, 'without a hint nothing changes');
+  } finally { t.cleanup(); }
+});
+
+test('a hint names its model: the last model of the lane does not decide (a pending switch, a subagent turn last) (#852)', async () => {
+  const line = (id, model, input) => ({ type: 'assistant', message: { id, role: 'assistant', model, content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: input } } });
+  const t = tmpFile([line('b1', 'claude-opus-4-6', 1000), { type: 'system', subtype: 'turn_duration' }, modelCmd('claude-sonnet-4-5[1m]')]);
+  try {
+    // The hint is the pending switch's: the Opus checkpoint is not drawn against it.
+    const pending = (await read(t.file, { windowHint: { windowTokens: 1000000, model: 'claude-sonnet-4-5' } })).steps.find(s => s.checkpoint);
+    assert.equal(pending.checkpoint.window.basis, 'unknown');
+    // The hint is about the lane's own model.
+    const own = (await read(t.file, { windowHint: { windowTokens: 1000000, model: 'claude-opus-4-6' } })).steps.find(s => s.checkpoint);
+    assert.equal(own.checkpoint.window.value, 1000000);
+  } finally { t.cleanup(); }
+});
+
+test('a /model spec with [1m] makes the checkpoints under it 1M, one typed inside a turn waits, the picker form clears it (#852)', async () => {
+  const line = (id, model, input) => ({ type: 'assistant', message: { id, role: 'assistant', model, content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: input } } });
+  const sys = (spec) => ({ type: 'system', subtype: 'local_command', content: `<command-name>/model</command-name><command-args>${spec}</command-args>` });
+  const done = { type: 'system', subtype: 'turn_duration' };
+  const t = tmpFile([
+    line('c1', 'claude-opus-4-6', 1000),                  // no spec: 200k
+    done,
+    modelCmd('claude-opus-4-6[1m]'),
+    line('c2', 'claude-opus-4-6', 1000),                  // 1M, certain
+    sys('claude-opus-4-6'),                               // typed inside the running turn: waits
+    line('c3', 'claude-opus-4-6', 1000),                  // still the [1m] spec
+    done,
+    line('c4', 'claude-opus-4-6', 1000),                  // the bare spec took over: 200k
+    done,
+    modelCmd(''),                                         // picker form: nothing known
+    line('c5', 'claude-opus-4-6', 1000),
+  ]);
+  try {
+    const nohint = (await read(t.file)).steps.filter(s => s.checkpoint).map(s => s.checkpoint.window.value);
+    assert.deepEqual(nohint, [200000, 1000000, 1000000, 200000, 200000]);
+  } finally { t.cleanup(); }
+});
+
+test('a bare exact-id /model spec settles the base window on a model other than the hint model;  a waiting /model ends at the next slash command (#852)', async () => {
+  const line = (id, model, input) => ({ type: 'assistant', message: { id, role: 'assistant', model, content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: input } } });
+  const cmd = (name, args) => ({ type: 'user', message: { role: 'user', content: `<command-name>/${name}</command-name><command-args>${args}</command-args>` } });
+  const sys = (spec) => ({ type: 'system', subtype: 'local_command', content: `<command-name>/model</command-name><command-args>${spec}</command-args>` });
+  const t = tmpFile([
+    modelCmd('claude-opus-4-6'),
+    line('d1', 'claude-opus-4-6', 1000),       // exact bare spec, not the hint's model: 200k, certain
+    sys('claude-opus-4-6[1m]'),                // typed inside the turn, which is then interrupted (no turn_duration)
+    line('d2', 'claude-opus-4-6', 1000),       // still the bare spec
+    cmd('cost', ''),                           // the next slash command ends the wait
+    line('d3', 'claude-opus-4-6', 1000),       // the [1m] spec took effect
+  ]);
+  try {
+    const w = (await read(t.file, { windowHint: { windowTokens: 300000, model: 'claude-sonnet-4-6' } })).steps.filter(s => s.checkpoint).map(s => s.checkpoint.window);
+    assert.deepEqual(w.map(x => x.value), [200000, 200000, 1000000]);
+    assert.equal(w[0].basis, 'estimated');
   } finally { t.cleanup(); }
 });
 

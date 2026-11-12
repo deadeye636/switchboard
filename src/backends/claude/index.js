@@ -586,7 +586,9 @@ function contextWindow(row, opts = {}) {
  */
 async function contextWindowAsync(row, opts = {}) {
   if (!row || (!row.lastModel && !row.lastModelSpec)) return null;
-  return modelWindows.resolveClaudeWindow(row, collectSpecs(opts, await settingsSpecsAsync(row.projectPath)));
+  const v = modelWindows.resolveClaudeVariant(row, collectSpecs(opts, await settingsSpecsAsync(row.projectPath)));
+  // The model the window is about rides along: the Flow tab applies it to the checkpoints that ran on that model only (#852).
+  return v ? { windowTokens: v.windowTokens, source: v.source, model: v.model } : null;
 }
 
 // ── The model a RESUME should launch on (#754) ───────────────────────────────────────────────────────

@@ -221,7 +221,7 @@ test('the window hint is the descriptor answer with the user variables and store
   try {
     const p = sessionFlow.getSessionFlow('s1');
     await tick(t.w, 1);
-    assert.deepEqual(t.w.made[0].workerData.windowHint, { windowTokens: 1000000 });
+    assert.deepEqual(t.w.made[0].workerData.windowHint, { windowTokens: 1000000, model: 'claude-opus-4-6' });
     t.w.made[0].emit('message', { type: 'result', snapshot: goodSnapshot() });
     await p;
   } finally { t.cleanup(); }
@@ -229,7 +229,7 @@ test('the window hint is the descriptor answer with the user variables and store
   try {
     const p = sessionFlow.getSessionFlow('s1');
     await tick(plain.w, 1);
-    assert.deepEqual(plain.w.made[0].workerData.windowHint, { windowTokens: 200000 });
+    assert.deepEqual(plain.w.made[0].workerData.windowHint, { windowTokens: 200000, model: 'claude-opus-4-6' });
     plain.w.made[0].emit('message', { type: 'result', snapshot: goodSnapshot() });
     await p;
   } finally { plain.cleanup(); }

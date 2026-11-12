@@ -27,7 +27,8 @@ const {
   instructionLabel, trunc, firstLine, isObject, readLines, detailSize, evidence, flagSize,
 } = require('../flow-lines');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
-const { resolveClaudeVariant } = require('./model-windows');
+const { resolveClaudeVariant, windowFor, parseSpec, specNamesModel } = require('./model-windows');
+const { modelCommandSpec } = require('./session-reader');
 const { commandFlags, modeFlag, resultFlags, attachmentEvent } = require('./flow-flags');
 
 const MAX_INSTRUCTION_FILES = 200;
@@ -92,6 +93,10 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
   let instructionLines = 0;
   const startFiles = []; // the first instruction attachment: it belongs to the start, whatever line it came on
   const home = os.homedir();
+  let modelSpec = null;        // the argument of the last `/model <spec>` in this lane (#852); the session reader's rule
+  let pendingSpec = null;      // `{ spec }`: typed inside a running turn, it applies from the next turn
+  let turnOpen = false;
+  const hinted = [];   // main lane: checkpoints whose window waits for the lane's current model (settleHints)
 
   const limitation = (id, text) => {
     if (shared.limitationIds.has(id)) return;
@@ -146,30 +151,90 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
   }
 
   // The window of the request's model, decided by the same function the health badge uses (#620/#621): the bare
-  // window of the model, a `[1m]` suffix if the model string carries one, and the floor: a request that sent more
+  // window of the model, the `[1m]` of the `/model <spec>` in force for the request, and the floor: a request that sent more
   // than 200 000 tokens cannot have run in a 200 000 window, so it is read as the 1M variant. Always an inference.
-  function windowEvidence(model, input) {
+  function windowEvidence(model, input, spec) {
     const variant = typeof model === 'string'
-      ? resolveClaudeVariant({ lastModel: model, lastModelSpec: /\[1m\]\s*$/i.test(model) ? model : null, lastInputTokens: input })
+      ? resolveClaudeVariant({ lastModel: model, lastModelSpec: spec || null, lastInputTokens: input })
       : null;
     // The session's own settings (the caller's `windowHint`, resolved like the health badge) outrank the model name, but
-    // never a request that did not fit in them: the floor below still applies.
-    const hint = opts.useHint ? limits.windowHint : null;
-    if (hint && input <= hint) return evidence(hint, 'tokens', 'estimated', "Estimated from the session's settings.");
-    if (!variant || variant.windowTokens == null) return evidence(null, 'tokens', 'unknown', 'The model is not one with a known window.');
+    // never a request that did not fit in them: the floor below still applies. The hint is the session's CURRENT window, so
+    // it is not applied here: `settleHints` does it when the lane ends and the current model is known (#852).
+    if (!variant || variant.windowTokens == null) return { ...evidence(null, 'tokens', 'unknown', 'The model is not one with a known window.'), explicit: true };
     const why = variant.source === 'floor'
       ? 'Inferred: the request was larger than the base window, so the 1M variant is assumed.'
-      : variant.oneM ? 'Inferred from the model string, which names the 1M variant.'
+      : variant.oneM ? 'Inferred from the `/model` spec in force, which names the 1M variant.'
         : 'Inferred from the model name; a 1M variant selected outside the transcript is not recorded.';
     return evidence(variant.windowTokens, 'tokens', 'estimated', why);
   }
 
+  // The `/model <spec>` in force for a request on `model`: one that names the model (else it has expired, the session
+  // reader's rule, #622).
+  function specFor(model) {
+    if (!modelSpec || typeof model !== 'string') return null;
+    return specNamesModel(modelSpec, model) ? modelSpec : null;
+  }
+
   function checkpointOf(input, model, note) {
-    return {
+    const spec = specFor(model);
+    const cp = {
       input: evidence(input, 'tokens', 'measured', note),
-      window: windowEvidence(model, input),
+      window: windowEvidence(model, input, spec),
       model: typeof model === 'string' ? model : null,
     };
+    if (opts.useHint && limits.windowHint) hinted.push({ cp, model, input, oneM: !!(spec && /\[1m\]\s*$/i.test(spec)), exactBare: exactBareSpec(spec, model) });
+    return cp;
+  }
+
+  // A spec that names the request's model by its exact id, without `[1m]`: the CLI's own switch to the base window.
+  function exactBareSpec(spec, model) {
+    if (!spec || /\[1m\]\s*$/i.test(spec)) return false;
+    const p = parseSpec(spec);
+    const m = parseSpec(model);
+    return !!(p && m && !p.family && p.model === m.model);
+  }
+
+  // `/model <spec>` as the session reader reads it (the same function): a user line at an idle prompt, or a system
+  // `local_command` line inside a turn. No argument opens the picker, whose choice the transcript does not spell out.
+  function noteModelCommand(text) {
+    const spec = modelCommandSpec(text);
+    if (spec === null) return;
+    if (turnOpen) pendingSpec = { spec: spec || null };
+    else { modelSpec = spec || null; pendingSpec = null; }
+  }
+
+  // A turn ended (or a prompt began one): a switch typed inside the last turn takes effect.
+  function endTurn() {
+    turnOpen = false;
+    if (pendingSpec) { modelSpec = pendingSpec.spec; pendingSpec = null; }
+  }
+
+  // The hint is the window of one model: the one the stored row's last turn ran on, or a pending `/model` switch (the
+  // caller's `hintModel`; the lane's last model when it names none). It may stand only for a checkpoint whose own
+  // request ran on that model and fit in it. A checkpoint whose request ran under a `/model` spec with `[1m]` is 1M on
+  // that evidence. Any other checkpoint keeps the model-name answer where that is certain (a 1M spec, a bare exact-id spec, the size
+  // floor, a model with no larger variant) and otherwise says the window is not known: whether it ran with `[1m]` is not
+  // in the transcript (#852).
+  function settleHints() {
+    if (!hinted.length) return;
+    const hintModel = limits.hintModel || lastModel;
+    const target = hintModel ? parseSpec(hintModel) : null;
+    for (const { cp, model, input, oneM, exactBare } of hinted) {
+      const mine = typeof model === 'string' ? parseSpec(model) : null;
+      if (oneM) continue;
+      if (mine && target && mine.model === target.model && input <= limits.windowHint) {
+        cp.window = evidence(limits.windowHint, 'tokens', 'estimated', "Estimated from the session's settings.");
+      } else if (mine && !exactBare && !(target && mine.model === target.model) && cp.window.basis !== 'unknown' && !windowIsCertain(model, input)) {
+        cp.window = { ...evidence(null, 'tokens', 'unknown', "The window is not known for this request: the model differs from the one the session's settings describe, and whether it ran with the 1M variant is not recorded."), explicit: true };
+      }
+    }
+  }
+
+  // Is the model-name answer for this request the only one possible? The size floor, or a model whose `[1m]` variant has
+  // the same window as the bare one. (A `[1m]` in the model string or in the spec in force is `oneM` above.)
+  function windowIsCertain(model, input) {
+    const v = resolveClaudeVariant({ lastModel: model, lastModelSpec: null, lastInputTokens: input });
+    return !v || v.source === 'floor' || windowFor(v.model, true) === windowFor(v.model, false);
   }
 
   function noteMode(next, ctx) {
@@ -242,7 +307,14 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
   }
 
   function onUserText(text, ctx) {
-    if (onCommandText(text, ctx)) return;
+    if (onCommandText(text, ctx)) {
+      noteModelCommand(text);
+      // Another slash command starts a turn too, which ends the wait of a `/model` typed in the last one (the session reader's rule).
+      if (text.trimStart().startsWith('<command-name>') && modelCommandSpec(text) === null) { endTurn(); turnOpen = true; }
+      return;
+    }
+    endTurn();
+    turnOpen = true;   // a prompt starts a turn
     if (text.startsWith(INTERRUPT_PREFIX)) {
       addStep(ctx, 'interrupt', firstLine(text) || 'Interrupted', {});
       return;
@@ -331,6 +403,8 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
       }
       lastInput = input;
       if (model) lastModel = model;
+      if (modelSpec && typeof model === 'string' && !specNamesModel(modelSpec, model)) modelSpec = null;   // expired (#622)
+      turnOpen = true;
     }
 
     const content = message.content;
@@ -403,6 +477,8 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
       // permission mode is `permissionMode` on the user lines. Reading it would flip the mode on every line.
       case 'system':
         if (obj.subtype === 'compact_boundary') onCompaction(obj, ctx);
+        else if (obj.subtype === 'turn_duration') endTurn();
+        else if (obj.subtype === 'local_command' && typeof obj.content === 'string') noteModelCommand(obj.content);
         break;
       default: break;
     }
@@ -434,6 +510,7 @@ function makeBuilder(laneId, sourceId, limits, shared, opts) {
   // Ends the lane and hands back its steps (ordinals are renumbered across the whole snapshot by the caller).
   function close() {
     moveStartFilesUp();
+    settleHints();
     if (pendingCompaction && pendingCompaction.detail.after === undefined) pendingCompaction.detail.after = 'unknown';
     return steps;
   }
@@ -526,6 +603,8 @@ async function readSessionFlow(sources, opts = {}) {
     maxSteps: opts.maxSteps || MAX_STEPS,
     maxBytes: opts.maxBytes || MAX_SNAPSHOT_BYTES,
     windowHint: opts.windowHint && Number(opts.windowHint.windowTokens) > 0 ? Number(opts.windowHint.windowTokens) : null,
+    // The model the hint was resolved for (the stored row's, or the pending `/model` switch's); absent: the lane's last model.
+    hintModel: opts.windowHint && typeof opts.windowHint.model === 'string' && opts.windowHint.model ? opts.windowHint.model : null,
   };
   const readOpts = { maxLineBytes: opts.maxLineBytes || MAX_LINE_BYTES, signal: opts.signal };
   const shared = newShared();
