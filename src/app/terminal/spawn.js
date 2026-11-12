@@ -784,7 +784,7 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
       //
       // `{ launch: true }` says this probe is about to be acted on. The registry asks the same hook on every
       // `list()`, which is on the scan path, so a probe keeps that answer to what is cheap (a PATH walk) and
-      // may do the costlier check only here — Claude (native) asks the binary for its version only when a
+      // may do the costlier check only here — Claude (GUI) asks the binary for its version only when a
       // session is about to start, and answers with a Promise for it.
       if (typeof backend.probe === 'function') {
         let avail;

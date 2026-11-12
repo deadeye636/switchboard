@@ -14,7 +14,7 @@ are recorded here and, where the code depends on them, in the comment beside tha
 Claude Code has a print mode that speaks JSON on both sides:
 `claude -p --input-format stream-json --output-format stream-json` takes one line per turn or control
 request and writes the turn back as events. The Claude Agent SDK is a wrapper around exactly this: it starts
-the Claude Code binary and speaks this protocol to it. `Claude (native)` does the same without the SDK. It
+the Claude Code binary and speaks this protocol to it. `Claude (GUI)` does the same without the SDK. It
 starts the `claude` the user installed, draws the conversation in the conversation view, and sends turns
 and answers down the same pipe.
 
@@ -1125,7 +1125,7 @@ The core learned these as declarations of the `rpc` half in #657, where it used 
 
 **Not shared, on purpose:**
 
-| What | Pi (native) | Claude (native) | Why they differ |
+| What | Pi (GUI) | Claude (GUI) | Why they differ |
 |---|---|---|---|
 | The marker | a `custom` entry the runtime extension appends | the `entrypoint` Claude Code writes from the environment | each is the owner's format, and Claude needs nothing written into its store |
 | A per-spawn extension | yes: marker, approval gate, session commands | none | Claude asks its own approvals and runs its own slash commands over the pipe |
