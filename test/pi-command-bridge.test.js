@@ -144,7 +144,9 @@ function load(source) {
   return mod.exports.default;
 }
 
-function fakePi(existing) {
+// Pi 1.2+ semantics: a run that is starting counts as active (ctx.isIdle() is false), and a send without
+// deliverAs while a run is active is rejected. `state.active` is that flag; deliverAs is ignored when it is off.
+function fakePi(existing, state = { active: false }) {
   const handlers = {};
   const commands = new Map();
   const sent = [];
@@ -154,7 +156,10 @@ function fakePi(existing) {
     registerCommand: (name, opts) => commands.set(name, opts),
     registerTool: () => {},
     getCommands: () => [...existing, ...[...commands.keys()].map((name) => ({ name, source: 'extension', sourceInfo: { path: '<ext>' } }))],
-    sendUserMessage: (text, opts) => sent.push({ text, opts }),
+    sendUserMessage: (text, opts) => {
+      if (state.active && !(opts && opts.deliverAs)) throw new Error('Agent is already processing. Specify streamingBehavior');
+      sent.push({ text, opts, queued: state.active });
+    },
   };
 }
 
@@ -204,12 +209,22 @@ test('the generated extension registers the source\'s commands at session_start,
   assert.match(text, /Refused: !`rm -rf x`/, 'a command the file does not permit stays as written');
   assert.match(text, /File: "the notes, README\.md:\n```\nREADME-BODY\n```"/, 'the closing quote is back after the content (#644)');
   assert.doesNotMatch(text, /allowed-tools/, 'the frontmatter is not sent');
-  assert.equal(pi.sent[0].opts, undefined, 'idle: sent as a new turn');
+  assert.deepEqual(pi.sent[0].opts, { deliverAs: 'followUp' }, 'idle: deliverAs is passed too, Pi ignores it without an active run');
+  assert.equal(pi.sent[0].queued, false, 'idle: a new turn');
   assert.ok(notes.some((n) => /rm -rf x/.test(n.m)), 'the refusal is reported to the user');
 
   await pi.commands.get('comp').handler('Card', { cwd: project, isIdle: () => false, ui });
   assert.equal(pi.sent[1].text, 'Component Card');
   assert.deepEqual(pi.sent[1].opts, { deliverAs: 'followUp' }, 'busy: queued behind the running turn');
+  // A run that is still starting reports busy on Pi 1.2+; a stale idle read must not make the send fail.
+  const state = { active: false };
+  const pi2 = fakePi([], state);
+  factory(pi2);
+  await pi2.handlers.session_start({}, { ui });
+  state.active = true;
+  await pi2.commands.get('comp').handler('Card', { cwd: project, isIdle: () => true, ui });
+  assert.equal(pi2.sent.length, 1, 'starting: queued, not thrown');
+  assert.equal(pi2.sent[0].queued, true);
 });
 
 test('a command file edited after registration is read fresh when it runs', async (t) => {

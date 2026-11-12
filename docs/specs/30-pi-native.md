@@ -163,6 +163,14 @@ Everything here was measured against Pi 0.84.4. Later Pi versions were not re-me
   one turn and not several.
 - A renderer reload leaves the child running. Opening the session again reattaches and loads the
   conversation from `get_messages`.
+- `pi.sendUserMessage()` and the command bridge (#860; read from Pi 1.5.2's extension docs, `agent-session.js` and the 1.2.0
+  changelog, plus one real run). Since Pi 1.2 a run that is still starting counts as active (`ctx.isIdle()` is false, also
+  during `before_agent_start`), and `prompt()` rejects a send without `deliverAs` while a run is active. `deliverAs` is read
+  only while a run is active; otherwise the message starts a turn at once. So the bridge always sends
+  `{ deliverAs: "followUp" }` and asks no `isIdle()` first: a read taken just before the send could be stale, and a send
+  during a start then queues instead of failing. Real run on 1.5.2: a send with `followUp` on an idle session raised no
+  error; a send without it started a run, and the next send collided with "Agent is already processing". Not measured on
+  Pi older than 1.1.0: the option is documented there as streaming-only, so an older Pi is expected to ignore it when idle.
 - Pi offers no suggested next prompt (#814; measured against Pi 1.1.0, not 0.84.4 like the points above).
   One RPC turn produced `agent_start`, `turn_start`, `message_start`, `message_update`, `message_end`,
   `turn_end`, `agent_end` and `agent_settled`, and no key mentioning a suggestion. The package's only
