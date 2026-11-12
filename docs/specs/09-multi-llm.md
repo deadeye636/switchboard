@@ -276,7 +276,7 @@ walking a store. It walks one now.
 |---|---|---|
 | Claude | **states** it in the terminal (OSC title: spinner = busy, `✳` = idle) | — |
 | Codex | **states** it in its transcript (`task_started`, and one of the turn-END events its backend folder lists) | two, and both bit: a busy turn out-writes a fixed tail window long before it completes → the window must **grow**; and a turn interrupted with Esc ends on `turn_aborted` with no `task_complete` ever following → a reader that knows only the two obvious events holds the session at "Working" until some LATER turn finishes (#511) |
-| Hermes | the **last message row**: a trailing user prompt = a turn is running; an assistant row whose `finish_reason` is not a tool one = it is answered | `ended_at` is **never written** — it reads null on every session, answered or not, so a rule built on it says "working" for three minutes after every reply (#165) |
+| Hermes | the **last message row**: a trailing user prompt = a turn is running; an assistant row whose `finish_reason` is not a tool one = it is answered | `ended_at` was null on every session of the 0.21 stores measured; Hermes 0.23 writes it when a session is ended (`end_session`), so a set value is a real idle. A session left open at its prompt keeps it null, so a rule built on it alone says "working" for three minutes after every reply (#165). From schema 33 the last row is read among the live rows only: a rewound / undone row (`active = 0`) is no longer "last" (#864) |
 | Pi | launched sessions post neutral extension events; indexed sessions still fall back to transcript-tail inference (a trailing user/tool result, or assistant `toolUse`, = a turn is running) | tree-shaped JSONL means the visible branch is the leaf's parent path, and one message is one JSONL line, so a large answer can fill the whole tail window |
 | agy | the last SQLite step's combined type/status: running status 8 on a turn-bearing row, or a completed user/tool step whose answer is still owed, means busy; a completed model step means idle | in 1.2.14 status 8 can last less than the watcher debounce and tool rows remain status 3, so status alone misses tool-heavy turns (#735); lifecycle and failed/cancelled tool rows must remain idle |
 
@@ -285,9 +285,11 @@ a running-but-silent turn out of idle, and may **never** declare one busy. Activ
 (a spinner frame is activity, so is an echoed keystroke) and a fine liveness signal.
 
 **When the store says nothing at all, the app says so** (`src/app/terminal/live-record-notice.js`, #151). A store-derived
-backend can only report a state once the live session is paired with its store record. Hermes has a
-degraded mode — it writes sessions as JSON when it cannot open its own database, and our reader *is* that
-database — so a session running in front of the user may have no record we can see. The tab then shows no
+backend can only report a state once the live session is paired with its store record. Older Hermes had a
+degraded mode — it wrote sessions as JSON when it could not open its own database, and our reader *is* that
+database. As of 0.23 that premise is obsolete (an unavailable store only warns), and the usual cause is the
+gateway or the database being unreachable at start — either way a session running in front of the user may have
+no record we can see. The tab then shows no
 state, forever, with nothing to explain it. A session left unpaired past a grace window (60 s; Hermes alone
 needs ~12 s just to paint) is marked as one the backend cannot see.
 

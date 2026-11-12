@@ -58,14 +58,15 @@ const configFields = [
     description: 'Skip AGENTS.md, SOUL.md, memory and preloaded skills for this run.' },
 ];
 
-// NOT an option either, and this one shipped as one (#548). `checkpoints` was declared here and emitted
-// `--checkpoints`, which bare `hermes` does not take: in hermes 0.21.0 the flag belongs to the `chat`
-// SUBCOMMAND, and `checkpoints` at the top level is a subcommand of its own (inspect/prune the snapshot
-// store). Switchboard spawns bare `hermes`, so the toggle produced `hermes --checkpoints …` and argparse
-// killed the session before the TUI started — measured: `hermes --checkpoints --version` answers
-// "unrecognized arguments: --checkpoints". It is removed rather than re-routed, because reaching the flag
-// means spawning `hermes chat` instead of `hermes`, and which of the two this app launches decides how
-// resume, the session id and the TUI behave — a spawn-path change nobody has measured, for one toggle.
+// NOT an option YET, and this one shipped as one (#548). `checkpoints` was declared here and emitted
+// `--checkpoints`, which bare `hermes` refused in 0.21.0: the flag then belonged to the `chat` SUBCOMMAND, and
+// `checkpoints` at the top level is a subcommand of its own (inspect/prune the snapshot store). The toggle
+// produced `hermes --checkpoints …` and argparse killed the session before the TUI started. It was removed
+// rather than re-routed, because reaching the flag meant spawning `hermes chat` instead of `hermes`.
+// Hermes 0.23 lists `--checkpoints` among its TOP-LEVEL options (and in `_CHAT_PASSTHROUGH`, so the TUI gets
+// it), which removes that obstacle. It stays off the list until a real launch with it has been run — a session
+// that dies at spawn is what #548 was — and `scripts/check-hermes-help.js` holds it as audited-excluded with
+// that reason. Re-offer: see #864.
 
 // NOT an option, and the reason is worth keeping (#537). `--reasoning` looks like the obvious launch
 // control this backend was missing, and it is parsed — but in the modern TUI it is then DROPPED:

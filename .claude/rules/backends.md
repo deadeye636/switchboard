@@ -72,6 +72,20 @@ meet in the neutral words of `src/backends/tool-vocabulary.js`, the source mappi
 the target declaring its own, so neither folder spells the other's tools; `src/app/resource-sources.js` is the one resolver, asked by the spawn and by the settings preview,
 spec 31), and its CLI home variable (`cliHomeEnv`, #241).
 
+## Hermes reads a store that soft-deletes (#864)
+
+Hermes 0.23 (schema 33) keeps rewound rows (`active = 0`), archives compacted ones (`active = 0, compacted = 1`) and
+types scaffolding by `display_kind`. `src/backends/hermes/reader.js` (`rowFilters`) filters on whichever of those
+columns the store has, found by `PRAGMA table_info`, never by a version number. **Two filters, deliberately**: content
+reads (first prompt, user count, `readMessages`, the turn digest) drop soft-deleted and scaffolding rows, and the search
+body keeps compaction-archived rows (`active = 0, compacted = 1`, real history, as in Hermes' own search);
+busy/idle and the last-activity stamp drop soft-deleted rows and the `model_switch` / `personality_switch` markers
+(no turn follows them), keeping the other kinds because a hidden prompt, a notification, a result card or an
+`auto_continue` starts a turn; a `failed_turn` notice has no `finish_reason` and `lastMessage` reports it as a finished
+turn. The first prompt has its own query (the search body is capped at 500 rows and includes archived history). A new Hermes query over `messages` goes through `rowFilters`; `ended_at` is written by 0.23 but
+stays null on a session left open, so the last live row is still the busy/idle signal. `docs/backend-formats.md`
+has the columns.
+
 ## A directory is listed; `expandResource` reads it (#440)
 
 `listResources` names a customization directory as ONE row. What is inside it comes from

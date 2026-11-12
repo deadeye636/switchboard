@@ -269,8 +269,8 @@ function updateBackendLiveStates(changedPaths) {
     const liveId = session.realSessionId || sessionId;
     if (!ref) {
       // No record, and the session is plainly running in front of the user — so the tab will show no
-      // state at all, forever. Hermes' degraded mode (it writes JSON when it cannot open its own DB) puts
-      // it here. Say so once, rather than leaving a blank indicator the user cannot explain (#151). We do
+      // state at all, forever. A store its backend could not reach (Hermes: gateway or database unreachable
+      // at start) puts it here. Say so once, rather than leaving a blank indicator the user cannot explain (#151). We do
       // NOT fabricate a state from PTY output: output is liveness, never busy (D21).
       // `recordAppearsAt` is the backend's own answer to WHEN its record shows up (#512). Codex writes
       // its rollout with the first turn, so a session left sitting at its prompt has nothing to pair

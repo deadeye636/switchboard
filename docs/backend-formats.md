@@ -535,6 +535,34 @@ The only backend whose history is **not** in files — the reason the discovery 
   columns version 30 adds are worth knowing: **`last_activity_at`**, a rate-limited heartbeat Hermes' own
   code says never to trust alone (so the synthesised marker stays), and **`hidden`**, which is how a
   `bot_room` member row is written — it does not exist below schema 30.
+- **Schema 33 (Hermes 0.23, #864) and what the reader takes from it.** `SCHEMA_VERSION` in
+  `hermes_state_common.py` is 33; the store is migrated in place on the first open by 0.23 and a downgrade is
+  unsupported, so a machine that ran 0.23 once never goes back. `messages` gained, among others, `active`,
+  `compacted`, `display_kind`, `display_metadata` and `message_uid`; `sessions` gained `created_source`,
+  `session_key`, `rewind_count`, `hidden`, `archived` and more. The reader uses only the first three:
+  - **`active = 0, compacted = 0`** is a rewind / undo: the row is kept and soft-deleted.
+  - **`active = 0, compacted = 1`** is a row an in-place compaction archived; the summary that replaced it is an
+    active row. Hermes' own search keeps these discoverable, and so does this reader's search body: they are real
+    history. Every other read (first prompt, user count, viewer, digest, busy/idle) takes live rows only.
+  - **`display_kind`** types rows that are neither a prompt nor an answer. User rows: `hidden` (a goal-control
+    send, a handoff), `internal_notification` (a self-injected machinery turn), `process_complete` and
+    `async_delegation_complete` (result cards; Hermes draws them as events from `display_metadata.display_text`),
+    `auto_continue` (the "continue" Hermes sends itself after an interrupted turn), and the two markers
+    `model_switch` and `personality_switch` (a durable note that nothing follows). `failed_turn` is an ASSISTANT
+    notice written with no `finish_reason`. The reader drops all of them from content reads. The two result cards
+    are not shown in the viewer: it has only user/assistant messages and no neutral event shape.
+  - The reader asks `PRAGMA table_info(messages)` per connection and filters on the columns that exist, so an
+    older store keeps the old queries (`active` is read through `COALESCE(active, 1)`: it is nullable in older
+    tables). First prompt, user count, `readMessages` and the turn digest drop soft-deleted AND
+    scaffolding rows; the search body drops rewound and scaffolding rows but keeps compaction-archived ones. Busy/idle and the last-activity stamp drop soft-deleted rows and the two no-turn markers
+    (`model_switch`, `personality_switch`); every other kind starts a turn (a hidden prompt, a notification, a result
+    card, an auto-continue) and stays, and a `failed_turn` notice is reported as a finished turn although it has no
+    `finish_reason`. The per-bucket message counts take live rows. `PARSER_SCHEMA_VERSION` is 5 for this.
+    `test/hermes-store-v33.test.js` pins each query.
+  - **One writer.** Sessions are written through Hermes' single `SessionDB` / gateway writer, so our read-only
+    connection never competes with a second one. The JSON-session "degraded mode" older notes describe (sessions
+    written as JSON when the database cannot be opened) no longer applies in 0.23: an unavailable store only
+    warns. A live session with no row therefore means the gateway or the database was unreachable when it started.
 - **Contention with a live CLI is fine, measured** (#535, after 0.20.4's SessionDB fixes): 301 writes and
   301 discovery+parse reads interleaved on one WAL database produced no exception, no empty answer, no
   short answer and no null parse. The failure mode to watch for is a silent EMPTY result — `openDb`
@@ -556,9 +584,12 @@ The only backend whose history is **not** in files — the reason the discovery 
 - Read it **read-only, `PRAGMA query_only`, short-lived connections**, and watch the `-wal` file as well as
   the DB: a WAL commit can leave the main file's mtime untouched.
 - **State — corrects the plan (#165):** `ended_at` looked like the signal and is **not**. On a real store it
-  is **null on every session**, including ones finished the day before; Hermes simply never writes it. So a
-  rule of "not ended + wrote recently → busy" reads the agent's own ANSWER as activity, and the session sits
-  at "working" for the whole activity window after every reply.
+  was **null on every session** of the 0.21 store this was measured on, including ones finished the day
+  before. **Hermes 0.23 does write it** (`SessionDB.end_session`: `cli_close`, `new_session`, `agent_close`, cron,
+  ACP and gateway paths; `reopen_session` clears it again), so a set `ended_at` is now a real IDLE, and the
+  reader still treats it as one. But a session left open at its prompt keeps it null, so it cannot be the only
+  signal: a rule of "not ended + wrote recently → busy" reads the agent's own ANSWER as activity, and the session
+  sits at "working" for the whole activity window after every reply.
 
   The signal is the **last message row**: `messages.finish_reason` is `stop` on every assistant row and
   null on every user row.

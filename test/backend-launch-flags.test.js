@@ -237,15 +237,16 @@ test('a value joined to its flag is still the flag (#660)', () => {
 
 // --- #548: the managed set is DERIVED, so a flag cannot be missing from the CLI and from the list at once
 
-test('Hermes does not send a flag its CLI has no top-level spelling for (#548)', () => {
-  // `--checkpoints` belongs to `hermes chat`; bare `hermes` — which is what this app spawns — answers
-  // "unrecognized arguments: --checkpoints" and the session dies before the TUI starts. The toggle was in
+test('Hermes does not send --checkpoints until a real launch with it has been run (#548, #864)', () => {
+  // In 0.21.0 `--checkpoints` belonged to `hermes chat`; bare `hermes` — which is what this app spawns — answered
+  // "unrecognized arguments: --checkpoints" and the session died before the TUI started. The toggle was in
   // the settings screen for months, so anyone who switched it on got a tab that closed on launch.
   assert.equal(hermes.configFields.some(f => f.id === 'checkpoints'), false, 'not declared');
   assert.equal(launchArgs(hermes, { checkpoints: true }).includes('--checkpoints'), false,
-    'and a stored value from before this fix cannot reach the argv either');
-  // Nor is it audited away: excluding it would claim a decision about a top-level flag that does not exist.
-  assert.equal(excludedFlags('hermes').includes('--checkpoints'), false);
+    'and a stored value from before the removal cannot reach the argv either');
+  // Hermes 0.23 lists it as a TOP-LEVEL flag, so the audit now sees it. It is held as audited-excluded, with
+  // the reason (#864), and not treated as a flag that does not exist.
+  assert.equal(excludedFlags('hermes').includes('--checkpoints'), true);
 });
 
 test('no help check writes down the flags this app sends (#548)', () => {

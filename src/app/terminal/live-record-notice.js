@@ -4,9 +4,11 @@
 // have paired the live session with its store record. When that pairing never happens, the tab shows
 // nothing at all: no working, no idle, forever — and nothing says why.
 //
-// Hermes has a documented degraded mode where it writes sessions as JSON files because it could not open
-// its own database (docs/plans/multi_llm/research/hermes-format.md). Our reader is the database, so in that mode it
-// sees no record for a session that is plainly running in front of the user.
+// The usual cause for Hermes is that its gateway or database was unreachable when the session started, so
+// no row was written (docs/backend-formats.md, Hermes). Older Hermes versions also had a degraded mode that
+// wrote JSON session files instead; as of 0.23 an unavailable store only warns, so that is no longer the
+// premise. Our reader is the database, so either way it sees no record for a session that is plainly
+// running in front of the user.
 //
 // What we do NOT do is invent a state out of PTY output. That was the original plan, and it is wrong: a
 // spinner frame is output, and so is an echoed keystroke. Output is a LIVENESS signal — it may keep a

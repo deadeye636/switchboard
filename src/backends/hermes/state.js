@@ -5,8 +5,10 @@
 // watcher already re-reads on every WAL commit.
 //
 // The original rule was `ended_at IS NULL + recent messages -> BUSY`. It was wrong twice over, and a real
-// store said so: **`ended_at` is never set** — null on every session, including ones finished the day
-// before — so the one branch that could return IDLE never fired. What was left was "wrote something
+// store said so: **`ended_at` was null on every session** of the 0.21 store measured, including ones finished
+// the day before — so the one branch that could return IDLE never fired. (Hermes 0.23 does write it when a
+// session is ended, and a set value is a real IDLE below; a session left open at its prompt still has none,
+// which is why the last row stays the signal.) What was left was "wrote something
 // recently → busy", and the agent's own ANSWER is something written recently. A session therefore sat at
 // "working" for the whole activity window after every reply, while plainly waiting at its prompt.
 //
@@ -87,7 +89,7 @@ const OUTPUT_LIVENESS_CEILING_MS = 5 * ACTIVITY_WINDOW_MS;   // 15 minutes
  */
 function deriveState(row, nowMs = Date.now(), opts = {}) {
   if (!row) return IDLE;
-  if (row.isEnded) return IDLE;                     // kept for the day Hermes starts writing ended_at
+  if (row.isEnded) return IDLE;                     // written by Hermes 0.23 when a session ends
 
   const role = row.lastRole || null;
 

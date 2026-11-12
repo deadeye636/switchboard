@@ -32,6 +32,21 @@ const AUDITED_EXCLUDED = new Set([
   '--tui',
   '--cli',
   '--dev',
+  // #864. A developer diagnostic: profiles the Hermes process with cProfile and writes PATH and PATH.txt on
+  // exit, at a cost for as long as it runs. Nothing a person starting a coding session asks of this app.
+  '--cpu-profile',
+  // #864. Both only mean something WITH `--tui` ("use native terminal scrollback and disable mouse
+  // tracking"), and Switchboard passes neither `--tui` nor `--cli` (which branch runs is the user's
+  // `display.interface`), so a toggle would do nothing for half the users. It also changes how the terminal
+  // this app embeds receives the mouse, which nobody has measured here.
+  '--native',
+  '--tui-native',
+  // #864. NOT offered yet, and not because it is unwanted: #548 removed the toggle because `--checkpoints`
+  // was then a flag of the `chat` subcommand and bare `hermes` refused it. In 0.23 it is a TOP-LEVEL flag
+  // (it is in `_CHAT_PASSTHROUGH` in `hermes_cli/main.py`, so the TUI receives it). Re-offering it is one
+  // `configFields` toggle and one `buildLaunch` line, but a launch that dies at spawn is exactly what #548
+  // was, and a real launch was not run when this was written. Re-offer: see #864.
+  '--checkpoints',
 ]);
 
 // A select field whose CLI writes its accepted values in PROSE rather than declaring them, so there is

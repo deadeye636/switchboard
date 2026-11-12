@@ -34,7 +34,9 @@ const { dbSignature } = require('../livestate-cache');
 //   v2: per-(date, HOUR, model) metrics in LOCAL time, with cost per bucket (#159)
 //   v3: `recovered` sessions are ingested — a session Hermes repaired after a crash (#551)
 //   v4: imported sessions are ingested, and the row records what they were imported from (#552)
-const PARSER_SCHEMA_VERSION = 4;
+//   v5: a 0.23 store's soft-deleted (rewound / compaction-archived) and hidden scaffolding rows no longer
+//       reach the first prompt, search body, user count, last-activity stamp or busy/idle (#864)
+const PARSER_SCHEMA_VERSION = 5;
 
 let _home = null;
 
@@ -208,6 +210,82 @@ function discoverSessions({ includeAll = false } = {}) {
   }
 }
 
+// --- which message rows are the conversation (#864) ---
+//
+// Hermes 0.23 (schema 33) stopped deleting rows. A rewind / undo flips `active` to 0, an in-place compaction
+// archives the rows it folded away as `active = 0, compacted = 1`, and scaffolding the person never saw is
+// typed through `display_kind`. Read blind, all of that comes back as conversation: an undone prompt is the
+// "last row" (a wrong busy), and undone turns and pre-compaction rows land in the first prompt and the search
+// body. Like Hermes' own search, the search body keeps `compacted` rows (real history a person searches for);
+// every other read (first prompt, user count, viewer, digest, busy/idle) takes live rows only.
+//
+// The columns are asked for, not the version number: `PRAGMA table_info` is one cheap read per short-lived
+// connection and answers exactly "can I filter on this?" for any schema. A store without a column keeps the
+// old, unfiltered query. `active` goes through COALESCE: it is nullable in older tables that already carry
+// it, and a NULL there is a live row.
+//
+// Rows that carry a `display_kind` are not what the person typed or what the agent answered. Each kind below
+// was checked against Hermes' source:
+//   hidden                    model-facing scaffolding the gateway never paints (hermes_state_stored_reads.py)
+//   internal_notification     a self-injected machinery turn (gateway/response_filters.py)
+//   process_complete          a background-process result card (gateway/response_filters.py)
+//   async_delegation_complete a delegated-agent result card (gateway/response_filters.py)
+//   auto_continue             the "continue" Hermes sends itself after an interrupted turn (tui_gateway/)
+//   model_switch              a durable marker that the model changed (tui_gateway/server.py)
+//   personality_switch        a durable marker that the personality changed (tui_gateway/agent_callbacks.py)
+//   failed_turn               the ASSISTANT notice written when a turn failed (agent/conversation_loop.py)
+// None is a prompt or an answer, so content reads (first prompt, user count, search body, viewer, digest) drop
+// all of them. The two result cards are shown by Hermes itself as events through `display_text`; the viewer here
+// has only user/assistant messages and no neutral event shape, so they are dropped, not shown as prompts.
+const SCAFFOLD_KINDS = [
+  'hidden', 'internal_notification', 'process_complete', 'async_delegation_complete',
+  'auto_continue', 'model_switch', 'personality_switch', 'failed_turn',
+];
+// Busy/idle ignores only the two markers: no turn follows them, so a trailing one is not "the last word".
+// The other user kinds (hidden, internal_notification, the result cards, auto_continue) START a turn and stay.
+const NO_TURN_MARKERS = ['model_switch', 'personality_switch'];
+
+function messageColumns(db) {
+  const cols = new Set();
+  try {
+    for (const r of db.all('PRAGMA table_info(messages)')) cols.add(String(r.name));
+  } catch { /* unreadable -> no filtering, the old behaviour */ }
+  return cols;
+}
+
+/**
+ * SQL fragments (each starts with ` AND `, or is empty) for one connection. `live` drops soft-deleted rows;
+ * `content` also drops scaffolding. `prefix` is a table alias with its dot ('m.') or ''.
+ *
+ * Busy/idle uses `turn`: live rows minus the two no-turn markers. A hidden user row (a goal-control send, a
+ * machinery notification, an auto-continue) STARTS a turn, so dropping it would read the row before as the last
+ * word. `failed_turn` stays too, and `lastMessage` reports it as a finished turn.
+ */
+function rowFilters(db, prefix = '') {
+  const cols = messageColumns(db);
+  const live = cols.has('active') ? ` AND COALESCE(${prefix}active, 1) = 1` : '';
+  const scaffold = cols.has('display_kind')
+    ? ` AND COALESCE(${prefix}display_kind, '') NOT IN (${SCAFFOLD_KINDS.map(k => `'${k}'`).join(', ')})`
+    : '';
+  // The search body keeps rows a compaction archived (`active = 0, compacted = 1`), like Hermes' own search:
+  // they are real history. Only rewound / undone rows (`active = 0`, not compacted) are dropped.
+  const turn = live + (cols.has('display_kind')
+    ? ` AND COALESCE(${prefix}display_kind, '') NOT IN (${NO_TURN_MARKERS.map(k => `'${k}'`).join(', ')})`
+    : '');
+  const archived = cols.has('active') && cols.has('compacted')
+    ? ` AND (COALESCE(${prefix}active, 1) = 1 OR COALESCE(${prefix}compacted, 0) = 1)`
+    : live;
+  return {
+    live,
+    turn,
+    hasDisplayKind: cols.has('display_kind'),
+    content: live + scaffold,
+    search: archived + scaffold,
+    // 1 for a row that is part of the live conversation, 0 for an archived one (selected beside the text).
+    liveFlag: cols.has('active') ? `COALESCE(${prefix}active, 1) = 1` : '1',
+  };
+}
+
 // Hermes stores times as REAL unix epoch seconds, not ISO strings.
 function toIso(epochSeconds) {
   if (epochSeconds == null) return null;
@@ -234,26 +312,38 @@ function parseSession(handle) {
     let textContent = '';
     let firstPrompt = '';
     let lastMessageMs = 0;
+    const filters = rowFilters(db);
     try {
       const msgs = db.all(
-        "SELECT role, content, timestamp FROM messages WHERE session_id = ? AND content IS NOT NULL AND content <> '' ORDER BY id LIMIT 500",
+        "SELECT role, content, timestamp FROM messages WHERE session_id = ? AND content IS NOT NULL AND content <> ''"
+        + filters.search + ' ORDER BY id LIMIT 500',
         handle.sessionId
       );
       const parts = [];
       for (const m of msgs) {
         const text = typeof m.content === 'string' ? m.content : '';
         if (!text) continue;
-        if (!firstPrompt && m.role === 'user') firstPrompt = text.slice(0, 500);
         parts.push(text);
       }
       textContent = parts.join('\n').slice(0, 200000);
     } catch { /* messages unreadable -> still index the session row itself */ }
 
+    // The first prompt has its own query: the body above includes archived history and stops at 500 rows, so on
+    // a long compacted session the first LIVE user prompt can lie beyond it.
+    try {
+      const first = db.get(
+        "SELECT content FROM messages WHERE session_id = ? AND role = 'user' AND content IS NOT NULL AND content <> ''"
+        + filters.content + ' ORDER BY id LIMIT 1',
+        handle.sessionId
+      );
+      if (first && typeof first.content === 'string') firstPrompt = first.content.slice(0, 500);
+    } catch { /* leave it empty -> the summary falls back to the title */ }
+
     // Last activity is asked SEPARATELY, over all messages. Deriving it from the capped read above
     // would freeze it at message #500 — and busy/idle rides on it (state.js), so a long agent session
     // (tool-call rows add up fast) would be declared idle while it is still working.
     try {
-      const last = db.get('SELECT MAX(timestamp) AS t FROM messages WHERE session_id = ?', handle.sessionId);
+      const last = db.get('SELECT MAX(timestamp) AS t FROM messages WHERE session_id = ?' + filters.turn, handle.sessionId);
       if (last && last.t) lastMessageMs = Number(last.t) * 1000;
     } catch { /* leave it at 0 -> deriveState falls back to the session row's own timestamps */ }
 
@@ -280,7 +370,7 @@ function parseSession(handle) {
         "SELECT strftime('%Y-%m-%d', timestamp, 'unixepoch', 'localtime') AS date," +
         " CAST(strftime('%H', timestamp, 'unixepoch', 'localtime') AS INTEGER) AS hour," +
         ' COUNT(*) AS n' +
-        ' FROM messages WHERE session_id = ? AND timestamp IS NOT NULL GROUP BY date, hour',
+        ' FROM messages WHERE session_id = ? AND timestamp IS NOT NULL' + filters.live + ' GROUP BY date, hour',
         handle.sessionId
       );
       const model = s.model || '';
@@ -370,7 +460,7 @@ function parseSession(handle) {
       // Hermes has no user-message column, but the rows are right there. It used to be hardcoded to 0.
       // It feeds the session metrics and the handoff prompt; since #620 it decides no health badge — that
       // comes from the context fill, which this store cannot give.
-      userMessageCount: countUserMessages(db, handle.sessionId),
+      userMessageCount: countUserMessages(db, handle.sessionId, filters.content),
       largestUserPromptWords: 0,
       slug: null, customTitle: null, aiTitle: null,
       model: s.model || null,
@@ -425,15 +515,18 @@ function parseSession(handle) {
  */
 function lastMessage(db, sessionId) {
   try {
+    const f = rowFilters(db);
     const m = db.get(
-      'SELECT role, finish_reason AS finishReason, timestamp FROM messages'
-      + ' WHERE session_id = ? ORDER BY id DESC LIMIT 1',
+      'SELECT role, finish_reason AS finishReason, timestamp' + (f.hasDisplayKind ? ', display_kind AS displayKind' : '')
+      + ' FROM messages WHERE session_id = ?' + f.turn + ' ORDER BY id DESC LIMIT 1',
       sessionId
     );
     if (!m) return null;
     return {
       role: m.role || null,
-      finishReason: m.finishReason || null,
+      // Hermes writes a `failed_turn` notice with NO finish_reason, which state.js reads as "still generating".
+      // The notice IS the end of that turn, so it says so.
+      finishReason: m.displayKind === 'failed_turn' ? 'failed_turn' : (m.finishReason || null),
       timestampMs: m.timestamp ? Number(m.timestamp) * 1000 : 0,
     };
   } catch {
@@ -456,7 +549,7 @@ function readLiveState(sessionId) {
   try {
     const s = db.get(
       'SELECT s.ended_at AS endedAt,'
-      + ' (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) AS lastTs'
+      + ' (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id' + rowFilters(db, 'm.').turn + ') AS lastTs'
       + ' FROM sessions s WHERE s.id = ?',
       sessionId
     );
@@ -561,9 +654,9 @@ function watchTargets() {
  *
  * Bounded: this is a viewer, not a scan.
  */
-function countUserMessages(db, sessionId) {
+function countUserMessages(db, sessionId, filter = '') {
   try {
-    const row = db.get("SELECT COUNT(*) AS n FROM messages WHERE session_id = ? AND role = 'user'", sessionId);
+    const row = db.get("SELECT COUNT(*) AS n FROM messages WHERE session_id = ? AND role = 'user'" + filter, sessionId);
     return Number((row && row.n) || 0);
   } catch {
     return 0;
@@ -585,6 +678,7 @@ function readMessages(sessionId, { limit = 2000 } = {}) {
       "SELECT role, content, timestamp FROM messages"
       + " WHERE session_id = ? AND content IS NOT NULL AND content <> ''"
       + " AND role IN ('user', 'assistant')"
+      + rowFilters(db).content
       + ' ORDER BY id DESC LIMIT ?',
       sessionId, limit
     );
