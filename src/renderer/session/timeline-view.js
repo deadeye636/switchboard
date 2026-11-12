@@ -89,6 +89,9 @@ function renderTimelineFilters(events) {
     exited: 'Exited',
     stopped: 'Stopped',
     forked: 'Forked',
+    cleared: 'Cleared',
+    'plan-accepted': 'Plan accepted',
+    'id-adopted': 'Id changed',
   };
   timelineKindFilter.innerHTML = '<option value="all">All events</option>';
   for (const kind of getTimelineKinds(events)) {

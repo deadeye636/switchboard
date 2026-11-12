@@ -14,6 +14,9 @@
     'exited',
     'stopped',
     'forked',
+    'cleared',
+    'plan-accepted',
+    'id-adopted',
   ]);
   // Kinds that mean the agent is blocked on / waiting for the human.
   const WAITING_KINDS = new Set(['needs-attention', 'response-ready']);

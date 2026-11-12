@@ -395,6 +395,17 @@ test('highlights only: a selected step resolves to its quiet group, and back to 
   assert.equal(off.rows[back].key, 's3', 'off again: the step itself, not the group key that no longer exists');
 });
 
+test('placeEvents (#851): a re-key is drawn as what it was, not as a fork', () => {
+  const T = Date.parse('2026-01-01T12:00:00Z');
+  const snap = mkSnap([mkStep(1, { ts: T, kind: 'start' })]);
+  const placed = FlowView.placeEvents(snap, [
+    { kind: 'cleared', label: 'Session cleared', at: T + 1 },
+    { kind: 'plan-accepted', label: 'Plan accepted', at: T + 2 },
+    { kind: 'id-adopted', label: 'Session id changed', at: T + 3 },
+  ]);
+  assert.deepEqual(placed.map((m) => m.word), ['cleared', 'plan accepted', 'id changed']);
+});
+
 test('placeEvents (T25): Events lifecycle marks go to the last main-lane step written before them, others are ignored', () => {
   const T = Date.parse('2026-01-01T12:00:00Z');
   const steps = [mkStep(1, { ts: T, kind: 'start' }), mkStep(2, { ts: T + 1000 }), mkStep(3, { ts: T + 5000 }),

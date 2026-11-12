@@ -374,13 +374,26 @@ function readOldSessionTail(filePath) {
   }
 }
 
+// What the Events record says for each reason a session moved onto a new id (#851). Old records written
+// before this table existed say `forked` for every one of them and stay as stored.
+const REKEY_EVENTS = Object.freeze({
+  fork: { kind: 'forked', label: 'Session forked', detail: (from) => `Forked from ${from}.` },
+  clear: { kind: 'cleared', label: 'Session cleared', detail: (from) => `Cleared; continued from ${from}.` },
+  'plan-accept': { kind: 'plan-accepted', label: 'Plan accepted', detail: (from) => `Plan accepted; continued from ${from}.` },
+  adopted: { kind: 'id-adopted', label: 'Session id changed', detail: (from) => `The CLI moved to a new session id; was ${from}.` },
+});
+
 /**
  * Move a live session onto a new id: the map key, the id it reports as real, the MCP server, the backend
  * overlay and the renderer's row all follow together. Shared by the two callers that can establish a move
  * — the transcript detector below and the terminal's own report (`adoptSessionId`) — because doing five of
  * the six was how a re-key used to half-happen.
+ *
+ * `reason` is what the CALLER knows the move was — 'fork', 'clear', 'plan-accept' or 'adopted' — and it is
+ * what the Events record is told (#851). It is not derived in here: this function only sees an id changing.
+ * A missing or unknown reason records no lifecycle event rather than a guessed one.
  */
-function applyRekey(fromId, session, toId, origin) {
+function applyRekey(fromId, session, toId, origin, reason) {
   session.realSessionId = toId;
   activeSessions.delete(fromId);
   activeSessions.set(toId, session);
@@ -402,7 +415,8 @@ function applyRekey(fromId, session, toId, origin) {
   try {
     const timeline = require('../app/timeline');
     timeline.rekeySession(fromId, toId);
-    timeline.recordLifecycle(toId, 'forked', 'Session forked', `Forked from ${fromId}.`);
+    const mark = REKEY_EVENTS[reason];
+    if (mark) timeline.recordLifecycle(toId, mark.kind, mark.label, mark.detail(fromId));
   } catch { /* module not wired in a test build */ }
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -437,6 +451,11 @@ function adoptSessionId(tag, newId) {
     if (s && s._terminalTag === tag) { fromId = key; session = s; break; }
   }
   if (!session || session.exited || session.isPlainTerminal) return null;
+  // The first time a terminal names its session is the launch, not a move of the user's session (#851): a Pi
+  // terminal starts without an id, so its first bind always differs. Only a later naming is a move. Marked
+  // before the "already current" exit, since a launch that already had the right id is a naming too.
+  const firstNaming = !session._idNamed;
+  session._idNamed = true;
   if (fromId === newId) return null;          // already current — every turn but the first after a move
   // Another row already holds that id. Two live rows must never collapse onto one key (#223's whole
   // point), and the terminal reporting it is not evidence about the row that already has it.
@@ -472,7 +491,7 @@ function adoptSessionId(tag, newId) {
   const ancestorId = viaClaim ? claim.sessionId : fromId;
 
   // `adoptSessionId` is the CLI naming its own session — Pi over its live binding, pi-native over RPC.
-  applyRekey(fromId, session, newId, 'announced');
+  applyRekey(fromId, session, newId, 'announced', viaClaim ? 'clear' : (firstNaming ? null : 'adopted'));
   if (session.projectFolder) {
     try { recordLineage(newId, session.projectFolder, ancestorId, kind); } catch { /* best effort */ }
   }
@@ -544,22 +563,25 @@ function detectSessionTransitions(folder) {
       }
 
       let matched = false;
+      // WHICH rule matched, so the re-key is recorded as what it was (#851). `session.forkFrom` is set at spawn and
+      // never cleared, so it cannot tell a later plan accept from the fork the session started as.
+      let matchedAs = null;
       // The ancestor a matched /clear should be recorded against — the claim's parent when a claim resolved
       // it, which is NOT necessarily this row's current key (#304). Null → fall back to the key.
       let clearAncestorId = null;
 
       // Fork: forkedFrom.sessionId matches this active PTY or the session it was forked from
       if (signals.forkedFrom === sessionId || (session.forkFrom && signals.forkedFrom === session.forkFrom)) {
-        matched = true;
+        matched = true; matchedAs = 'fork';
       }
       // --fork-session: new file's parentSessionId matches the forkFrom source,
       // and the new file's name (newId) differs from both our PTY id and the source
       if (!matched && session.forkFrom && signals.parentSessionId === session.forkFrom && newId !== session.forkFrom) {
-        matched = true;
+        matched = true; matchedAs = 'fork';
       }
       // Fork file with only snapshots — no user turn yet, but this session is waiting for a fork
       if (!matched && signals.hasSnapshots && session.forkFrom && !session.realSessionId) {
-        matched = true;
+        matched = true; matchedAs = 'fork';
       }
 
       if (session.forkFrom && !matched) {
@@ -576,7 +598,7 @@ function detectSessionTransitions(folder) {
             const oldMtime = fs.statSync(oldFilePath).mtimeMs;
             const newMtime = fs.statSync(newFilePath).mtimeMs;
             if (Math.abs(newMtime - oldMtime) < 30000) {
-              matched = true;
+              matched = true; matchedAs = 'plan-accept';
             }
           } catch {}
         }
@@ -604,7 +626,7 @@ function detectSessionTransitions(folder) {
           // CLI said it ended — against our key instead was #304: with a stale key the tag still matched,
           // the claim still named the true parent, and the transition was discarded anyway.
           if (confidence === 'high' && ownerId === sessionId) {
-            matched = true;
+            matched = true; matchedAs = 'clear';
             if (via === 'claim') {
               // The CLI's id, not ours: it is the session that actually ended, so it is the ancestor even
               // when this row was still keyed to something older.
@@ -632,7 +654,7 @@ function detectSessionTransitions(folder) {
       }
 
       if (matched) {
-        const kind = signals.clearOrigin ? 'clear' : (signals.forkedFrom || session.forkFrom ? 'fork' : 'plan-accept');
+        const kind = signals.clearOrigin ? 'clear' : matchedAs;
         log.info(`[session-transition] ${sessionId} → ${newId} (${kind})`);
         // Record the /clear child's provenance (#193). This is the authoritative source for a clear link —
         // the scanner cannot correlate it (the parent's file is unchanged and skipped), so we persist it
@@ -647,7 +669,7 @@ function detectSessionTransitions(folder) {
         if (signals.slug) session.sessionSlug = signals.slug;
         // The transcript detector: a file in the store said so. Not the CLI's own word, and deliberately
         // spelled out rather than left to a default, so the two routes read differently at a glance.
-        applyRekey(sessionId, session, newId, 'transcript');
+        applyRekey(sessionId, session, newId, 'transcript', kind);
         break; // Only one transition per session per flush
       }
     }

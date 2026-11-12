@@ -96,7 +96,7 @@ test('only the CLI\'s own report is recorded as an announcement', () => {
   const TRANSITIONS = fs.readFileSync(path.join(ROOT, 'src', 'session', 'session-transitions.js'), 'utf8');
   const PRELOAD = fs.readFileSync(path.join(ROOT, 'src', 'preload.js'), 'utf8');
   const ADOPT = fs.readFileSync(path.join(ROOT, 'src', 'watch', 'adopt.js'), 'utf8');
-  assert.match(TRANSITIONS, /applyRekey\(fromId, session, newId, 'announced'\)/,
+  assert.match(TRANSITIONS, /applyRekey\(fromId, session, newId, 'announced', /,
     'adoptSessionId is the CLI naming its own session, and it is the only origin that says so');
   assert.match(TRANSITIONS, /send\('session-forked', fromId, toId, origin\)/, 'the origin travels');
   assert.match(PRELOAD, /'session-forked', \(_event, oldId, newId, origin\)/, 'and crosses the bridge');

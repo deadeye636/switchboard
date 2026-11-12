@@ -28,7 +28,7 @@ It reads the transcript, not the pipe, so it works for terminal and native sessi
 | E2 | Snapshot plus an explicit Refresh. Live tail is a later extension. | One coherent multi-file graph and one coherent export while parent and child transcripts may still grow. The viewer may say newer data exists and refreshes once when the session ends. |
 | E3 | Export order: neutral JSON, then SVG and a paginated PDF, Mermaid last. | The SVG export is a separate complete static materialisation of the neutral model; PNG is out (`capturePage` sees only the visible area). |
 | E4 | Obsolete with E1. | |
-| E5 | Lifecycle markers (`needs-attention`, `stopped`, `forked`) from Events appear in Flow, in a later review step, without merging the two sources. | |
+| E5 | Lifecycle markers (`needs-attention`, `stopped` and the re-key kinds `forked`, `cleared`, `plan-accepted`, `id-adopted`) from Events appear in Flow, in a later review step, without merging the two sources. | |
 | Layout | A lane graph, no layout engine: column = lane, row = moment. Spawns and returns run in the gap between two rows. | A table cannot show nesting or parallel agents; a free flowchart needs auto-layout, loses the time axis, and its diamonds decide nothing in a session. |
 | Screen | The review revision narrowed "SVG": the screen may be virtualised HTML cards with an SVG connector layer. SVG export is separate. | Accessibility, text layout, scale. |
 | PDF | Explicit pagination with repeated lane headers, then `webContents.printToPDF`. A new IPC handler in an `src/app/` module (reflex 4). | One tall SVG does not page-break inside cards. |
@@ -419,7 +419,7 @@ Claude's list (all heuristic; a recursive delete is flagged only at a BROAD targ
 - **No "Open in messages" (O6).** The messages view addresses an entry by its position after merging and filtering
   (`dataset.entryIndex` in `src/renderer/jsonl/jsonl-viewer.js`) or by a tool-use id; a flow step carries a file line and byte offset, and no
   reader puts a tool-use id into the snapshot. There is no stable mapping, so the button is not offered.
-- **Lifecycle from Events (T25, E5).** `needs-attention`, `stopped` and `forked` from the Events record (`src/app/timeline.js`, read through
+- **Lifecycle from Events (T25, E5).** `needs-attention`, `stopped` and the re-key kinds (`forked`, `cleared`, `plan-accepted`, `id-adopted`) from the Events record (`src/app/timeline.js`, read through
   the renderer's copy, `getTimelineEvents`) are an OVERLAY on the Flow, never merged into the snapshot or the layout: `FlowView.placeEvents`
   (pure) puts each on the last main-lane step whose `ts` is at or before the event, or on the first timed step when the event is earlier
   than every step (the panel says which), and the mark sits on the row standing for that step (a quiet group or a lane summary when it is
@@ -643,9 +643,18 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
   glyph `◆`, and several Events on one step share one chip (the newest word and `+N`; the full list is in the title and the panel).
 - Lifecycle marks from Events (T25) are placed by time only: an event lands on the last main-lane step written before it, so a session whose
   clock and the app's disagree, or a step with no `ts`, can put it a row off. Events that arrive while the Flow tab is open show after a
-  Refresh or a reopen. **A `forked` mark can stand for any re-key**: the Events record writes `forked` / "Session forked" in `applyRekey`
-  (`src/session/session-transitions.js`) for a `/clear`, a plan accept, a Pi session adopting its own id and a real fork alike, and Flow
-  shows what the record says. Telling them apart is a change to the Events record (and its tab), not to Flow: #851.
+  Refresh or a reopen.
+  A re-key is recorded as what it was (#851): `applyRekey` (`src/session/session-transitions.js`) takes the reason from its caller, never guesses
+  it: the transcript detector passes `fork`, `clear` or `plan-accept`, and `adoptSessionId` passes `clear` when a clear claim names the move and
+  `adopted` otherwise. They are stored as `forked`, `cleared`, `plan-accepted` and `id-adopted`, and Events and Flow show those words. Records
+  stored before #851 say `forked` for every re-key and stay as stored; there is no rewrite migration, so an old session can still show a
+  `forked` mark for a clear.
+  The reason comes from the detection that matched, not from `session.forkFrom` (set at spawn, never cleared): a plan accept in a session that
+  started as a fork is `plan-accepted`. Known gap: on the `adoptSessionId` route (the CLI naming its own session) a fork or plan accept started
+  from inside the CLI is recorded as `id-adopted`, never as `forked`, because that route only sees the id change. The first time a session is
+  named on that route (a Pi terminal's first bind, a pi-native runtime's first identity) records nothing (`session._idNamed`, set in
+  `adoptSessionId`, whichever caller), unless a clear claim names it; only a later move does. A `pi --fork` started from inside Pi is a later
+  move and reads `id-adopted`.
   No "Open in messages" (O6, T24): the messages view has no anchor a step can address.
 - Codex (T22): a command built in code (a template with `${}`, a variable) is neither matched nor paired with a guardian verdict, so its step shows
   the escalation request alone. A call the guardian did not review and the answer of a person in the terminal show no verdict. When an unreviewed call is

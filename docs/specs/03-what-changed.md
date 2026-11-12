@@ -87,7 +87,7 @@ Electron in `test/presence.test.js`: the idle reader arrives through ctx.
 | Table | `session_timeline`, written by `src/db/timeline-store.js` |
 | Shape & retention | `src/db/timeline-record.js` — bounded at **500 events per session / 30 days** |
 | The one writer | `src/app/timeline.js`, which sits **in front of** `detach.sendTimelineSignal` (that call deliberately sends nothing when the session lives in the main window, so recording behind it would record every session except the ordinary ones) |
-| Kinds | `started`, `busy`, `idle`, `needs-attention`, `response-ready`, `exited`, `stopped`, `forked`, plus `viewed` and `file-touched` |
+| Kinds | `started`, `busy`, `idle`, `needs-attention`, `response-ready`, `exited`, `stopped`, `forked`, `cleared`, `plan-accepted`, `id-adopted`, plus `viewed` and `file-touched` |
 
 `response-ready` in the record means **the turn ended** — nothing about where the user was looking.
 

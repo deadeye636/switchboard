@@ -396,6 +396,16 @@ function registerPtySession(activeSessions, id, folder, known, extra = {}) {
   return session;
 }
 
+// Capture what a re-key tells the Events record (#851). `applyRekey` calls `timeline.recordLifecycle` on the module
+// object, so wrapping it here sees the call without a database.
+function captureLifecycle() {
+  const timeline = require('../src/app/timeline');
+  const orig = timeline.recordLifecycle;
+  const calls = [];
+  timeline.recordLifecycle = (id, kind, label, detail) => { calls.push({ id, kind, label, detail }); };
+  return { calls, restore: () => { timeline.recordLifecycle = orig; } };
+}
+
 test('clear: single active PTY session in folder → rekeys to the new session id', () => {
   const tmp = mkTmp();
   try {
@@ -408,8 +418,10 @@ test('clear: single active PTY session in folder → rekeys to the new session i
     const session = registerPtySession(activeSessions, oldId, folder, [oldId + '.jsonl']);
     writeSessionStartFile(folderPath, newId, 'clear');
 
-    detectSessionTransitions(folder);
+    const rec = captureLifecycle();
+    try { detectSessionTransitions(folder); } finally { rec.restore(); }
 
+    assert.deepEqual(rec.calls.map(c => [c.id, c.kind]), [[newId, 'cleared']], 'a /clear is recorded as a clear, not a fork (#851)');
     assert.deepEqual(rekeys, [[oldId, newId]], 'MCP server must be re-keyed old→new');
     assert.ok(activeSessions.has(newId) && !activeSessions.has(oldId), 'map re-keyed');
     assert.equal(session.realSessionId, newId);
@@ -507,10 +519,59 @@ test('fork regression: forkedFrom pointing at the active session still rekeys', 
     const { rekeys, activeSessions } = initSessions(tmp);
     const session = registerPtySession(activeSessions, oldId, folder, [oldId + '.jsonl'], { forkFrom: oldId });
 
-    detectSessionTransitions(folder);
+    const rec = captureLifecycle();
+    try { detectSessionTransitions(folder); } finally { rec.restore(); }
 
+    assert.deepEqual(rec.calls.map(c => [c.id, c.kind]), [[newId, 'forked']], 'a real fork is still recorded as forked');
     assert.deepEqual(rekeys, [[oldId, newId]]);
     assert.equal(session.realSessionId, newId);
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('plan accept: a re-key with neither a clear nor a fork is recorded as plan-accepted (#851)', () => {
+  const tmp = mkTmp();
+  try {
+    const folder = 'proj';
+    const folderPath = makeFolder(tmp, folder);
+    const oldId = 'old-sess', newId = 'new-sess';
+    const slug = 'plan-slug';
+    const oldLines = [{ type: 'assistant', slug, message: { content: [{ type: 'tool_use', name: 'ExitPlanMode' }] } }];
+    const newLines = [{ type: 'file-history-snapshot', messageId: 'm', isSnapshotUpdate: false },
+      { type: 'user', sessionId: newId, slug, planContent: 'the plan', message: { role: 'user', content: 'go' } }];
+    const write = (id, lines) => fs.writeFileSync(path.join(folderPath, id + '.jsonl'), lines.map(l => JSON.stringify(l)).join(String.fromCharCode(10)) + String.fromCharCode(10), 'utf8');
+    write(oldId, oldLines);
+    write(newId, newLines);
+    const { rekeys, activeSessions } = initSessions(tmp);
+    registerPtySession(activeSessions, oldId, folder, [oldId + '.jsonl']);
+    const rec = captureLifecycle();
+    try { detectSessionTransitions(folder); } finally { rec.restore(); }
+    assert.equal(rekeys.length, 1, 'the plan accept re-keyed');
+    assert.deepEqual(rec.calls.map(c => c.kind), ['plan-accepted']);
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('plan accept in a session that started as a fork is plan-accepted, not forked (#851)', () => {
+  const tmp = mkTmp();
+  try {
+    const folder = 'proj';
+    const folderPath = makeFolder(tmp, folder);
+    const oldId = 'old-sess', newId = 'new-sess';
+    const slug = 'plan-slug';
+    const write = (id, lines) => fs.writeFileSync(path.join(folderPath, id + '.jsonl'), lines.map(l => JSON.stringify(l)).join(String.fromCharCode(10)) + String.fromCharCode(10), 'utf8');
+    write(oldId, [{ type: 'assistant', slug, message: { content: [{ type: 'tool_use', name: 'ExitPlanMode' }] } }]);
+    write(newId, [{ type: 'file-history-snapshot', messageId: 'm', isSnapshotUpdate: false },
+      { type: 'user', sessionId: newId, slug, planContent: 'the plan', message: { role: 'user', content: 'go' } }]);
+    const { rekeys, activeSessions } = initSessions(tmp);
+    // Already re-keyed once as a fork: forkFrom stays set, realSessionId is set.
+    registerPtySession(activeSessions, oldId, folder, [oldId + '.jsonl'], { forkFrom: 'origin-sess', realSessionId: oldId });
+    const rec = captureLifecycle();
+    try { detectSessionTransitions(folder); } finally { rec.restore(); }
+    assert.equal(rekeys.length, 1);
+    assert.deepEqual(rec.calls.map(c => c.kind), ['plan-accepted']);
   } finally {
     cleanup(tmp);
   }

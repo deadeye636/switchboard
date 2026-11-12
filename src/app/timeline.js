@@ -234,7 +234,7 @@ function recordSignal(sessionId, signal) {
 
 /**
  * The lifecycle facts, which are not signals and have no edge: a session started, exited, was stopped,
- * was forked. Each has exactly one moment and one producer in main, so they are recorded where they
+ * was re-keyed (forked, cleared, plan accepted, id adopted). Each has exactly one moment and one producer in main, so they are recorded where they
  * happen rather than derived from anything.
  *
  * Separate from `recordSignal` because they must NOT touch the busy latch. An exit is not the end of a

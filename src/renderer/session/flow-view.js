@@ -43,13 +43,13 @@
 // selected row through `detailOf`: its fields, `step.detail`'s key/value rows and every flag with its sentence and
 // evidence. It is rebuilt only when the selection or the layout changes, never on scroll. No "Open in messages" (O6).
 //
-// LIFECYCLE FROM EVENTS (T25, E5). `needs-attention`, `stopped` and `forked` from the app's Events record are drawn as an
+// LIFECYCLE FROM EVENTS (T25, E5). `needs-attention`, `stopped` and the re-key kinds from the app's Events record are drawn as an
 // OVERLAY: `placeEvents` puts each on the last main-lane step written before it, and the mark sits on the row standing for that
 // step, apart from the transcript's own flags and with "from Events" in its title and in the panel. Nothing is added to the
 // snapshot or the layout, so Highlights only, the exports and the step ids are untouched. Recomputed once per layout and on
 // every open of the viewer (a Refresh or a reopen picks up events that arrived since); a snapshot with no timed step shows none.
-// The Events record writes `forked` on every re-key (a `/clear`, a plan accept, an adopted id as well as a fork), so the mark
-// says what the record says; see spec 46, Known gaps.
+// A re-key is recorded as what it was (#851): `forked`, `cleared`, `plan-accepted` or `id-adopted`, and the mark says that.
+// Records stored before that still say `forked` for every re-key; they are shown as stored.
 //
 // Callers: session/timeline-view.js (`FlowView.attach` from showTimelineViewer).
 
@@ -198,13 +198,14 @@
   function statusMeansNewSteps(status) { return status === 'grew' || status === 'rewritten'; }
 
   // The Events kinds Flow shows (E5), from the app's own lifecycle record (src/app/timeline.js), in its own words.
-  const EVENT_MARK_KINDS = Object.freeze({ 'needs-attention': 'needs attention', stopped: 'stopped', forked: 'forked' });
+  const EVENT_MARK_KINDS = Object.freeze({ 'needs-attention': 'needs attention', stopped: 'stopped', forked: 'forked',
+    cleared: 'cleared', 'plan-accepted': 'plan accepted', 'id-adopted': 'id changed' });
   const MAX_EVENT_MARKS = 200;
 
   const eventTime = (at) => (typeof at === 'number' ? at : Date.parse(at));
 
   /**
-   * Where the Events record's lifecycle events (E5: needs-attention, stopped, forked) sit in the flow, WITHOUT merging the two
+   * Where the Events record's lifecycle events (E5: needs-attention, stopped and the re-key kinds) sit in the flow, WITHOUT merging the two
    * sources: nothing is added to the snapshot or the layout. Each event goes to the last main-lane step whose `ts` is at or
    * before the event's time, or to the first such step when it is earlier than all of them (`before: true`). `[{ stepId,
    * ordinal, kind, word, before, label, detail, at }]` in time order, the label falling back to the word; `[]` when the snapshot has no timed main-lane step (then there is nothing to place against).

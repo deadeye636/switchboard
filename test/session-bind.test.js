@@ -219,3 +219,50 @@ test('an aged claim naming some other session is a leftover, not this move', () 
   assert.deepEqual(s.lineage, [['C', 'proj', 'B', 'terminal']]);
   claims._resetForTests();
 });
+
+// #851: the Events record is told what the move was.
+function captureLifecycle() {
+  const timeline = require('../src/app/timeline');
+  const orig = timeline.recordLifecycle;
+  const calls = [];
+  timeline.recordLifecycle = (id, kind) => { calls.push([id, kind]); };
+  return { calls, restore: () => { timeline.recordLifecycle = orig; } };
+}
+
+test('Events: a clear claim is recorded as cleared, a later unclaimed move as id-adopted (#851)', () => {
+  const rec = captureLifecycle();
+  try {
+    const a = setup({ claim: { tag: 'tag-term', sessionId: 'real-parent' } });
+    a.add('stale', { _terminalTag: 'tag-term', _idNamed: true });
+    transitions.adoptSessionId('tag-term', 'child');
+    const b = setup();
+    b.add('dead', { _terminalTag: 'tag-term', _idNamed: true });
+    transitions.adoptSessionId('tag-term', 'alive');
+    assert.deepEqual(rec.calls, [['child', 'cleared'], ['alive', 'id-adopted']]);
+  } finally { rec.restore(); }
+});
+
+test('Events: the first naming of a session records nothing, on any route; a later move does (#851)', () => {
+  const rec = captureLifecycle();
+  try {
+    // A Pi terminal launches without an id, so its first bind differs from the key; pi-native names it over RPC.
+    const s = setup();
+    s.add('launched', { _terminalTag: 'tag-term' });
+    transitions.adoptSessionId('tag-term', 'named');
+    assert.deepEqual(rec.calls, [], 'the first naming is the launch, not a move');
+    transitions.adoptSessionId('tag-term', 'named');   // re-stated every turn: still nothing
+    transitions.adoptSessionId('tag-term', 'later');
+    assert.deepEqual(rec.calls, [['later', 'id-adopted']]);
+    // A launch that already had the right id counts as the first naming too.
+    const t = setup();
+    t.add('same', { _terminalTag: 'tag-two' });
+    transitions.adoptSessionId('tag-two', 'same');
+    transitions.adoptSessionId('tag-two', 'moved');
+    assert.deepEqual(rec.calls, [['later', 'id-adopted'], ['moved', 'id-adopted']]);
+    // A clear claim on the first naming is still a clear.
+    const c = setup({ claim: { tag: 'tag-c', sessionId: 'ended' } });
+    c.add('x', { _terminalTag: 'tag-c' });
+    transitions.adoptSessionId('tag-c', 'y');
+    assert.deepEqual(rec.calls[2], ['y', 'cleared']);
+  } finally { rec.restore(); }
+});
