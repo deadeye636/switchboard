@@ -88,7 +88,7 @@ control's popover in the conversation view (spec 45).
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
-| `idleMaintenanceMode` | Maintenance while idle: real model turns a pipe-driven session gets while idle; compaction can lose detail (spec 45) | `off` \| `warm` \| `compact` \| `warm-compact` | `off` | global + project |
+| `idleMaintenanceMode` | Maintenance while idle: real model turns a pipe-driven session gets while idle; compaction can lose detail (spec 45). A backend that keeps its own cache warm (pi-native on Pi 1.5.1+ with `cacheWarming` `idle`, #861) gets no refresh from here: `warm` does nothing for it, `warm-compact` acts as `compact` | `off` \| `warm` \| `compact` \| `warm-compact` | `off` | global + project |
 | `idleMaintenanceRefreshMinutes` | Minutes between refreshes, from the last turn. 0 is the backend's bound; a longer one is refused | 0 to 60 | `0` | global + project |
 | `idleMaintenanceRefreshLimit` | Refreshes per idle period; a real turn starts a new one | 1 to 10 | `3` | global + project |
 | `idleMaintenanceIdleMinutes` | Minutes idle before Compact only | 1 to 1440 | `10` | global + project |

@@ -75,6 +75,9 @@
     const settingsKey = isProject ? 'project:' + projectPath : 'global';
     const current = (await window.api.getSetting(settingsKey)) || {};
     const globalSettings = isProject ? ((await window.api.getSetting('global')) || {}) : {};
+    // Backends that leave the refresh to their own runtime say so (#861): the section names them, so Keep warm is not read as ours.
+    let runtimeWarm = [];
+    try { runtimeWarm = (await window.api.agent?.idleMaintenanceRuntimeWarm?.()) || []; } catch { /* the note is optional */ }
     // Project tags (#98) live in their own store, not the settings blob. Load the
     // current chips so the editor can seed itself; saved back via projectTagsSet.
     // Existing chips carry their stored color (may differ from the deterministic
@@ -193,11 +196,15 @@
                     <input type="number" class="settings-input" id="${id}" min="${min}" max="${max}" value="${escapeHtml(String(fieldValue(field, fallback)))}" ${fieldDisabled(field)}>
                   </div>
                 </div>`;
+    const runtimeWarmNote = runtimeWarm.length
+      ? `<div class="settings-description settings-idle-runtime-warm">${runtimeWarm.map((r) => `${escapeHtml(r.label || r.backendId)}: ${escapeHtml(r.note)}`).join('<br>')} Compact stays Switchboard's.</div>`
+      : '';
     const idleMaintenanceFields = `
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Maintenance while idle</span>${useGlobalCheckbox('idleMaintenanceMode')}</div>
                     <div class="settings-description">For a session driven over a pipe: keep its prompt cache warm, compact its context, or both, while it sits idle. Each refresh and compaction is a real model turn that counts against your plan or your API bill. Compaction can lose detail and cannot be undone. The CLI's own automatic compaction is separate and stays as it is: it runs when the context is full, not while the session is idle.</div>
+                    ${runtimeWarmNote}
                   </div>
                   <div class="settings-field-control">
                     <select id="sv-idle-maintenance-mode" class="settings-select" ${fieldDisabled('idleMaintenanceMode')}>

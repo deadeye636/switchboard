@@ -209,6 +209,10 @@ idle period.** That goes further than the issue, which names only the final refr
 cold cache. Compaction after it is skipped unless the new setting `idleMaintenanceBestEffortCompact` allows it (default off, the
 issue's "explicitly allow best-effort compaction"). `unknown` ends nothing, and the compaction it leads to is labelled best effort.
 
+### A runtime that warms itself (#861)
+
+Owner decision, 2026-11-12: where the running CLI can warm its own cache, Switchboard does not. Pi 1.5.1 added idle `cacheWarming` (default on; spec 30, "Cache warming: Pi does it itself"), and two schedules would refresh and pay twice. The descriptor answers it: `idleMaintenance()` adds `warmBy: 'runtime'` and a `warmNote`, with `warm: false`. The core stays neutral: `planFor` then sends no refresh (`warm` mode does nothing, `warm-compact` becomes `compact`, timed from the idle clock as for Compact only), refuses no interval for it, and carries the note as `warmNote` in the session state. The session popover shows the note; the settings screen shows every such backend's note under the mode setting, through `idle-maintenance-runtime-warm` (no session needed). Pi has no way to say it, so pi-native derives the answer from the Pi version and the global `cacheWarming` (spec 30). Cost: a Pi whose own warming stops (not eligible, under $0.05) leaves the cache to go cold; that is Pi's economics and was accepted.
+
 ## New flow (flagged under the issue-is-not-law rule)
 
 **What is new:** while a session sits idle the app may send turns to the model on its own, within limits the user set.

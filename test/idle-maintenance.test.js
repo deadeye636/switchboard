@@ -489,3 +489,41 @@ test('the verdict compares against the previous prompt', () => {
   assert.equal(idle.hitVerdict(before, null, true), 'unknown');
   assert.equal(idle.hitVerdict(before, before, true), 'unknown', 'no new model call found nothing out');
 });
+
+// #861: a runtime that warms its own cache (the descriptor says `warmBy`) is never refreshed from here, and Compact stays.
+const RUNTIME_WARMS = { ...PI_LIKE, warm: false, warmBy: 'runtime', warmNote: 'Keep warm: done by Pi.' };
+
+test('a runtime that warms itself: Keep warm sends nothing, and the state says whose job it is', async (t) => {
+  t.after(() => idle.stop());
+  const h = setup({ idleMaintenanceMode: 'warm' }, { answer: RUNTIME_WARMS });
+  h.edge('idle');
+  assert.equal(h.timers().length, 0, 'no refresh is scheduled');
+  assert.equal(idle.getState('s1').warmNote, 'Keep warm: done by Pi.');
+  assert.deepEqual(h.sent, []);
+});
+
+test('a runtime that warms itself: Warm then compact degrades to Compact only, and a long interval is not refused', async (t) => {
+  t.after(() => idle.stop());
+  const h = setup({ idleMaintenanceMode: 'warm-compact', idleMaintenanceRefreshMinutes: 30 }, { answer: RUNTIME_WARMS });
+  h.edge('idle');
+  const state = idle.getState('s1');
+  assert.equal(state.refused, null, 'nothing is refreshed from here, so the interval is nobody\'s to refuse');
+  assert.equal(state.nextAction, 'compact');
+  assert.equal(state.nextAt, 1000 + 10 * MIN, 'after the idle minutes, as for Compact only');
+  assert.equal(await h.step(), true);
+  assert.deepEqual(h.sent, ['compact']);
+});
+
+test('a backend that does not leave the warm to its runtime carries no note', async (t) => {
+  t.after(() => idle.stop());
+  setup({ idleMaintenanceMode: 'warm' }).edge('idle');
+  assert.equal(idle.getState('s1').warmNote, null);
+});
+
+test('the settings screen asks the notes of the backends that leave the warm to their runtime', async (t) => {
+  t.after(() => idle.stop());
+  setup({});
+  assert.deepEqual(idle.runtimeWarmNotes(), []);
+  idle.init({ runtimeWarmNotes: () => [{ backendId: 'x', label: 'X', note: 'n' }], log: { info() {}, warn() {} } });
+  assert.deepEqual(idle.runtimeWarmNotes(), [{ backendId: 'x', label: 'X', note: 'n' }]);
+});

@@ -1387,6 +1387,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     tag,
     backendId,
     projectPath: cwd,
+    env: () => state.env || null,
     sessionId: () => { const found = findSession(tag); return found ? found.id : null; },
     open: maintenanceOpen,
     maintain,

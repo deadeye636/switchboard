@@ -2362,8 +2362,17 @@ idleMaintenance.init({
   effectiveSettings: (projectPath) => settings.effectiveSettings(projectPath),
   capabilityOf: (handle) => {
     const descriptor = backends.get(handle.backendId);
-    return descriptor && typeof descriptor.idleMaintenance === 'function' ? descriptor.idleMaintenance() : null;
+    // The session's own environment, for a backend whose answer depends on where it runs (a profile's agent directory).
+    return descriptor && typeof descriptor.idleMaintenance === 'function'
+      ? descriptor.idleMaintenance({ env: typeof handle.env === 'function' ? handle.env() : null })
+      : null;
   },
+  // The settings screen has no session to ask: every backend that leaves the refresh to its runtime says so (#861).
+  runtimeWarmNotes: () => backends.list()
+    .filter((b) => b.status === 'ready' && b.enabled && typeof b.idleMaintenance === 'function')
+    .map((b) => ({ backendId: b.id, label: b.label, answer: b.idleMaintenance() }))
+    .filter((r) => r.answer && r.answer.warmBy && r.answer.warmNote)
+    .map((r) => ({ backendId: r.backendId, label: r.label, note: String(r.answer.warmNote) })),
   recordLifecycle: (id, kind, label, detail) => timeline.recordLifecycle(id, kind, label, detail),
   recordMaintenance: (turn) => { if (turn.sessionId) recordMaintenanceTurn(turn); },
   log,

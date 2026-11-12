@@ -1961,3 +1961,33 @@ test('unfold: the folded reply after the newest prompt is drawn plainly again; t
   conv.apply({ op: 'unfold' });
   assert.equal(folded(), 1, 'a second one changes nothing');
 });
+
+// #861: a backend that leaves the warm to its runtime says so in the popover; the core and the view name no backend.
+test('the idle popover shows the note of a runtime that warms its own cache', async () => {
+  const h = setup();
+  h.w.api.agent.idleMaintenanceState = () => Promise.resolve({ mode: 'warm', overrides: {}, warmNote: 'Keep warm: done by Pi.' });
+  h.w.api.agent.idleMaintenanceSet = () => Promise.resolve({ mode: 'warm', overrides: {} });
+  h.entry.conversation.apply({ op: 'busy', busy: false });
+  await h.settle(); await h.settle();
+  h.entry.element.querySelector('.conversation-idle').click();
+  await h.settle(); await h.settle();
+  assert.match(h.entry.element.querySelector('.conversation-idle-pop').textContent, /Keep warm: done by Pi\./);
+});
+
+test('the idle popover does not offer Keep warm where the runtime warms itself, and offers it elsewhere', async () => {
+  const choices = async (state) => {
+    const h = setup();
+    h.w.api.agent.idleMaintenanceState = () => Promise.resolve(state);
+    h.w.api.agent.idleMaintenanceSet = () => Promise.resolve(state);
+    h.entry.conversation.apply({ op: 'busy', busy: false });
+    await h.settle(); await h.settle();
+    h.entry.element.querySelector('.conversation-idle').click();
+    await h.settle(); await h.settle();
+    return [...h.entry.element.querySelectorAll('[data-idle-choice]')].map((b) => b.dataset.idleChoice);
+  };
+  const by = await choices({ mode: 'off', overrides: {}, warmNote: 'Keep warm: done by Pi.' });
+  assert.ok(by.includes('off') && by.includes('compact') && by.includes('settings'));
+  assert.ok(!by.includes('warm') && !by.includes('warm-compact'));
+  const ours = await choices({ mode: 'off', overrides: {} });
+  assert.ok(ours.includes('warm') && ours.includes('warm-compact'));
+});

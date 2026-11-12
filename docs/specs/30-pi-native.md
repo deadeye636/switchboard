@@ -766,6 +766,17 @@ So Pi offers **no flag for "continue here"**; that choice exists only inside the
 - **A transcript that vanished** between the question and the answer refuses ("The session file is no longer there") instead of launching a file that is not there.
 - Not covered: a restore at app start or a grid attach calls `openTerminal` without the dialog and shows the refusal text in the tab; opening the session by click offers the choice.
 
+## Cache warming: Pi does it itself (#861)
+
+Pi 1.5.1 added `cacheWarming` and 1.5.2 keeps it. Measured on Pi 1.5.2 (the installed package's own settings and models docs, its changelog, and its `cache-warmer` and `cache-warming` modules):
+
+- Setting `cacheWarming`: `"off"` | `"streaming"` | `"idle"`, **default `"idle"` since 1.5.1** (`"streaming"` before: it warmed only during a run). **Global only**, in `<agent dir>/settings.json`; a project cannot set it. An unknown value falls back to `"idle"` (`getCacheWarmingMode`).
+- `"idle"` keeps an eligible cache warm for up to 30 minutes after the last run (`CACHE_WARMING_MAX_IDLE_AGE_MS`), refreshing at 90 % of the cache lifetime. A refresh is the last request replayed with a one-token output cap.
+- Eligible: the model declares a cache lifetime (`promptCache` per retention tier) and Pi estimates at least $0.05 saved (`expectedSavings`, with a 15 % chance of a continuation when idle). Anthropic budget-based thinking is not replayable. Pi decides this per refresh; an extension can overrule it with the `cache_warming_decision` event. So "Pi can warm" is not "Pi will warm this session".
+- Reportable? No. `get_state` (`RpcSessionState`) has no warming field, and the extension API has no `cacheWarmingStatus` (only `/session` in Pi's own TUI shows it); `pi.getSettings()` returns the raw merged settings without the default, so it cannot tell "unset on 1.5.2" from "unset on 1.5.0" either.
+
+So pi-native **derives** it (`src/backends/pi/cache-warming.js`, no child process): the installed version from the `package.json` beside the `pi` binary (at least 1.5.1) and the effective `cacheWarming` from the global `settings.json` (`idle`, unset counting as `idle`). Both true: `idleMaintenance()` answers `warm: false, warmBy: 'runtime'` with a note, and Switchboard sends no refresh for that session; Compact stays (spec 45, "A runtime that warms itself"). A version that cannot be read is treated as "does not warm", so Switchboard keeps its own refresh. That includes a Pi installed in a layout other than npm's (pnpm, bun: the package is not beside the binary): both may then refresh. `cacheWarming` has no project-level override (`getCacheWarmingMode` reads the global settings only, Pi 1.5.2), so no project file is read; the session's own environment decides the agent directory (`PI_CODING_AGENT_DIR`, the isolated store), the binary is the global one. Open: it is read when the schedule plans, not live; a changed `settings.json` is seen at the next plan, an installed Pi updated under a running session is not.
+
 ## Known gaps
 
 - **The login rests on an undocumented field** (see "Pi's own commands"). A Pi that drops it gets a

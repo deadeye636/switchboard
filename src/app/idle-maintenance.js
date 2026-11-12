@@ -54,6 +54,9 @@ function bounded(value, fallback, min, max) {
 
 // The schedule as of now: the effective settings, each field overridden by the running session's own value (`overrides`, which
 // writes nothing back), against what the backend answers.
+// What a backend says about a warm it leaves to its runtime (the descriptor's `warmBy` / `warmNote`), else null.
+const runtimeWarmNote = (answer) => (answer && answer.warmBy && answer.warmNote ? String(answer.warmNote) : null);
+
 function planFor(session) {
   const answer = ctx.capabilityOf ? ctx.capabilityOf(session.handle) : null;
   const eff = { ...(ctx.effectiveSettings ? ctx.effectiveSettings(session.handle.projectPath) : {}), ...session.overrides };
@@ -62,7 +65,8 @@ function planFor(session) {
   const wantsWarm = mode === 'warm' || mode === 'warm-compact';
   const wantsCompact = mode === 'compact' || mode === 'warm-compact';
   const minutes = bounded(eff.idleMaintenanceRefreshMinutes, 0, 0, CEILING_MINUTES_CEILING);
-  const refused = wantsWarm && minutes * 60000 > answer.maxRefreshMs
+  // A runtime that keeps its own cache warm (`warmBy`, #861) is not refreshed from here, so its interval is nobody's to refuse.
+  const refused = wantsWarm && answer.warm && minutes * 60000 > answer.maxRefreshMs
     ? `A refresh every ${minutes} minutes would arrive after the cache has gone cold.`
     : null;
   return {
@@ -70,6 +74,7 @@ function planFor(session) {
     warm: wantsWarm && answer.warm && !refused,
     compact: wantsCompact && answer.compact && !refused,
     refused,
+    warmNote: runtimeWarmNote(answer),
     callsCold: answer.callsCold === true,
     maxRefreshMs: answer.maxRefreshMs,
     intervalMs: minutes ? minutes * 60000 : answer.maxRefreshMs,
@@ -333,6 +338,7 @@ function stateOf(session) {
     mode: plan.mode,
     declined: Boolean(plan.declined),
     refused: plan.refused || null,
+    warmNote: plan.warmNote || null,
     nextAction: session.nextAction,
     nextAt: session.nextAt,
     running: session.running,
@@ -379,9 +385,16 @@ function stop() {
   sessions.clear();
 }
 
+// For the settings screen, which has no session: what each backend leaves to its runtime, `[{ backendId, label, note }]`.
+function runtimeWarmNotes() {
+  const rows = ctx && ctx.runtimeWarmNotes ? ctx.runtimeWarmNotes() : [];
+  return Array.isArray(rows) ? rows : [];
+}
+
 function registerIpc(ipc) {
   ipc.handle('idle-maintenance-state', (_event, sessionId) => getState(sessionId));
+  ipc.handle('idle-maintenance-runtime-warm', () => runtimeWarmNotes());
   ipc.handle('idle-maintenance-set', (_event, sessionId, patch) => setOverride(sessionId, patch));
 }
 
-module.exports = { init, registerIpc, track, stop, getState, setOverride, hitVerdict, REFRESH_LIMIT_CEILING };
+module.exports = { init, registerIpc, track, stop, getState, setOverride, hitVerdict, runtimeWarmNotes, REFRESH_LIMIT_CEILING };

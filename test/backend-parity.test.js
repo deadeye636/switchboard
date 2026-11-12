@@ -322,7 +322,8 @@ test('every backend answers the idle maintenance hook — a decline is () => nul
 // The bound is a measurement (docs/backend-formats.md): a refresh past it arrives cold, and the shape check above would not
 // notice a changed number.
 test('only the pipe drivers offer idle maintenance, with their measured bounds', () => {
-  const answers = Object.fromEntries(READY.map(b => [b.id, b.idleMaintenance()]));
+  // pi-native reads the installed Pi (#861): none found here, so the answer does not depend on this machine.
+  const answers = Object.fromEntries(READY.map(b => [b.id, b.idleMaintenance({ exe: null })]));
   const { 'claude-native': claude, 'pi-native': pi, ...rest } = answers;
   assert.deepEqual(claude, { cacheClass: '1h', maxRefreshMs: 50 * 60 * 1000, warm: true, compact: true, callsCold: false });
   assert.deepEqual(pi, { cacheClass: '5m', maxRefreshMs: 270 * 1000, warm: true, compact: true, callsCold: true });

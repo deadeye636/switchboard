@@ -1485,6 +1485,7 @@ function createConversationView(getSession, container) {
       ? `Next: ${state.nextAction === 'warm' ? 'a refresh' : 'a compaction'} at ${new Date(state.nextAt).toLocaleTimeString()}.`
       : '';
     return [
+      state.warmNote || '',
       state.refused ? `Not running: ${state.refused}` : next,
       state.limit ? `Refreshes this idle period: ${state.refreshes} of ${state.limit}.` : '',
       state.verdict ? `Last refresh found the cache: ${state.verdict} (best effort).` : '',
@@ -1505,7 +1506,9 @@ function createConversationView(getSession, container) {
     idlePop.appendChild(head);
     const row = document.createElement('div');
     row.className = 'conversation-idle-choices';
-    for (const [value, label] of IDLE_CHOICES) {
+    // A backend whose runtime warms its own cache is not offered Keep warm (#861); Settings, Off and Compact remain.
+    const offered = state.warmNote ? IDLE_CHOICES.filter(([value]) => value !== 'warm' && value !== 'warm-compact') : IDLE_CHOICES;
+    for (const [value, label] of offered) {
       const c = document.createElement('button');
       c.type = 'button';
       c.className = 'new-session-secondary-btn conversation-bg-btn';
@@ -1556,7 +1559,8 @@ function createConversationView(getSession, container) {
     if (hadFocus) {
       // Focus that was inside stays inside, or Escape no longer reaches the popover's key handler.
       const again = keep !== undefined ? idlePop.querySelector(`[data-idle-choice="${keep}"]`) : null;
-      (again || idlePop).focus();
+      // The choice that had focus may be gone (a runtime-warmed session drops the warm ones): the first button takes it.
+      (again || idlePop.querySelector('button') || idlePop).focus();
     }
   }
   function openIdlePop() {

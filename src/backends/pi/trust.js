@@ -48,9 +48,9 @@ function agentDirFromStore(store) {
   return path.join(parent, 'pi-agent');
 }
 
-function agentDir() {
-  return agentDirFromStore(process.env.SWITCHBOARD_STORE_PI)
-    || (process.env.PI_CODING_AGENT_DIR ? resolvePath(process.env.PI_CODING_AGENT_DIR) : path.join(os.homedir(), '.pi', 'agent'));
+function agentDir(env = process.env) {
+  return agentDirFromStore(env.SWITCHBOARD_STORE_PI)
+    || (env.PI_CODING_AGENT_DIR ? resolvePath(env.PI_CODING_AGENT_DIR) : path.join(os.homedir(), '.pi', 'agent'));
 }
 
 /**

@@ -389,6 +389,7 @@ contextBridge.exposeInMainWorld('api', {
     send: (id, payload) => ipcRenderer.invoke('agent-send', id, payload),
     draft: (id, hasDraft) => ipcRenderer.invoke('agent-draft', id, hasDraft),
     idleMaintenanceState: (id) => ipcRenderer.invoke('idle-maintenance-state', id),
+    idleMaintenanceRuntimeWarm: () => ipcRenderer.invoke('idle-maintenance-runtime-warm'),
     idleMaintenanceSet: (id, patch) => ipcRenderer.invoke('idle-maintenance-set', id, patch),
     abort: (id) => ipcRenderer.invoke('agent-abort', id),
     stopShellLine: (id, lineId) => ipcRenderer.invoke('agent-stop-shell-line', id, lineId),

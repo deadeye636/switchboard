@@ -22,6 +22,8 @@
 'use strict';
 
 const pi = require('../pi');
+const cacheWarming = require('../pi/cache-warming');
+const piTrust = require('../pi/trust');
 const { piExecCommand } = require('../pi/exec-command');
 const protocol = require('./rpc-protocol');
 const runtimeExtension = require('./runtime-extension');
@@ -227,7 +229,18 @@ module.exports = {
   taskProfile: () => ({ options: { approvalGate: true } }),
   // Idle maintenance (spec 45). Measured on Pi 1.1.0: hits up to 300 s after a turn, a miss at 315 s; 270 s leaves a margin.
   // The bound promises no hit (docs/backend-formats.md, "How long Pi's cache holds").
-  idleMaintenance: () => ({ cacheClass: '5m', maxRefreshMs: 270000, warm: true, compact: true, callsCold: true }),
+  // Pi 1.5.1 warms an eligible cache itself between runs (`cacheWarming: "idle"`, #861): then this answers `warm: false` and
+  // says whose job it is, so the schedule keeps Compact and sends no refresh of its own. See ../pi/cache-warming.js.
+  // The argument: which binary and agent directory to read. `env` is the session's own environment (a profile may point
+  // Pi at another agent directory); `exe: null` means none found (tests). Without it the global answer applies.
+  idleMaintenance: (where = {}) => {
+    const dir = where.dir || (where.env ? piTrust.agentDir(where.env) : undefined);
+    const byRuntime = cacheWarming.runtimeWarmsIdle({ exe: 'exe' in where ? where.exe : pi.findExecutable, dir });
+    return {
+      cacheClass: '5m', maxRefreshMs: 270000, warm: !byRuntime, compact: true, callsCold: true,
+      ...(byRuntime ? { warmBy: 'runtime', warmNote: 'Keep warm: done by Pi (its cacheWarming setting).' } : {}),
+    };
+  },
   // The session's flow (spec 46): the transcript is Pi's, read through its owner (`transcriptsOf`); this driver has no reader.
   sessionFlow: pi.sessionFlow,
   readSessionFlow: pi.readSessionFlow,

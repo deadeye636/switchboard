@@ -310,7 +310,7 @@ test('the schedule and the real driver together: a Pi compaction ends as compact
     setTimer: (fn) => { timers.push(fn); return fn; },
     clearTimer: () => {},
     effectiveSettings: () => ({ idleMaintenanceMode: 'compact' }),
-    capabilityOf: () => piNative.idleMaintenance(),
+    capabilityOf: () => piNative.idleMaintenance({ exe: null }), // not this machine's Pi
     recordLifecycle: (id, kind, label) => notes.push(label),
     log: { info() {}, warn() {} },
   });
