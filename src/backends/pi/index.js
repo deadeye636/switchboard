@@ -386,14 +386,17 @@ function probe() {
  *                                    button: it launches a plain `pi`, i.e. an empty session with no
  *                                    relation to the one the user forked. Silently wrong beats loudly
  *                                    missing, so it is wired.
+ * resumeRef: the transcript PATH, when the core has one it wants resumed by file (#862). `--session <id>`
+ *           looks in the folder Pi derives from the CURRENT directory and, finding the session in another,
+ *           asks "Fork this session?" on stdin (measured, 1.5.2). A path opens the file as it is.
  */
-function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
+function buildLaunch({ cwd, resume, sessionId, resumeRef, forkFrom, options } = {}) {
   const opts = options || {};
   const fork = forkFrom != null ? forkFrom : opts.forkFrom;
   const args = [];
 
   if (fork) args.push('--fork', String(fork));
-  else if (resume && sessionId) args.push('--session', String(sessionId));
+  else if (resume && sessionId) args.push('--session', String(resumeRef || sessionId));
   if (opts.model) args.push('--model', String(opts.model));
   if (opts.provider) args.push('--provider', String(opts.provider));
   if (opts.thinking) args.push('--thinking', String(opts.thinking));
@@ -476,6 +479,8 @@ module.exports = {
   // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.
   newlineKeySequence: '\x1b[13;2u',
   supportsFork: true,     // `pi --fork <id>`
+  // A session whose working directory is gone (#862): read it, or continue it somewhere else. See ./resume-cwd.js.
+  resumeCwd: require('./resume-cwd'),
   supportsSubagents: false,   // fork, yes; subagents, no (#230)
   supportsLiveRebinding: true,
   buildLiveBinding: ({ dir, tag, sessionUrl, log } = {}) => liveBinding.writeBindingExtension({ dir, tag, sessionUrl, log }),

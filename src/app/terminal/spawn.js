@@ -52,6 +52,7 @@ const { conptyBuildHint } = require('./conpty');
 const { ownsId, deleteIfOwner, beginOpen } = require('./session-identity');
 const { measured } = require('../../perf');
 const { resolveResumeOptions, previewResumeOptions, withoutResumeMark } = require('./resume-options');
+const missingCwd = require('./missing-cwd');
 
 let ctx = null;
 
@@ -397,7 +398,7 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
 
   // Spawn new PTY
   if (!fs.existsSync(projectPath)) {
-    return { ok: false, error: `project directory no longer exists: ${projectPath}` };
+    return { ok: false, error: `project directory no longer exists: ${projectPath}. Use "Change path" on the project in the sidebar (Remap in the Projects manager) to point it at the new folder.` };
   }
 
   const isPlainTerminal = sessionOptions?.type === 'terminal';
@@ -914,6 +915,42 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
         }
       }
 
+      // A session whose working directory is gone (#862). Some CLIs ask what to do about it (Pi: Continue, Fork or
+      // Cancel), and a terminal stops at the question while a piped session has nobody to answer. So the app
+      // asks first, from the transcript's own record of the folder (`resumeCwd.read`, the backend's format),
+      // and launches the CLI in a way that never asks. A fork is not decided here: the renderer starts the
+      // backend's ordinary fork, which runs in this project's folder. `missingCwd: 'continue'` is the user's
+      // answer, carried through this guard like `ignoreLiveOwner`; a stale renderer that sends nothing gets
+      // the question back as a refusal with the same payload.
+      let resumeRef = null;
+      if (!isNew && !resumeUnknown && !sessionOptions?.forkFrom && backend.resumeCwd) {
+        let cwdRow = null;
+        try { cwdRow = ownerOfLookup().row; } catch { cwdRow = null; }
+        const found = missingCwd.assess({
+          backend, row: cwdRow, projectPath,
+          knownPaths: typeof ctx.knownProjectPaths === 'function' ? ctx.knownProjectPaths() : [],
+        });
+        if (found.state === 'gone') {
+          if (sessionOptions?.missingCwd === 'continue') {
+            const moved = missingCwd.continueHere({ backend, file: found.file, storedCwd: found.storedCwd, cwd: projectPath });
+            if (!moved.ok) return { ok: false, error: moved.error };
+            resumeRef = moved.ref;
+            ctx.log.info(`[spawn] backend=${backend.id} session ${sessionId} continued in the project folder (its own folder is gone)`);
+          } else {
+            ctx.log.info(`[spawn] held back: session ${sessionId} ran in a folder that no longer exists`);
+            return {
+              ok: false,
+              error: missingCwd.goneMessage(backend.label || backend.id, found.storedCwd),
+              cwdGone: { backendId: backend.id, label: backend.label || backend.id, storedCwd: found.storedCwd, canFork: backend.supportsFork === true, canContinue: typeof backend.resumeCwd.continueIn === 'function' },
+            };
+          }
+        } else if (found.state === 'ok' && found.file && found.storedCwd) {
+          // The transcript was read, so it is there. Resuming by FILE keeps a session that was continued here
+          // resumable: its backend may look an id up by the folder the file lies in, which is no longer this one.
+          resumeRef = found.file;
+        }
+      }
+
       // What a RESUME launches on (#754): the backend may say which option the session last ran on, and that
       // replaces the settings the renderer resolved — unless the user chose explicitly for this launch. Asked
       // once, here, on the resume of one session and nowhere else; a fork is not a resume. Always passes
@@ -950,6 +987,7 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
         cwd: projectPath,
         resume: !isNew && !resumeUnknown,
         sessionId,
+        resumeRef,
         forkFrom: sessionOptions?.forkFrom,
         options: launchOptions,
       });

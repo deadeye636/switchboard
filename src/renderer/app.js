@@ -1920,7 +1920,8 @@ async function showTerminalHeader(session) {
 // ("GUI") — when it is not already in `customOptions` (the conflict retry carries it here, because a
 // customOptions object would replace the resolved launch options). Main validates it and stores it once the
 // spawn succeeded.
-async function openSession(session, customOptions, { show = true, ignoreLiveOwner = false, askTrust = true, openerChoice = null } = {}) {
+// `missingCwd` is the answer to "the folder this session ran in is gone" (#862): 'continue' runs it in the project's folder.
+async function openSession(session, customOptions, { show = true, ignoreLiveOwner = false, askTrust = true, openerChoice = null, missingCwd = null } = {}) {
   // Opening a terminal session is a fresh navigation — drop any pending
   // "return to tasks" target so a later viewer-close doesn't jump back to tasks.
   window.__tasksReturnTarget = null;
@@ -2004,7 +2005,9 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
   // (the Resume-with-config dialog already omits worktree, which is why it works).
   if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
   // Carried through the spawn guard as the user's own answer (#172), never set by the app itself.
-  const spawnOptions = ignoreLiveOwner ? { ...(resumeOptions || {}), ignoreLiveOwner: true } : resumeOptions;
+  const spawnOptions = (ignoreLiveOwner || missingCwd)
+    ? { ...(resumeOptions || {}), ...(ignoreLiveOwner ? { ignoreLiveOwner: true } : {}), ...(missingCwd ? { missingCwd } : {}) }
+    : resumeOptions;
   let result = await window.api.openTerminal(sessionId, projectPath, false, spawnOptions);
   // Refused for want of trust (#655): asked of the user when they opened it, and started again on a yes.
   if (!result.ok && result.untrusted && show && askTrust && typeof grantTrustForLaunch === 'function'
@@ -2019,6 +2022,10 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
     // way out — fork a copy — and the app can take it. The refusal carries the entry that says so.
     if (result.liveOwner && typeof window.showResumeConflict === 'function') {
       window.showResumeConflict({ sessionId, projectPath, owner: result.liveOwner, message: result.error, openerChoice: requestedView });
+    }
+    // The folder the session ran in is gone (#862): the backend would ask, so the app does, before any launch.
+    if (result.cwdGone && show && typeof window.showMissingCwdChoice === 'function') {
+      window.showMissingCwdChoice({ session, projectPath, info: result.cwdGone, message: result.error, openerChoice: requestedView });
     }
     return;
   }

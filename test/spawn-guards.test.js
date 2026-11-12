@@ -599,3 +599,87 @@ test('a backend that declares the gate but has no trust answer to ask is refused
   assert.ok(r.untrusted, 'no trust, no start');
   assert.deepEqual(built, []);
 });
+
+// #862: the folder a session ran in is gone. The CLI would ask (Pi 1.5.2); the app asks first.
+{
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+
+  function goneSession(over = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-gone-'));
+    const file = path.join(dir, 's.jsonl');
+    fs.writeFileSync(file, '{}\n');
+    const seen = [];
+    const moves = [];
+    const backend = fakeBackend({
+      supportsFork: true,
+      transcriptPathFor: (row) => row.filePath,
+      resumeCwd: {
+        read: () => path.join(dir, 'gone'),
+        continueIn: (a) => { moves.push(a); return { ok: true }; },
+      },
+      buildLaunch: (a) => { seen.push(a); throw new Error('stop here'); },
+      ...over,
+    });
+    setup({ backend, cached: { sessionId: 's', backendId: 'codex', filePath: file } });
+    return { dir, file, seen, moves };
+  }
+
+  test('#862: a resume whose recorded folder is gone is held back and asks, before any launch', async () => {
+    const { dir, seen, moves } = goneSession();
+    try {
+      const r = await spawn.openTerminal('s', CWD, false, {});
+      assert.equal(r.ok, false);
+      assert.equal(r.cwdGone.backendId, 'codex');
+      assert.equal(r.cwdGone.canFork, true);
+      assert.equal(r.cwdGone.canContinue, true);
+      assert.match(r.error, /no longer exists/);
+      assert.deepEqual(seen, [], 'nothing was launched');
+      assert.deepEqual(moves, [], 'nothing was moved');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('#862: Continue moves the record and launches by file', async () => {
+    const { dir, file, seen, moves } = goneSession();
+    try {
+      await spawn.openTerminal('s', CWD, false, { missingCwd: 'continue' });
+      assert.equal(moves.length, 1);
+      assert.equal(moves[0].cwd, CWD);
+      assert.equal(moves[0].file, file);
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].resumeRef, file);
+      assert.equal(seen[0].resume, true);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('#862: a Continue that cannot move the record refuses instead of launching', async () => {
+    const { dir, seen } = goneSession({ resumeCwd: { read: () => path.join(os.tmpdir(), 'sb-nope-gone'), continueIn: () => ({ ok: false, reason: 'unreadable' }) } });
+    try {
+      const r = await spawn.openTerminal('s', CWD, false, { missingCwd: 'continue' });
+      assert.equal(r.ok, false);
+      assert.match(r.error, /could not be moved/);
+      assert.deepEqual(seen, []);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('#862: a folder that is there resumes by file without a question; a fork is never asked', async () => {
+    const { dir, file, seen } = goneSession({ resumeCwd: { read: () => CWD, continueIn: () => ({ ok: true }) } });
+    try {
+      await spawn.openTerminal('s', CWD, false, {});
+      assert.equal(seen[0].resumeRef, file);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    const gone = goneSession();
+    try {
+      const r = await spawn.openTerminal('f', CWD, false, { forkFrom: 's' });
+      assert.equal(r.cwdGone, undefined);
+      assert.equal(gone.seen.length, 1, 'the fork launched');
+    } finally { fs.rmSync(gone.dir, { recursive: true, force: true }); }
+  });
+
+  test('#862: a vanished project folder points to the remap', async () => {
+    setup();
+    const r = await spawn.openTerminal('s', require('path').join(require('os').tmpdir(), 'sb-no-such-project-dir'), false, {});
+    assert.match(r.error, /Change path/);
+  });
+}

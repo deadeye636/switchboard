@@ -664,6 +664,20 @@ measured, so the hook answers `null`. Measure both before reading it.
 
 - First line is the **header**: `{type:'session', version, id, timestamp, cwd}` — identity and cwd come
   from here, never from the folder name.
+- **A session whose working directory is gone (#862, measured on Pi 1.5.2, `pi --mode rpc` + `get_state`, no model turn).**
+  Since 1.5.2 a resume of a session whose header `cwd` no longer exists asks Continue / Fork / Cancel, in the
+  interactive mode only (`main.js`, `getMissingSessionCwdIssue`). Non-interactive modes, RPC included, print
+  `Stored session working directory does not exist: <cwd>` and exit 1. **Pi has no flag for "continue in the
+  current folder"**: Continue exists only inside the prompt (`SessionManager.open(file, dir, cwd)`, in memory,
+  "asks again next time"). `--fork <id|file>` is non-interactive and works: it writes a new session with a new id
+  into the folder of the current directory and leaves the original untouched. `--session <id>` from another folder
+  than the one the file lies in (the lookup is by the folder Pi derives from the current directory, not by the
+  header) prints `Session found in different project` and asks `Fork this session into current directory? [y/N]`
+  on stdin, then exits 0 with no session; `--session <path>` (anything containing a separator or ending in `.jsonl`)
+  opens the file as it is. So Switchboard continues by rewriting the header `cwd` (the #171 rewrite, `pi/resume-cwd.js`)
+  and resuming by FILE (`buildLaunch({ resumeRef })`); measured: after the rewrite `--session <file>` opens the same
+  session id and file. Switchboard asks Continue / Fork / Cancel itself before the launch
+  (`app/terminal/missing-cwd.js`, docs/specs/30-pi-native.md).
 - **Conversation digest (#507, measured 2026-10-21 over local sessions):** `message` entries with
   `message.role` `user` | `assistant` (blocks `text`, `thinking`, `toolCall`); `toolResult` and
   `bashExecution` roles and every other entry type are not conversation text. The entries form a tree

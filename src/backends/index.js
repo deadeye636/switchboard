@@ -4,7 +4,7 @@
 // just the default backend. Each backend is a DESCRIPTOR (static capability data: id/label/tier/
 // axis/status/monogram/colour/configFields) plus a set of HOOKS (functions the app calls):
 //
-//   buildLaunch({ cwd, resume, sessionId, forkFrom, options, profile }) -> { command, args, env, cwd?, spawnMode }
+//   buildLaunch({ cwd, resume, sessionId, resumeRef, forkFrom, options, profile }) -> { command, args, env, cwd?, spawnMode }
 //   discoverSessions()   -> [handle]        handle = {kind:'file', path, ...} | {kind:'db', ref}
 //   parseSession(handle) -> normalised session row (the shape session-cache expects, incl. cwd)
 //   watchTargets()       -> [target]        STORE-level: {kind:'dir', path} | {kind:'db', path}
@@ -178,6 +178,8 @@ function profileToDescriptor(p) {
     // the Remove dialog offered no switch for them and blamed a read-only database that does not exist.
     // Absent on a base that declares neither (Hermes), which is the honest answer, not a silent no-op.
     ...(base && typeof base.rewriteProjectPath === 'function' ? { rewriteProjectPath: base.rewriteProjectPath } : {}),
+    // A session whose working directory is gone (#862): the base's transcript, the base's answer.
+    ...(base && base.resumeCwd ? { resumeCwd: base.resumeCwd } : {}),
     ...(base && typeof base.deleteSessions === 'function' ? { deleteSessions: base.deleteSessions } : {}),
     // Announcing its turns is the base's too (#603). The binding writes a per-spawn settings file and
     // appends `--settings <file>` to a launch the base composed anyway, so it works for a template for

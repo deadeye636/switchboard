@@ -297,11 +297,15 @@ function isSensitivePath(filePath) {
 // Asked of the path as handed in AND as resolved, before anything stats it.
 // A removed project's share stops counting. Also handed to the MCP bridge, whose paths come from the model.
 const { isForeignNetworkPath, FOREIGN_NETWORK_REASON, FOREIGN_NETWORK_SAVE_REASON } = require('./app/network-path');
-function isForeignNetworkFile(filePath, resolved = path.resolve(String(filePath || ''))) {
-  let projects = [];
+function knownProjectPaths() {
+  const projects = [];
   try {
     for (const [projectPath, row] of getProjectStates()) if (!(row && row.removedAt)) projects.push(projectPath);
   } catch { /* no register yet: refuse every share */ }
+  return projects;
+}
+function isForeignNetworkFile(filePath, resolved = path.resolve(String(filePath || ''))) {
+  const projects = knownProjectPaths();
   return isForeignNetworkPath(filePath, projects) || isForeignNetworkPath(resolved, projects);
 }
 setMcpPathGuard((p) => isForeignNetworkFile(p));
@@ -2412,6 +2416,8 @@ flowExport.registerIpc(ipcMain);
 const spawn = require('./app/terminal/spawn');
 spawn.init({
   getMainWindow: () => mainWindow,
+  // The projects the user has (#862): a network path on one of their shares may be checked for existence.
+  knownProjectPaths,
   // Which window renders a given session (#2). Only `terminal-data` uses it; status and lifecycle
   // events keep going to the main window, where the sidebar and the attention inbox live.
   windowForSession: (sessionId) => detach.windowForSession(sessionId),

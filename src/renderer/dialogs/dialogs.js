@@ -314,6 +314,39 @@ async function stopOwnerAndResume(session, openerChoice = null) {
 }
 window.showResumeConflict = showResumeConflict;
 
+/**
+ * A resume of a session whose working directory no longer exists (#862).
+ *
+ * The CLI would ask this itself (Pi: Continue, Fork or Cancel) and a terminal would stop at the question while a
+ * piped session could not answer it, so main refuses first and this asks. Continue runs the session in the
+ * project's folder; Fork starts the backend's ordinary fork there and keeps the original untouched. Cancel
+ * loses nothing: the session is where it was. A backend that cannot do one of the two is not offered it.
+ */
+async function showMissingCwdChoice({ session, projectPath, info, message, openerChoice = null } = {}) {
+  if (!session || !info) return;
+  const canContinue = info.canContinue !== false;
+  const canFork = info.canFork === true;
+  if (!canContinue && !canFork) { showControlMessage({ title: 'Folder no longer exists', message, tone: 'warning' }); return; }
+  const choice = await showControlDialog({
+    title: 'The folder of this session no longer exists',
+    message: (message || '') + (canContinue ? ' Continuing records this folder in the session; forking keeps the original as it is.' : ''),
+    details: { 'Session ran in': info.storedCwd || '', 'This project': projectPath || '' },
+    tone: 'warning',
+    confirmLabel: canContinue ? 'Continue here' : 'Fork here',
+    secondaryLabel: canContinue && canFork ? 'Fork here' : undefined,
+    cancelLabel: 'Cancel',
+  });
+  const wantsFork = (choice === true && !canContinue) || choice === 'secondary';
+  if (choice === true && canContinue) {
+    openSession(session, null, { missingCwd: 'continue', openerChoice });
+  } else if (wantsFork) {
+    const project = findProjectForSession(session) || (projectPath ? { projectPath } : null);
+    if (project) forkSession(session, project);
+  }
+}
+window.showMissingCwdChoice = showMissingCwdChoice;
+
+
 // Granting a backend trust in a project — the ONE confirm for it (#655). The Projects manager asks it from a
 // trust chip, and a launch asks it when a backend that starts only in a trusted project was refused for this
 // one. Two copies of this text would be two warnings that drift apart about the same permission.

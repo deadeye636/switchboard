@@ -725,6 +725,12 @@ and that split is the rule:
 - **A driver and a template forward the pair** (`profileToDescriptor`; claude-native and pi-native resolve through their
   owner's reader). A profile reaches the worker by its BASE backend's id, because the worker's registry holds the built-ins only.
 
+## A session whose folder is gone: `resumeCwd` (#862)
+
+A CLI that asks its own question about it (Pi 1.5.2: Continue, Fork or Cancel) cannot be answered by a terminal that is not looking or a pipe. The descriptor
+declares `resumeCwd: { read(file), continueIn({ file, storedCwd, cwd }) }`; `app/terminal/missing-cwd.js` decides "gone" (network paths of unknown shares are never touched) and runs the
+continue, the spawn path refuses with `cwdGone` and the renderer asks. A fork is the backend's ordinary `supportsFork` path. A backend that declares nothing is not asked; a template forwards it. Spec 30 has the measurements.
+
 ## "Is something else already running this session?" is THREE hooks (#172, #607)
 
 `liveOwnersCached()` reads a cache and **never spawns**; `refreshLiveOwners()` is the one that costs a

@@ -733,6 +733,39 @@ Both Pi backends can take over another CLI's skills, commands, agents, MCP serve
 than stdio, a hook that answers back), is in spec 31, "What comes along and what does not". The parts specific to this backend are the
 questions before a command's shell line and before an MCP tool, described under Approvals above.
 
+## A session whose folder is gone (#862)
+
+Since Pi 1.5.2 a resume of a session whose header `cwd` no longer exists asks Continue, Fork or Cancel. A terminal Pi stops at
+that question and a pi-native session (`--mode rpc`) has nobody to answer it, so **Switchboard asks before the resume** and launches Pi in a way
+that never asks. Owner decision; same for both Pi backends.
+
+**Measured on Pi 1.5.2** (an isolated store under the scratch folder, the session's folder renamed, `pi --mode rpc` plus a `get_state` request, no model turn):
+
+| Launch, from another folder | Result |
+|---|---|
+| `--session <file>` | exit 1, `Stored session working directory does not exist: <cwd>` |
+| `--session <id>` | `Session found in different project`, then `Fork this session into current directory? [y/N]` read from stdin; exit 0, no session |
+| `--fork <id>` and `--fork <file>` | no prompt; a new session id and file under the current folder's session folder; the original file and its header untouched |
+| `--session <id>` after the header `cwd` was rewritten | the same stdin prompt as above (the lookup goes by the folder the file lies in) |
+| `--session <file>` after the header `cwd` was rewritten | opens the same session id and file, no prompt |
+
+So Pi offers **no flag for "continue here"**; that choice exists only inside the interactive prompt. The pieces:
+
+- **The decision is neutral** (`src/app/terminal/missing-cwd.js`, called from the resume path of `src/app/terminal/spawn.js` after the live-owner guard). A descriptor
+  hook `resumeCwd: { read(file), continueIn({ file, storedCwd, cwd }) }` says where its CLI records the folder and how to move a session to another; the core
+  names no backend. The stored folder is read from the transcript header (the index rows keep only the derived `projectPath`), the existence check is `fs.existsSync`
+  and a network path of a share no project is on is never touched (`network-path.js`, #780; the resumed project's own share counts as known) and answers "unknown", so the resume goes on as before.
+- **Gone** returns `{ ok: false, error, cwdGone: { backendId, label, storedCwd, canFork, canContinue } }`; the renderer (`showMissingCwdChoice` in `dialogs.js`, reached from `openSession`) shows one control dialog: Continue here, Fork here, Cancel.
+- **Continue** retries with `missingCwd: 'continue'`; main calls `continueIn` (Pi: rewrites the header `cwd` with `rewriteTranscript` + `piLine`, append-aware, #171) and launches `--session <file>` through `buildLaunch({ resumeRef })`.
+  The original's history stays one session. Unlike Pi's own Continue it asks only once, because the record now names the folder.
+- **Fork** is the ordinary fork (`forkSession`, `pi --fork <id>`, in the project's folder); the original stays as it was.
+- **Cancel** changes nothing.
+- **Every resume of a session whose header could be read goes by file** (`resumeRef`), not by id, so a continued session stays resumable: `--session <id>` would ask the stdin question above, which no pipe can answer. A session whose header cannot be read resumes by id as before.
+- **Which cases reach the dialog.** The question fires when the transcript's header folder is gone and the folder the resume would run in (the session's project) is still there: a deleted subfolder or worktree, a remap that missed a file. The issue's own example, a **renamed project folder**, does not get here: the row's project is derived from that same header folder, so the spawn path refuses first ("project directory no longer exists") and the sidebar greys the rows. That refusal now names the way out: "Change path" on the project in the sidebar, or Remap in the Projects manager (#171), which rewrites the transcripts' folder to the new one. After that the resume needs no question.
+- **Quoting, measured (Windows, Pi 1.5.2).** A terminal Pi starts through the shell with `quoteArgvForShell`; `--session <file>` with a path holding spaces, `&` and `%` opened the right session (checked with `pi --mode rpc --session <file>` and `get_state`, same argv and quoting, no model turn) through Git Bash, PowerShell 7 and `cmd.exe`. pi-native starts `node cli.js` without a shell, so the path is a plain argv element.
+- **A transcript that vanished** between the question and the answer refuses ("The session file is no longer there") instead of launching a file that is not there.
+- Not covered: a restore at app start or a grid attach calls `openTerminal` without the dialog and shows the refusal text in the tab; opening the session by click offers the choice.
+
 ## Known gaps
 
 - **The login rests on an undocumented field** (see "Pi's own commands"). A Pi that drops it gets a
