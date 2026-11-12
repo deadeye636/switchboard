@@ -529,9 +529,12 @@ async function showNewSessionPopover(project, anchorEl) {
   // first", which is the same thing only as long as Claude is the default: a user who set another one got
   // their default buried under Claude, unmarked, in a list of equals (#153).
   const defaultId = window._defaultBackendId || firstLaunchableId();
+  // One row per CLI (#761 E5): the modes of one CLI share a row, so the default sorts first when it is ANY
+  // mode of that CLI.
+  const isDefaultRow = (b) => b.id === defaultId || (!b.isProfile && ((cliLaunchModesOf(b.id) || {}).ids || []).includes(defaultId));
   backendList.sort((a, b) => {
-    if (a.id === defaultId) return -1;
-    if (b.id === defaultId) return 1;
+    const da = isDefaultRow(a), db = isDefaultRow(b);
+    if (da !== db) return da ? -1 : 1;
     if (!!a.isProfile !== !!b.isProfile) return a.isProfile ? 1 : -1;
     return 0;   // same group -> keep registration order (Array.sort is stable), matching the Settings list
   });
@@ -545,7 +548,20 @@ async function showNewSessionPopover(project, anchorEl) {
     popover.appendChild(cliLabel);
   }
 
-  for (const backend of backendList) {
+  // A CLI with a terminal and a GUI mode is ONE row (#761 E5): the row starts the terminal mode, the GUI button
+  // beside the gear starts the GUI mode. With only the GUI mode enabled the row starts it under the GUI's own
+  // label. A template is a row of its own, as before. The modes come from `cliLaunchModesOf`; no id is named here.
+  const shownClis = new Set();
+  for (const listed of backendList) {
+    const modes = listed.isProfile ? null : cliLaunchModesOf(listed.id);
+    if (modes) {
+      if (shownClis.has(modes.key)) continue;
+      shownClis.add(modes.key);
+    }
+    const backend = modes ? (modes.terminal || modes.gui) : listed;
+    const guiBackend = modes && modes.terminal ? modes.gui : null;
+    const rowIsDefault = backend.id === defaultId || (!!modes && modes.ids.includes(defaultId));
+
     const row = document.createElement('div');
     row.className = 'popover-option popover-option-backend';
 
@@ -562,20 +578,42 @@ async function showNewSessionPopover(project, anchorEl) {
     }
 
     // Say which one a plain click on the project's + button would start. Nothing marked it before — not a
-    // class, not a tooltip — so the default was indistinguishable from the rest.
-    if (backend.id === defaultId) {
+    // class, not a tooltip — so the default was indistinguishable from the rest. The row carries it for any
+    // mode of its CLI; when that mode is the GUI, the GUI button is marked as well (below).
+    if (rowIsDefault) {
       const tag = document.createElement('span');
       tag.className = 'popover-option-tag';
       tag.textContent = 'default';
       tag.title = 'Started by the + button, and by the keyboard shortcut';
       launchBtn.appendChild(tag);
-      launchBtn.title = `Start a ${backend.label} session with the current defaults (this is the default backend)`;
+      if (backend.id === defaultId) {
+        launchBtn.title = `Start a ${backend.label} session with the current defaults (this is the default backend)`;
+      }
     }
 
     launchBtn.onclick = async () => {
       popover.remove();
       launchNewSession(project, await resolveLaunchOptionsFor(project, backend.id));
     };
+    row.appendChild(launchBtn);
+
+    // The GUI mode of a CLI whose row starts the terminal: a real button, so Tab reaches it and Enter/Space
+    // press it, with the toolbar button look the dialogs' Terminal | GUI switch already wears (reflex 8).
+    if (guiBackend) {
+      const guiBtn = document.createElement('button');
+      guiBtn.type = 'button';
+      guiBtn.className = 'fp-toolbar-btn popover-option-mode';
+      guiBtn.textContent = modes.guiLabel;
+      const guiIsDefault = guiBackend.id === defaultId;
+      if (guiIsDefault) guiBtn.classList.add('active');
+      guiBtn.setAttribute('aria-label', `Start ${modes.cliLabel} in ${modes.guiLabel} mode${guiIsDefault ? ' (default)' : ''}`);
+      guiBtn.title = `Start a ${guiBackend.label} session with the current defaults${guiIsDefault ? ' (this is the default backend)' : ''}`;
+      guiBtn.onclick = async () => {
+        popover.remove();
+        launchNewSession(project, await resolveLaunchOptionsFor(project, guiBackend.id));
+      };
+      row.appendChild(guiBtn);
+    }
 
     const gearBtn = document.createElement('button');
     gearBtn.className = 'popover-option-gear';
@@ -584,7 +622,6 @@ async function showNewSessionPopover(project, anchorEl) {
     gearBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
     gearBtn.onclick = () => { popover.remove(); showNewSessionDialog(project, backend.id); };
 
-    row.appendChild(launchBtn);
     row.appendChild(gearBtn);
     popover.appendChild(row);
   }
@@ -790,11 +827,16 @@ async function launchTerminalSession(project, launcher = null) {
 // Owns the mode list, grid HTML, selection state, and click handling; callers
 // embed html() in their dialog markup, bind() the mounted grid element, and
 // applyTo() the launch options on confirm.
-async function showGeneratedConfigDialog(project, backend) {
+//
+// `modes` (#761 E5): the CLI's launchable modes from `cliLaunchModesOf`, passed only when it has both a terminal
+// and a GUI mode. The dialog then opens with a Terminal | GUI switch that redraws the fields for that mode and
+// starts it; nothing else in the dialog changes.
+async function showGeneratedConfigDialog(project, backend, modes = null) {
   const effective = await window.api.getEffectiveSettings(project.projectPath);
-  const saved = storedDefaultsFor(effective, backend);
   // An option the core reads from the settings alone (`perSession: false`, #731) has no per-session value to set.
-  const fields = ((schemaBackendOf(backend) || {}).configFields || []).filter(f => f.perSession !== false);
+  const perSessionFields = (b) => ((schemaBackendOf(b) || {}).configFields || []).filter(f => f.perSession !== false);
+  let saved = storedDefaultsFor(effective, backend);
+  let fields = perSessionFields(backend);
 
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
@@ -816,7 +858,7 @@ async function showGeneratedConfigDialog(project, backend) {
   //
   // A label under the control says where the shown value comes from, so "what will happen" is readable
   // without opening the settings.
-  const body = fields.map((f, i) => {
+  const fieldsHtml = () => fields.map((f, i) => {
     const fromSettings = saved[f.id] !== undefined;
     const val = fromSettings ? saved[f.id] : f.default;
     const id = `gcd-${i}`;
@@ -857,20 +899,56 @@ async function showGeneratedConfigDialog(project, backend) {
   // three options to nine, so the dialog simply grew past the bottom of the screen — taking Start and
   // Cancel with it. A dialog whose only way out is off-screen is not a dialog. Nothing here caps its
   // own height, so the cap belongs to the frame, not to whichever backend happens to declare the most.
+  //
+  // The mode switch is the Resume dialog's View switch (the file viewer's mode buttons), drawn inside the
+  // options list so the list's rounded ends stay where they are.
+  const projectName = project.projectPath.split(/[\\/]/).filter(Boolean).slice(-2).join('/');
+  const modeHtml = modes ? `
+    <div class="settings-field settings-field-wide">
+      <div class="settings-field-info">
+        <span class="settings-label">Mode</span>
+        <div class="settings-description">Which way this ${escapeHtml(modes.cliLabel)} session starts.</div>
+      </div>
+      <div class="settings-field-control">
+        <div class="viewer-mode-group new-session-mode-switch" role="group" aria-label="Mode">
+          <button type="button" class="fp-toolbar-btn viewer-mode-btn" data-mode="${escapeHtml(modes.terminal.id)}">${escapeHtml(modes.terminalLabel)}</button>
+          <button type="button" class="fp-toolbar-btn viewer-mode-btn" data-mode="${escapeHtml(modes.gui.id)}">${escapeHtml(modes.guiLabel)}</button>
+        </div>
+      </div>
+    </div>` : '';
   dialog.classList.add('new-session-dialog-scroll');
   dialog.innerHTML = `
-    <h3>New ${escapeHtml(backend.label)} Session — ${escapeHtml(project.projectPath.split(/[\\/]/).filter(Boolean).slice(-2).join('/'))}</h3>
-    <div class="new-session-dialog-body">
-      ${body || '<div class="settings-description">This backend has no launch options.</div>'}
-    </div>
+    <h3 class="new-session-dialog-title"></h3>
+    <div class="new-session-dialog-body"></div>
     <div class="new-session-actions">
       <button class="new-session-cancel-btn">Cancel</button>
       <button class="new-session-start-btn">Start</button>
     </div>
   `;
+  function render() {
+    dialog.querySelector('.new-session-dialog-title').textContent = `New ${backend.label} Session — ${projectName}`;
+    dialog.querySelector('.new-session-dialog-body').innerHTML = modeHtml
+      + (fieldsHtml() || '<div class="settings-description">This backend has no launch options.</div>');
+    dialog.querySelectorAll('.new-session-mode-switch [data-mode]').forEach(btn => {
+      const on = btn.dataset.mode === backend.id;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.addEventListener('click', () => {
+        const next = btn.dataset.mode === modes.gui.id ? modes.gui : modes.terminal;
+        if (next.id === backend.id) return;
+        backend = next;
+        saved = storedDefaultsFor(effective, backend);
+        fields = perSessionFields(backend);
+        render();
+        const pressed = [...dialog.querySelectorAll('.new-session-mode-switch [data-mode]')].find(b => b.dataset.mode === backend.id);
+        if (pressed) pressed.focus();
+      });
+    });
+    bindModelDiscovery(dialog);
+  }
+  render();
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
-  bindModelDiscovery(dialog);
 
   // Un-ticking "use the backend's default" hands the option to the user: the control comes alive at the
   // value it was already showing, and that value will be sent. Re-ticking it hands it back — the same
@@ -913,7 +991,8 @@ async function showGeneratedConfigDialog(project, backend) {
   }
   function onKey(e) {
     if (e.key === 'Escape') close();
-    else if (e.key === 'Enter') start();
+    // Enter on the mode switch presses that button; it must not start the session as well.
+    else if (e.key === 'Enter' && !(e.target && e.target.closest && e.target.closest('.new-session-mode-switch'))) start();
   }
   dialog.querySelector('.new-session-cancel-btn').onclick = close;
   dialog.querySelector('.new-session-start-btn').onclick = start;
@@ -932,7 +1011,33 @@ async function showNewSessionDialog(project, backendId) {
   const backend = (backendId && window.getBackend ? window.getBackend(backendId) : null)
     || (window.getBackend ? window.getBackend(firstLaunchableId()) : null);
   if (!backend) return;
-  return showGeneratedConfigDialog(project, backend);
+  // A CLI with both modes enabled gets the Terminal | GUI switch (#761 E5); any other gets the dialog as before.
+  const modes = backend.isProfile ? null : cliLaunchModesOf(backend.id);
+  return showGeneratedConfigDialog(project, backend, modes && modes.terminal && modes.gui ? modes : null);
+}
+
+// The modes of the CLI a backend belongs to that can start now (#761 E5), or null for a backend in no CLI group
+// (a template) or with no launchable mode. Grouped by `backendModes.cliGroups` over the full registry, so the
+// picker and the Configure dialog derive no group of their own; a mode counts when it is ready and enabled, the
+// rule `launchableBackends` applies. `terminal` is the owner's mode, `gui` the first launchable driver's; labels
+// are the group's mode labels (`modeLabel`), `cliLabel` the owner's. No backend is named here.
+function cliLaunchModesOf(backendId) {
+  const byId = window._backendsById || {};
+  const canLaunch = (b) => !!(b && b.status === 'ready' && b.enabled);
+  const group = backendModes.cliGroups(Object.values(byId)).find(g => g.ids.includes(backendId));
+  if (!group) return null;
+  const terminalMode = group.modes.find(m => m.kind === 'terminal' && canLaunch(byId[m.id]));
+  const guiMode = group.modes.find(m => m.kind === 'driver' && canLaunch(byId[m.id]));
+  if (!terminalMode && !guiMode) return null;
+  return {
+    key: group.owner.id,
+    cliLabel: group.owner.label || group.owner.id,
+    terminal: terminalMode ? byId[terminalMode.id] : null,
+    terminalLabel: terminalMode ? terminalMode.label : '',
+    gui: guiMode ? byId[guiMode.id] : null,
+    guiLabel: guiMode ? guiMode.label : '',
+    ids: [terminalMode, guiMode].filter(Boolean).map(m => m.id),
+  };
 }
 
 // The Terminal / GUI pair a session can open in (#670), or null when there is no choice to offer.

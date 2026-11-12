@@ -7975,6 +7975,13 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   color: #d0d0e8;
 }
 
+/* The GUI mode of a CLI's row (#761 E5): an `.fp-toolbar-btn` (its look and its `.active` for the default),
+   placed between the row body and the gear. Always visible, unlike the gear: it is a launch, not a setting. */
+.popover-option-mode {
+  flex: none;
+  margin: 0 4px;
+}
+
 /* Where a session of an owner/driver pair opens (#670, E21a): a terminal or a conversation glyph right after
    the badge, which names the pair's owner. */
 .session-view-symbol {
