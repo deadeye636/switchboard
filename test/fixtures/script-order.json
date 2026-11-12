@@ -161,6 +161,7 @@
     "backend-presets.js",
     "backend-icons.js",
     "backend-capabilities.js",
+    "backend-modes.js",
     "backends-panel.js",
     "custom-launchers.js",
     "launchers-panel.js",

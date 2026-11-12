@@ -676,13 +676,13 @@
   // Unticked = YOU decide, and the value is stored — including an empty string or a `false`, which are
   // values, not absences (§ decision 3: an option whose default is ON can only be switched off by
   // storing the `false`).
-  function launchDefaultsPage(backend, defaults, disabled, extraHtml) {
-    const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
-    const stored = (defaults && defaults[backend.id]) || {};
-    const rows = fields.map(f => {
-      const set = stored[f.id] !== undefined;              // undefined = not set; '' / false ARE set
-      const value = set ? stored[f.id] : f.default;
-      return `
+  // One launch-option row of the global page. `backend` is the descriptor whose id the row STORES under
+  // (`data-backend`): for a field the CLI's modes share that is the owner (#761), whichever mode's gear opened
+  // the page. `notes` are the per-mode description lines of a shared field, data from the descriptors.
+  function launchFieldRow(backend, f, stored, disabled, notes) {
+    const set = stored[f.id] !== undefined;              // undefined = not set; '' / false ARE set
+    const value = set ? stored[f.id] : f.default;
+    return `
         <div class="settings-field"${disabled ? '' : requiresAttrs(backend, f)}>
           <div class="settings-field-info">
             <div class="settings-field-header">
@@ -694,12 +694,54 @@
                 </label>`}
             </div>
             <div class="settings-description">${esc(f.description || `Used when you start a ${backend.label} session without opening its configure dialog.`)}</div>
+            ${(notes || []).map(n => `<div class="settings-hint backend-mode-note">${esc(`${n.label}: ${n.description}`)}</div>`).join('')}
             ${f.more ? `<div class="settings-more">${esc(f.more)}</div>` : ''}
             ${disabled ? '' : requiresNote(backend, f)}
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled || !set)}</div>
         </div>${disabled ? '' : withheldShell(backend, f) + sourcePreviewShell(backend, f)}`;
-    }).join('');
+  }
+
+  // `modes` (optional) turns the page into a CLI's page (#761): `{ group, shown, extras }` where `group` is
+  // a `backendModes.cliGroups` entry with more than one mode, `shown` the ids whose section is drawn and
+  // `extras[id]` that id's prompt overrides and integrations. `backend` is then the group's owner. Without it
+  // the page is the single backend's, as it always was.
+  function launchDefaultsPage(backend, defaults, disabled, extraHtml, modes) {
+    const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
+    const stored = (defaults && defaults[backend.id]) || {};
+    let body;
+    if (modes && modes.group) {
+      const group = modes.group;
+      const split = backendModes.fieldSplit(group);
+      const members = [group.owner, ...group.drivers];
+      const sharedRows = split.shared.map(({ field, notes }) => launchFieldRow(group.owner, field, stored, disabled, notes)).join('');
+      const sections = group.modes.filter(m => modes.shown.has(m.id)).map(m => {
+        const b = members.find(x => x.id === m.id);
+        const own = (defaults && defaults[b.id]) || {};
+        const rows = split.own[b.id].map(f => launchFieldRow(b, f, own, disabled, [])).join('');
+        return `
+        <div class="backend-mode-section" data-mode-for="${esc(b.id)}">
+          <div class="settings-section">
+            <div class="settings-section-title">${esc(m.label)}</div>
+            ${rows || '<div class="settings-hint">No launch options of its own.</div>'}
+          </div>
+          ${disabled ? '' : backendEnvSection(b)}
+          ${(modes.extras && modes.extras[b.id]) || ''}
+        </div>`;
+      }).join('');
+      body = `
+        ${sharedRows ? `<div class="settings-section"><div class="settings-section-title">Launch defaults</div>${sharedRows}</div>` : ''}
+        ${sections}
+        ${extraHtml || ''}`;
+    } else {
+      const rows = fields.map(f => launchFieldRow(backend, f, stored, disabled, [])).join('');
+      body = `
+        ${rows
+          ? `<div class="settings-section"><div class="settings-section-title">Launch defaults</div>${rows}</div>`
+          : '<div class="settings-hint">This backend declares no launch options.</div>'}
+        ${disabled ? '' : backendEnvSection(backend)}
+        ${extraHtml || ''}`;
+    }
 
     return `
       <div class="backend-page" data-backend-page="${esc(backend.id)}">
@@ -715,11 +757,7 @@
           </div>
         </div>
         ${backend.caveat ? `<div class="settings-notice backend-caveat">${esc(backend.caveat)}</div>` : ''}
-        ${rows
-          ? `<div class="settings-section"><div class="settings-section-title">Launch defaults</div>${rows}</div>`
-          : '<div class="settings-hint">This backend declares no launch options.</div>'}
-        ${disabled ? '' : backendEnvSection(backend)}
-        ${extraHtml || ''}
+        ${body}
       </div>`;
   }
 
@@ -1599,26 +1637,38 @@
     // others off the page. Edits are therefore recorded as they happen (`pendingDefaults`) and merged
     // over the stored blob at save time — otherwise opening Claude's page and saving would wipe Codex's
     // defaults, which is the sort of quiet data loss a settings screen must never do.
-    function openBackendPage(backendId) {
-      const backend = backends.find(b => b.id === backendId);
-      if (!backend) return;
+    function openBackendPage(clickedId) {
+      const clicked = backends.find(b => b.id === clickedId);
+      if (!clicked) return;
+      // The gear of either mode of a CLI opens the CLI's one page (#761); a backend with no twin is its own.
+      const group = backendModes.cliGroups(backends).find(g => g.ids.includes(clickedId));
+      const modal = group && group.modes.length > 1 ? group : null;
+      const backend = modal ? modal.owner : clicked;
       const bySummarise = ctx.fieldValue('handoffPromptByBackend', {}) || {};
       const byRead = ctx.fieldValue('handoffReadPromptByBackend', {}) || {};
       const byPlan = ctx.fieldValue('planPromptByBackend', {}) || {};
-      const extras = promptOverridesHtml(
-        backend,
-        { summarise: bySummarise[backend.id], read: byRead[backend.id], plan: byPlan[backend.id] },
+      const extrasOf = (b) => promptOverridesHtml(
+        b,
+        { summarise: bySummarise[b.id], read: byRead[b.id], plan: byPlan[b.id] },
         {
           summarise: ctx.fieldValue('handoffPrompt', ''),
           read: ctx.fieldValue('handoffReadPrompt', ''),
           plan: ctx.fieldValue('planPrompt', ''),
         },
-      )
-        + integrationsHtml(backend, ctx)
-        + resourcesShell(backend, 'Global resources');
+      ) + integrationsHtml(b, ctx);
+      let modes = null;
+      if (modal) {
+        // A mode that is switched off draws no section; with none switched on every section shows, so a
+        // switched-off CLI stays editable (D15). Hidden values stay in `pendingDefaults` / the stored blob.
+        const on = modal.ids.filter(id => isEnabledLive(backends.find(b => b.id === id)));
+        const perMode = {};
+        for (const id of modal.ids) perMode[id] = extrasOf(backends.find(b => b.id === id));
+        modes = { group: modal, shown: new Set(on.length ? on : modal.ids), extras: perMode };
+      }
+      const extras = (modal ? '' : extrasOf(backend)) + resourcesShell(backend, 'Global resources');
       const page = document.createElement('div');
       page.className = 'backends-panel';
-      page.innerHTML = launchDefaultsPage(backend, mergedDefaults(), false, extras);
+      page.innerHTML = launchDefaultsPage(backend, mergedDefaults(), false, extras, modes);
       root.replaceChildren(page);
       paintIcons(page);
 
@@ -1682,7 +1732,10 @@
         recordDefault(e.target);
         recordPromptOverride(e.target);
       });
-      bindSourcePreviews(page, null, (bid) => ({ ...(mergedDefaults()[bid] || {}) }));
+      // What a launch of that id would read: the same layering function the launch readers call, over the
+      // FULL descriptor list, so a driver's preview sees the values stored once under its owner (#761).
+      const byId = new Map(backends.map(b => [b.id, b]));
+      bindSourcePreviews(page, null, (bid) => backendModes.launchLayer(mergedDefaults(), byId.get(bid) || { id: bid }, byId));
     }
 
     box.addEventListener('focusin', (e) => {

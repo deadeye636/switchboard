@@ -59,6 +59,8 @@ async function mountGlobal(stored) {
     writable: true, configurable: true,
   });
 
+  // settings.html loads the shared mode module before the panel (#761).
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'shared', 'backend-modes.js'), 'utf8'), dom.getInternalVMContext(), { filename: 'backend-modes.js' });
   vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'panels', 'backends-panel.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'backends-panel.js' });
 
@@ -278,6 +280,8 @@ async function mountWithProfiles(storedProfiles) {
     value: async () => true, writable: true, configurable: true,   // the user always says yes here
   });
 
+  // settings.html loads the shared mode module before the panel (#761).
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'shared', 'backend-modes.js'), 'utf8'), dom.getInternalVMContext(), { filename: 'backend-modes.js' });
   vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'panels', 'backends-panel.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'backends-panel.js' });
 
