@@ -23,6 +23,16 @@
     { id: 'manual', label: 'Manual', hint: 'as you dragged them' },
   ];
 
+  // Under Manual only (#866): put the list in an order once, then keep dragging. It replaces the dragged order;
+  // the toast that follows has an Undo.
+  const ONCE = [
+    { id: 'activity', label: 'Last activity', hint: 'newest first' },
+    { id: 'alpha', label: 'Name A–Z', hint: 'by name' },
+    { id: 'alpha-desc', label: 'Name Z–A', hint: 'by name' },
+    { id: 'added', label: 'Date added', hint: 'newest first',
+      title: 'Newest first. A project with no recorded date added uses its oldest session instead.' },
+  ];
+
   const sortLabel = (id) => (SORTS.find(s => s.id === id) || SORTS[0]).label;
 
   function close() {
@@ -59,9 +69,19 @@
 
     // Sort only. "Favourites in their own list" is a presentation decision, not an order, and it belongs
     // where the rest of them are (Settings) — in here it read as a fourth way to sort.
+    const onceRows = ONCE.map(o => `
+      <button type="button" class="view-menu-item" data-once="${o.id}" role="menuitem"${o.title ? ` title="${o.title}"` : ''}>
+        <span class="view-menu-tick"></span>
+        <span class="view-menu-label">${o.label}</span>
+        <span class="view-menu-hint">${o.hint}</span>
+      </button>`).join('');
+
     menu.innerHTML = `
       <div class="view-menu-head">Sort projects</div>
       ${rows}
+      ${view.projectSortMode === 'manual'
+        ? `<div class="view-menu-head">Sort once by…</div>${onceRows}`
+        : ''}
       ${view.overridden
         // Only when what you are looking at is not what Settings holds. The button carries a dot for the
         // same reason: an order you cannot tell from the saved one is how you end up "fixing" a setting
@@ -75,6 +95,13 @@
     menu.querySelectorAll('[data-sort]').forEach(el => {
       el.addEventListener('click', () => {
         window._setSortOverride({ projectSortMode: el.dataset.sort });   // re-renders through applyEffectiveSort
+      });
+    });
+    menu.querySelectorAll('[data-once]').forEach(el => {
+      el.addEventListener('click', () => {
+        const kind = el.dataset.once;
+        close();
+        if (typeof window._reorderProjectsOnce === 'function') window._reorderProjectsOnce(kind);
       });
     });
     const reset = menu.querySelector('[data-reset]');

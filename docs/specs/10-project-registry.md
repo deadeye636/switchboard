@@ -953,6 +953,31 @@ animation ends by itself, so nothing keeps running (`.claude/rules/renderer.md`,
 FRAME"). The release of a held order (#867) is an ordinary render, so it glides too. Guarded by
 `test/sidebar-project-glide-vm.test.js`.
 
+### Re-order a manual list once (#866)
+
+With the sort set to Manual, the View menu has a **Sort once by…** group: Last activity, Name A-Z, Name Z-A, Date
+added. It is a one-off, not a mode: the choice REPLACES the dragged `projectOrder` and the user keeps dragging from
+there. `reorderOnce` (`src/renderer/lib/project-sort.js`) answers the full order; `window._reorderProjectsOnce`
+(`src/renderer/shell/sidebar-sort.js`) writes it through `_persistProjectOrder`, the same writer a drag uses, and
+renders with `resort: true`. A toast with **Undo** (15 s) puts the previous order back; it goes away as soon as
+anything else writes the order (the next drag, another one-off sort), because Undo would otherwise discard that. The group is absent under
+Activity and A-Z, where the order is computed and there is nothing of the user's to replace.
+
+- **Last activity** is `recencyOf`, the value the Activity sort uses; a project with none goes last.
+- **Names** compare the label the sidebar shows (a custom display name, else the last two path segments), with the
+  same compare the Alpha sort uses (`compareLabels`), so A-Z once equals what Alpha shows.
+- **Date added** is `addedAt`, the project's `registeredAt` from `project_meta`, stamped on every project by
+  `src/index/projects-view.js`. A project with none (a seeded one, `registeredAt` NULL) **falls back to its oldest
+  session** (`created`, else `modified`, over the sessions the sidebar holds); with neither it goes last. The menu
+  entry's tooltip says so. `registeredAt` is the LAST registration: adding a project again, rediscovery and a
+  remap reset it. A worktree is never registered, so it always uses the fallback.
+- Favorites keep their Manual semantics: the favorites block is pinned by `sortProjects` at render unless
+  `favoritesOwnList`, so the written order needs no block handling of its own.
+- Entries of the saved order that no listed project names (a hidden project, say) are not dropped, but they lose
+  their relative slots: they are appended after the sorted ones, in their old order.
+
+Guarded by `test/project-reorder-once.test.js`.
+
 ## Known gaps
 
 - A removed project's sessions are out of **search** until it is registered again. Intended — it was

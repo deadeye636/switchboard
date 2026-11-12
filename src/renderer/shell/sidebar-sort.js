@@ -85,8 +85,39 @@ window._resetSortOverride = () => {
 };
 // Persist the manual project order (written by drag-reorder in the sidebar).
 window._persistProjectOrder = (arr) => {
+  dismissReorderToast();   // whatever writes the order next, a drag included, makes that Undo stale
   projectOrder = Array.isArray(arr) ? arr.slice() : [];
   localStorage.setItem('projectOrder', JSON.stringify(projectOrder));
+};
+
+// Re-order the manual list once (#866), from the View menu. It writes projectOrder through the same
+// _persistProjectOrder a drag does, and offers one Undo that puts the previous order back. Manual only: in any
+// other sort the order is computed and there is nothing of the user's to replace.
+let _reorderToast = null;
+function dismissReorderToast() {
+  if (_reorderToast) { _reorderToast.remove(); _reorderToast = null; }
+}
+window._reorderProjectsOnce = (kind) => {
+  if (projectSortMode !== 'manual' || typeof reorderOnce !== 'function') return false;
+  const known = [...(cachedAllProjects || []), ...(cachedProjects || [])];
+  const next = reorderOnce(known, kind, projectOrder);
+  if (!next) return false;
+  const previous = projectOrder.slice();
+  window._persistProjectOrder(next);
+  refreshSidebar({ resort: true });
+  if (typeof showControlToast === 'function') {
+    _reorderToast = showControlToast({
+      message: 'Projects re-ordered.',
+      actionLabel: 'Undo',
+      onAction: () => {
+        _reorderToast = null;
+        window._persistProjectOrder(previous);
+        refreshSidebar({ resort: true });
+      },
+      timeoutMs: 15000,
+    });
+  }
+  return true;
 };
 
 // --- Refresh button ---

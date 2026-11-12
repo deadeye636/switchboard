@@ -12,6 +12,7 @@
 // back after the drop reads as a drop that did nothing. Favorites stay pinned because their block has a
 // visible divider and the drag never offers a position across it.
 //
+// reorderOnce (#866) is the View menu's one-off re-order under Manual.
 // moveInProjectOrder (#773) is the other half of manual mode: the saved order after one drag, moving only the
 // dragged project. Called by the drop in shell/sidebar-events.js.
 (function (root, factory) {
@@ -27,6 +28,10 @@
   function labelOf(p) {
     const custom = typeof p.displayName === 'string' ? p.displayName.trim() : '';
     return custom || shortNameOf(p);
+  }
+  // The one name compare: the Alpha sort and the one-off A-Z re-order (#866) both use it.
+  function compareLabels(a, b) {
+    return labelOf(a).localeCompare(labelOf(b), undefined);
   }
   function recencyOf(p) {
     // The newest VISIBLE session or the project's own lastActivity — whichever is
@@ -58,7 +63,7 @@
 
     function modeCompare(a, b) {
       if (mode === 'alpha') {
-        return labelOf(a).localeCompare(labelOf(b), undefined);
+        return compareLabels(a, b);
       }
       if (mode === 'manual') {
         const ai = orderIndex.has(a.projectPath) ? orderIndex.get(a.projectPath) : Infinity;
@@ -146,6 +151,54 @@
     return decorated.map(d => d.p);
   }
 
+  // Re-order once (#866). The four orders the View menu offers under Manual, as a full saved order.
+  //   activity  newest first, the value the Activity sort uses (recencyOf); no activity last
+  //   alpha / alpha-desc  the label the sidebar shows (labelOf), locale-aware
+  //   added     the date the project was added (`addedAt`), newest first; a project with none falls back to its
+  //             OLDEST session (`created`, else `modified`), and one with neither goes last
+  // `projects` may hold a project twice (the filtered and the full list): the first wins. Entries of
+  // `savedOrder` no project here names are kept after the sorted ones, as moveInProjectOrder keeps them.
+  // The favorites block is not handled here: manual mode pins it at render (sortProjects).
+  function addedAtOf(p) {
+    if (p.addedAt) return p.addedAt;
+    let oldest = '';
+    for (const s of (p.sessions || [])) {
+      const t = s.created || s.modified || '';
+      if (t && (!oldest || new Date(t) < new Date(oldest))) oldest = t;
+    }
+    return oldest;
+  }
+  function reorderOnce(projects, kind, savedOrder) {
+    const seen = new Set();
+    const list = [];
+    for (const p of (projects || [])) {
+      if (p && p.projectPath && !seen.has(p.projectPath)) { seen.add(p.projectPath); list.push(p); }
+    }
+    const byDate = (dateOf) => (a, b) => {
+      const da = dateOf(a), db = dateOf(b);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return new Date(db) - new Date(da);
+    };
+    const byLabel = compareLabels;
+    const compare = {
+      activity: byDate(recencyOf),
+      alpha: byLabel,
+      'alpha-desc': (a, b) => byLabel(b, a),
+      added: byDate(addedAtOf),
+    }[kind];
+    if (!compare) return null;
+    const decorated = list.map((p, i) => ({ p, i }));
+    decorated.sort((x, y) => compare(x.p, y.p) || x.i - y.i);
+    const order = decorated.map(d => d.p.projectPath);
+    const known = new Set(order);
+    for (const path of (Array.isArray(savedOrder) ? savedOrder : [])) {
+      if (typeof path === 'string' && path && !known.has(path)) { known.add(path); order.push(path); }
+    }
+    return order;
+  }
+
   // Did the projects both lists hold change their order relative to each other? An added or removed project
   // alone is not a re-order (#868): nothing was swapped, so nothing glides.
   function projectOrderChanged(prevIds, nextIds) {
@@ -163,5 +216,5 @@
     return projectOrderChanged(prevIds || [], nextIds || []);
   }
 
-  return { sortProjects, moveInProjectOrder, holdProjectOrder, projectOrderChanged, shouldGlideProjects };
+  return { sortProjects, moveInProjectOrder, reorderOnce, holdProjectOrder, projectOrderChanged, shouldGlideProjects };
 });

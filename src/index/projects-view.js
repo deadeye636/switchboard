@@ -413,6 +413,8 @@ function buildProjectsFromCache(showArchived) {
     proj.sessions.sort((a, b) => new Date(b.modified) - new Date(a.modified));
     proj.favorited = favoritedKeys.has(key);
     proj.displayName = displayNameByKey.get(key) || '';
+    // When the project was put on the list (#866); null for a seeded one. The renderer's one-off re-order reads it.
+    proj.addedAt = (stateByKey.get(key) || {}).registeredAt || null;
     // Every project carries its own date, not only the ones with nothing left to show (#306). The branch
     // above already stamped the registered-but-empty ones (which may fall back to `registeredAt`).
     if (proj.lastActivity == null) proj.lastActivity = lastActivityByPath.get(key) || null;

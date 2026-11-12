@@ -92,3 +92,13 @@ test('a project that has never seen a session still sinks to the bottom (#306)',
   assert.deepEqual(paths(projects), [BETA, ALPHA]);
   assert.equal(projects[1].lastActivity, null, 'no sessions, no registration date, no recency');
 });
+
+test('every project carries addedAt from its registration; none when the register has no date (#866)', () => {
+  setup([
+    row('a', ALPHA, '2026-06-01T00:00:00Z'),
+    row('b', BETA, '2026-03-01T00:00:00Z'),
+  ], { states: new Map([[ALPHA, { registered: true, registeredAt: '2026-02-02T00:00:00Z' }], [BETA, { registered: true }]]) });
+  const byPath = new Map(view.buildProjectsFromCache(false).map(p => [p.projectPath, p]));
+  assert.equal(byPath.get(ALPHA).addedAt, '2026-02-02T00:00:00Z');
+  assert.equal(byPath.get(BETA).addedAt, null);
+});
