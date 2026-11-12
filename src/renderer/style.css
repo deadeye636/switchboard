@@ -3529,6 +3529,9 @@ html body .terminal-container.conversation-container:not(.visible) {
 .conversation-idle-info { color: #a0a0b8; font-size: 12px; }
 .conversation-idle-link { margin-top: 8px; }
 .conversation-idle-pop { right: auto; left: 12px; }
+.conversation-model-pop { right: auto; left: 12px; }
+.conversation-model-row { grid-template-columns: 10px 1fr; cursor: pointer; }
+.conversation-model-wait { margin: 8px 0; color: #7a7a90; }
 
 /* A background task that ended (#691), drawn as what it is rather than the markup the CLI gave the model. */
 .task-notice {

@@ -48,11 +48,11 @@ function streamRpc(transcript, extra) {
   };
 }
 
-function streamHarness(t, { lag = false, ignoreEof = false, rpc: extra, timeouts, options, appliedOptions, approvalMemory, backendId } = {}) {
+function streamHarness(t, { lag = false, ignoreEof = false, rpc: extra, timeouts, options, appliedOptions, approvalMemory, backendId, notifyProjectsChanged } = {}) {
   const dir = tempDataDir(t);
   const transcript = path.join(dir, 'transcript.jsonl');
   const env = { FAKE_TRANSCRIPT: transcript, FAKE_LAG: lag ? '1' : '', FAKE_IGNORE_EOF: ignoreEof ? '1' : '' };
-  const h = harness({ rpc: streamRpc(transcript, extra), fixture: FIXTURE, env, timeouts, options, appliedOptions, approvalMemory, backendId });
+  const h = harness({ rpc: streamRpc(transcript, extra), fixture: FIXTURE, env, timeouts, options, appliedOptions, approvalMemory, backendId, notifyProjectsChanged });
   return { ...h, transcript };
 }
 
@@ -884,4 +884,109 @@ test('a core observer is asked before a remembered approval, and its refusal is 
   assert.deepEqual(asked, ['a1']);
   assert.deepEqual(written, [{ cancelled: true }], 'the remembered rule did not answer it');
   assert.ok(!ops(h).some((o) => o.op === 'ask'), 'no card');
+});
+
+// #865: the model of the running session is picked from the runtime's own list and switched by its own request;
+// the fill is asked again, and a backend that declares nothing offers nothing.
+function modelRpc(asked, running = {}) {
+  const rows = [{ value: 'a', label: 'Model A' }, { value: 'b', label: 'Model B' }];
+  return {
+    modelsCommand: (id) => { running.listings = (running.listings || 0) + 1; return { type: 'ctl', request_id: id, what: 'models', data: { models: rows } }; },
+    // Like the Claude half: a choice made here counts only if the caller still passes it, else the running model decides.
+    modelsFromResponse: (res, { chosen, context } = {}) => res.data.models.map((m) => ({ ...m, description: '', current: chosen != null ? chosen === m.value : !!context && context.modelId === m.value })),
+    setModelCommand: (id, value) => { asked.push(value); running.model = value; return { type: 'ctl', request_id: id, what: value === 'bad' ? 'fail' : `model ${value}` }; },
+    contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx', data: { model: running.model || 'start' } }),
+    contextFromResponse: (res) => ({ percent: 10, tokens: 1, window: res.data.model === 'b' ? 1000 : 100, model: res.data.model, modelId: res.data.model }),
+  };
+}
+
+test('a model is listed, switched, and the fill is asked again; a value the runtime did not list is never sent', async (t) => {
+  const asked = [];
+  const h = streamHarness(t, { rpc: modelRpc(asked) });
+  t.after(() => stopped(h));
+  await until(() => ops(h).some((o) => o.op === 'context'));
+  assert.equal((await agentRpc.attach('launch-id')).canSwitchModel, true);
+  const listed = await agentRpc.listModels('launch-id');
+  assert.deepEqual(listed.models.map((m) => m.value), ['a', 'b']);
+  assert.equal((await agentRpc.setModel('launch-id', 'zzz')).ok, false);
+  assert.deepEqual(asked, [], 'a model nobody listed is not sent');
+  const res = await agentRpc.setModel('launch-id', 'b');
+  assert.equal(res.ok, true);
+  assert.deepEqual(asked, ['b']);
+  assert.equal(res.context.model, 'b', 'the answer carries the fill asked after the switch');
+  assert.equal(ops(h).filter((o) => o.op === 'context').pop().context.model, 'b');
+  assert.equal((await agentRpc.listModels('launch-id')).models.find((m) => m.value === 'b').current, true);
+});
+
+test('a model switched another way is the one marked, not the one picked earlier', async (t) => {
+  const asked = [];
+  const running = {};
+  const h = streamHarness(t, { rpc: modelRpc(asked, running) });
+  t.after(() => stopped(h));
+  assert.equal((await agentRpc.setModel('launch-id', 'b')).ok, true);
+  assert.equal((await agentRpc.listModels('launch-id')).models.find((m) => m.value === 'b').current, true);
+  running.model = 'a';   // a `/model` typed in the composer: the runtime now runs on another model, no pick of ours
+  const again = (await agentRpc.listModels('launch-id')).models;
+  assert.deepEqual(again.map((m) => [m.value, m.current]), [['a', true], ['b', false]]);
+});
+
+test('a pick right after the list does not list again, and a running session reports the live window', async (t) => {
+  const asked = [];
+  const running = {};
+  const h = streamHarness(t, { rpc: modelRpc(asked, running) });
+  t.after(() => stopped(h));
+  await until(() => ops(h).some((o) => o.op === 'context'));
+  assert.deepEqual(agentRpc.liveWindowOf('launch-id'), { windowTokens: 100, model: 'start' });
+  assert.equal(agentRpc.liveWindowOf('nobody'), null, 'a session that is not running has none');
+  await agentRpc.listModels('launch-id');
+  const listed = running.listings;
+  assert.equal((await agentRpc.setModel('launch-id', 'b')).ok, true);
+  assert.equal(running.listings, listed, 'the pick reused the listing the open just made');
+  assert.deepEqual(agentRpc.liveWindowOf('launch-id'), { windowTokens: 1000, model: 'b' }, 'the window is the one the runtime named after the switch');
+});
+
+test('the sidebar is told when the live window moved, once per change and never per fill', async (t) => {
+  const asked = [];
+  const running = {};
+  let told = 0;
+  const h = streamHarness(t, { rpc: modelRpc(asked, running), notifyProjectsChanged: () => { told++; } });
+  t.after(() => stopped(h));
+  await until(() => ops(h).some((o) => o.op === 'context'));
+  assert.equal(told, 1, 'the first fill');
+  await agentRpc.listModels('launch-id');   // asks the fill again, which names the same model and window
+  assert.equal(told, 1, 'an unchanged fill tells nobody');
+  await agentRpc.setModel('launch-id', 'b');
+  assert.equal(told, 2, 'a pick moved the window');
+  running.model = 'a';   // a `/model` typed in the composer
+  await agentRpc.listModels('launch-id');
+  assert.equal(told, 3, 'a switch made another way is followed too');
+});
+
+test('after a re-key only the current id answers for the live window', async (t) => {
+  const h = streamHarness(t, { rpc: modelRpc([]) });
+  t.after(() => stopped(h));
+  await until(() => ops(h).some((o) => o.op === 'context'));
+  assert.ok(agentRpc.liveWindowOf('launch-id'));
+  await agentRpc.sendTurn('launch-id', { text: 'rename', mode: 'prompt' });
+  await until(() => h.rekeys.length === 1);
+  assert.equal(agentRpc.liveWindowOf('launch-id'), null, 'the old id is no longer a running session');
+  assert.ok(agentRpc.liveWindowOf('renamed-session'));
+});
+
+test('a refused model switch changes nothing and says why', async (t) => {
+  const rpc = modelRpc([]);
+  rpc.modelsCommand = (id) => ({ type: 'ctl', request_id: id, what: 'models', data: { models: [{ value: 'bad', label: 'Bad' }] } });
+  const h = streamHarness(t, { rpc });
+  t.after(() => stopped(h));
+  const res = await agentRpc.setModel('launch-id', 'bad');
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'nope');
+});
+
+test('a runtime that declares no model switch offers none', async (t) => {
+  const h = streamHarness(t);
+  t.after(() => stopped(h));
+  assert.equal((await agentRpc.attach('launch-id')).canSwitchModel, false);
+  assert.equal((await agentRpc.listModels('launch-id')).ok, false);
+  assert.equal((await agentRpc.setModel('launch-id', 'a')).ok, false);
 });

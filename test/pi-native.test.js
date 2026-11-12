@@ -478,3 +478,21 @@ test('a pi-native context answer carries no breakdown and no baseline', () => {
   const context = protocol.contextFromResponse({ success: true, data: { contextUsage: { percent: 12, tokens: 100, contextWindow: 1000 } } });
   assert.deepEqual(Object.keys(context).sort(), ['model', 'percent', 'tokens', 'window']);
 });
+
+// #865, measured on Pi 1.5.2: get_available_models / set_model { provider, modelId }.
+test('the model picker: Pi lists its configured models and switches by provider and id', () => {
+  assert.deepEqual(protocol.modelsCommand('a'), { id: 'a', type: 'get_available_models' });
+  assert.deepEqual(protocol.setModelCommand('b', 'anthropic/claude-fable-5'), { id: 'b', type: 'set_model', provider: 'anthropic', modelId: 'claude-fable-5' });
+  assert.deepEqual(protocol.setModelCommand('c', 'openrouter/vendor/model-x'), { id: 'c', type: 'set_model', provider: 'openrouter', modelId: 'vendor/model-x' }, 'only the first slash splits');
+  const response = { success: true, data: { models: [
+    { id: 'claude-fable-5', name: 'Claude Fable 5', provider: 'anthropic', contextWindow: 1000000 },
+    { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', provider: 'openai-codex', contextWindow: 272000 },
+    { name: 'no id' },
+  ] } };
+  const rows = protocol.modelsFromResponse(response, { context: { model: 'GPT-5.6 Sol' } });
+  assert.deepEqual(rows.map(r => [r.value, r.label, r.current]), [['anthropic/claude-fable-5', 'Claude Fable 5', false], ['openai-codex/gpt-5.6-sol', 'GPT-5.6 Sol', true]]);
+  assert.equal(rows[0].description, 'anthropic · 1M context');
+  assert.equal(protocol.modelsFromResponse(response, { chosen: 'anthropic/claude-fable-5' })[0].current, true);
+  assert.equal(protocol.modelFromSwitch({ success: true, data: { id: 'claude-fable-5', name: 'Claude Fable 5' } }), 'Claude Fable 5');
+  assert.equal(protocol.modelFromSwitch({ success: false, error: 'Model not found: anthropic/nope' }), null);
+});

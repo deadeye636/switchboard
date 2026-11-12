@@ -22,7 +22,7 @@ const LEGACY_SESSION_BACKEND = 'claude';
  * @param {(key: string) => any} getSetting   `getSetting('global')` and `getSetting('project:<owner>')`, or undefined.
  * @returns {{ envFor, launchOptionsFor, windowOf, windowOfAsync }}
  */
-function createContextWindowResolver(getSetting) {
+function createContextWindowResolver(getSetting, { liveWindowOf } = {}) {
   // The user's per-backend variables, resolved like the spawn resolves them: a `$VAR` that names a set variable
   // becomes its value, one that does not is DROPPED, so the process's own variable shows through. Resolved against
   // this process's environment only; a reference to one of Switchboard's saved variables is not followed here.
@@ -67,7 +67,16 @@ function createContextWindowResolver(getSetting) {
   };
   // The descriptor's answer for a row, `{ windowTokens, ... }` or null. A throw is a null: a window that cannot be
   // read is "unknown", never an error on the sidebar or in the Flow tab.
+  // A session that is RUNNING over a pipe has a live answer: the window its runtime itself reported for the model it is on
+  // now (the fill the status line draws, #865). It outranks the stored row and the launch options, which describe how the
+  // session started and know nothing of a model switched since. A session that is not running has none.
+  const live = (row) => {
+    if (typeof liveWindowOf !== 'function' || !row || !row.sessionId) return null;
+    try { return liveWindowOf(row.sessionId) || null; } catch { return null; }
+  };
   const windowOf = (row, backend) => {
+    const running = live(row);
+    if (running) return running;
     if (!row || !backend || typeof backend.contextWindow !== 'function') return null;
     const envKey = backend.isProfile ? (backend.baseId || LEGACY_SESSION_BACKEND) : backend.id;
     try {
@@ -78,6 +87,8 @@ function createContextWindowResolver(getSetting) {
   // `contextWindowAsync` is asked that way, so its settings read never blocks. Any other backend answers `null`
   // here: its plain hook may read files synchronously (Pi's model catalog does), which this path must not do.
   const windowOfAsync = async (row, backend) => {
+    const running = live(row);
+    if (running) return running;
     if (!row || !backend) return null;
     if (typeof backend.contextWindowAsync !== 'function') return null;
     const envKey = backend.isProfile ? (backend.baseId || LEGACY_SESSION_BACKEND) : backend.id;

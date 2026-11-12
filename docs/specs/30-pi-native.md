@@ -355,6 +355,14 @@ scrollback, the exit banner, the launch-error writes (`writeEntryError`). The vi
 `altScreenWheel` are deliberately absent on this backend, because they are answers for an xterm it never mounts, and the
 terminal-key tests check that.
 
+## The model of the running session (#865)
+
+The model in the session line opens a picker of Pi's configured models (`get_available_models`); a pick sends
+`set_model { provider, modelId }`, which applies to the running session only. The fill and window are asked again
+(`get_session_stats`), and the name on the line is the switch's own answer until then. Measured shapes:
+`docs/backend-formats.md`, "Switching the model of a running session". Pi marks the model in force by its display name
+until a switch has been made in the session, so two models sharing a name both read as current before the first switch.
+
 ## Pi's own commands (#642, #643)
 
 `/login`, `/model`, `/compact` and the rest are commands of Pi's terminal interface. Over RPC a line that

@@ -272,6 +272,11 @@ module.exports = {
     modeCycle: protocol.MODE_CYCLE,
     setModeCommand: protocol.setModeCommand,
     modeInfo: protocol.modeInfo,
+    // The model of the running session, picked from the line under the input (#865): the CLI's own list, and the
+    // request that switches. The fill, the window and a mode the new model refuses follow from the CLI's answers.
+    modelsCommand: protocol.modelsCommand,
+    modelsFromResponse: protocol.modelsFromResponse,
+    setModelCommand: protocol.setModelCommand,
     // The mode before the first turn names it (#730): the launch option when `buildLaunch` sent it, else the
     // settings' default, asked over the pipe.
     launchMode,

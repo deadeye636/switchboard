@@ -484,6 +484,9 @@ sessionCache.init({
   activeSessions,
   getMainWindow: () => mainWindow,
   log,
+  // The window a running pipe-driven session's runtime reported for its model right now (#865); the badge reads it
+  // before the stored row. Lazy: agentRpc is required further down.
+  liveWindowOf: (sessionId) => agentRpc.liveWindowOf(sessionId),
   // Worktrees outside the layout, recognised before a payload is built (#757). The module is the one
   // `projects.init` below wires to the database; until then it answers nothing.
   refreshKnownWorktrees: (paths, states) => require('./projects/known-worktree').refresh(paths, states),
@@ -2381,6 +2384,8 @@ idleMaintenance.registerIpc(ipcMain);
 
 const agentRpc = require('./app/agent-rpc');
 agentRpc.init({
+  // A model switched in a running session moves the window its badge is read against (#865).
+  notifyProjectsChanged: () => notifyRendererProjectsChanged(),
   onMaintenanceEdge: (report) => idleMaintenance.track(report),
   maintenanceTurnsOf: (sessionId) => getMaintenanceTurns(sessionId),
   approvalMemory,
@@ -2416,7 +2421,7 @@ processUsage.registerIpc(ipcMain);
 
 // The Flow tab of a session (#826, spec 46): a short-lived worker reads the transcript into one snapshot.
 const flowRead = require('./app/session-flow');
-flowRead.init({ getCachedSession, getSetting, getAppQuitting: () => appQuitting, log });
+flowRead.init({ getCachedSession, getSetting, liveWindowOf: (id) => agentRpc.liveWindowOf(id), getAppQuitting: () => appQuitting, log });
 flowRead.registerIpc(ipcMain);
 const flowExport = require('./app/flow-export');
 flowExport.init({ BrowserWindow, dialog, getParentWindow: (sender) => BrowserWindow.fromWebContents(sender) || mainWindow, getAppVersion: () => app.getVersion(), log });

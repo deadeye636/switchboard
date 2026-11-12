@@ -25,7 +25,7 @@ const LEGACY_SESSION_BACKEND = 'claude';
 // post-reconcile upkeep does, on a floor of its own.
 const worktreeDirs = require('./worktree-dirs');
 
-let PROJECTS_DIR, activeSessions;
+let PROJECTS_DIR, activeSessions, liveWindowOf = null;
 let getAllMeta, getAllCached, getAllFolderMeta, setFolderMeta;
 // #282: store folders whose head carried no derivable cwd (snapshot-only fork/clear transcripts).
 // buildProjectsAdmin runs on the 10s auto-hide throttle; without this a headless folder was re-derived
@@ -40,6 +40,7 @@ let refreshKnownWorktrees = null;
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
   activeSessions = ctx.activeSessions;
+  liveWindowOf = typeof ctx.liveWindowOf === 'function' ? ctx.liveWindowOf : null;
   getAllMeta = ctx.db.getAllMeta;
   getAllCached = ctx.db.getAllCached;
   getAllFolderMeta = ctx.db.getAllFolderMeta;
@@ -189,7 +190,7 @@ function buildProjectsFromCache(showArchived) {
   // the archive filter.
   // The window of each row's last turn, asked with the user's per-backend variables and the stored launch options
   // (#620). Built once per build; the layering is `src/index/context-window.js`, shared with the Flow tab.
-  const resolver = createContextWindowResolver(getSetting);
+  const resolver = createContextWindowResolver(getSetting, { liveWindowOf: liveWindowOf });
 
   // Which backends may launch right now (#670) — ready, enabled and not known to be missing — resolved once
   // per build and only when a row needs it (one with a transport or a stored view), because `list()` asks

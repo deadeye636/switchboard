@@ -29,7 +29,7 @@ const SESSION_CWD = path.join(__dirname, '..');
 // what spawn.js hands a fork's start, `options`/`appliedOptions` the launch options it hands every start, `approvalMemory` and
 // `backendId` where and under whose id #731 remembers approvals; `onSignal` runs at the moment a state report is
 // delivered, which is when the turn-hold asks its question.
-function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appliedOptions, onSignal, approvalMemory, backendId, onMaintenanceEdge, maintenanceTurnsOf, clipboardFails } = {}) {
+function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appliedOptions, onSignal, approvalMemory, backendId, onMaintenanceEdge, maintenanceTurnsOf, clipboardFails, notifyProjectsChanged } = {}) {
   const activeSessions = new Map();
   const sent = [];
   const signals = [];
@@ -68,6 +68,7 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appl
     log: { info: (line) => logged.push(line), warn: (line) => warned.push(line), debug() {} },
     approvalMemory,
     onMaintenanceEdge,
+    notifyProjectsChanged,
     maintenanceTurnsOf,
   });
   const proc = agentRpc.start({

@@ -230,6 +230,12 @@ shell, so closing the viewer in one window must not cancel another's read): `get
   Without a hint nothing else changes. Remaining gaps, all outside the transcript: the picker form, a settings edit and `--model`
   on a resume change the window without a recorded spec, so earlier checkpoints on the hint's model still read against it. A
   `[1m]` in `message.model` is not looked for: the CLI never writes it there.
+  **A model switched from the session line (#865) leaves no `/model` line either.** For a session that is running, the hint is
+  the window its runtime reported for the model it is on now (`liveWindowOf`, read by the same resolver), so checkpoints on that
+  model read against the live window and checkpoints on the models before it fall to the model-name answer. Known limit: a switch
+  directly from `opus[1m]` to bare `opus` (or the reverse) leaves an earlier `/model opus[1m]` in force for the later `opus`
+  checkpoints, because no request on another model in between expires it and the switch is not in the transcript. Only a request
+  on another model between the two, or a later `/model` line, ends it.
 - **No source path in any answer** (a deep scan in `test/session-flow.test.js`); `sources` stay in main. Tool labels may carry the
   tool's own argument (a file the tool read, for example); instruction files are labelled relative to the project or with `~`.
 

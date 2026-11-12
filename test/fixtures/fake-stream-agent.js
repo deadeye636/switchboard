@@ -53,7 +53,7 @@ process.stdin.on('data', (chunk) => {
     if (msg.type === 'user') turn(String(msg.text || ''));
     else if (msg.type === 'ctl') {
       if (msg.what === 'fail') emit({ type: 'ctl_response', request_id: msg.request_id, ok: false, error: 'nope' });
-      else emit({ type: 'ctl_response', request_id: msg.request_id, ok: true, data: { what: msg.what } });
+      else emit({ type: 'ctl_response', request_id: msg.request_id, ok: true, data: msg.data || { what: msg.what } });
     } else if (msg.type === 'answer') {
       const reply = entry('assistant', `answered with ${JSON.stringify(msg.echoed)}`);
       record(reply);

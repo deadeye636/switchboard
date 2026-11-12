@@ -78,7 +78,7 @@ function descriptorFor(row) {
  */
 async function windowHintFor(row, backend) {
   if (typeof ctx.getSetting !== 'function') return null;
-  const answer = await createContextWindowResolver(ctx.getSetting).windowOfAsync(row, backend);
+  const answer = await createContextWindowResolver(ctx.getSetting, { liveWindowOf: ctx.liveWindowOf }).windowOfAsync(row, backend);
   const windowTokens = answer ? Number(answer.windowTokens) : 0;
   const model = answer && typeof answer.model === 'string' && answer.model ? answer.model : null;
   return windowTokens > 0 ? (model ? { windowTokens, model } : { windowTokens }) : null;

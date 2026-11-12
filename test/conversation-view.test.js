@@ -1859,6 +1859,53 @@ test('the idle popover\'s "All settings" opens the project settings, or the glob
   ]);
 });
 
+// #865: where the backend can switch the running session's model, the model in the status line opens a picker of what
+// the session lists; a pick switches it and the line shows the runtime's answer. Where it cannot, the model is text.
+test('the model in the status line opens a picker, switches the model and draws the answer; without support it is text', async () => {
+  const rows = [
+    { value: 'a', label: 'Model A', description: 'first', current: true },
+    { value: 'b', label: 'Model B', description: 'second', current: false },
+  ];
+  const attachWith = (canSwitchModel) => () => Promise.resolve({ ok: true, entries: [], seq: 0, busy: false, queue: { steering: [], followUp: [] },
+    asks: [], context: { percent: 5, tokens: 5, window: 200000, model: 'Model A' }, canSwitchModel });
+  const plain = setup({ attachAnswer: attachWith(false) });
+  await plain.entry.conversation.attach();
+  assert.equal(plain.entry.element.querySelector('.conversation-model'), null, 'no switch, no control');
+  assert.match(plain.entry.element.querySelector('.conversation-status').textContent, /Model A \(200k\)/);
+
+  const h = setup({ attachAnswer: attachWith(true) });
+  const asked = [];
+  h.w.api.agent.models = () => Promise.resolve({ ok: true, models: rows });
+  h.w.api.agent.setModel = (id, value) => { asked.push([id, value]); return Promise.resolve({ ok: true, context: { percent: 2, tokens: 2, window: 1000000, model: 'Model B' }, mode: { id: 'default', label: 'manual mode', symbol: '', tone: '' } }); };
+  await h.entry.conversation.attach();
+  const btn = () => h.entry.element.querySelector('.conversation-model');
+  const pop = () => h.entry.element.querySelector('.conversation-model-pop');
+  assert.ok(btn(), 'the model is a control');
+  btn().click();
+  await h.settle(); await h.settle();
+  assert.equal(pop().hidden, false);
+  assert.match(pop().textContent, /drops the prompt cache/);
+  assert.deepEqual([...pop().querySelectorAll('.conversation-model-row')].map(r => r.textContent), ['Model Afirst', 'Model Bsecond']);
+  assert.equal(pop().querySelector('.conversation-model-row.sel').dataset.index, '0', 'starts on the model in force');
+  const press = (key) => pop().dispatchEvent(new h.w.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  press('ArrowDown');
+  assert.equal(pop().querySelector('.conversation-model-row.sel').dataset.index, '1');
+  press('Enter');
+  await h.settle(); await h.settle();
+  assert.deepEqual(asked, [['s1', 'b']]);
+  assert.equal(pop().hidden, true, 'the picker closes');
+  assert.match(h.entry.element.querySelector('.conversation-status').textContent, /Model B \(1M\)/);
+  assert.match(h.entry.element.querySelector('.conversation-status').textContent, /manual mode/, 'the mode is the runtime\'s answer');
+  assert.equal(h.w.document.activeElement, btn(), 'the caret is on the rebuilt control');
+  assert.match(btn().getAttribute('aria-label'), /Model B \(1M\)/, 'the accessible name carries the model');
+  // Escape closes it without a switch.
+  btn().click();
+  await h.settle(); await h.settle();
+  press('Escape');
+  assert.equal(pop().hidden, true);
+  assert.equal(asked.length, 1);
+});
+
 // #836 — a running shell line is visible and stoppable on its own: the entry's head, the strip above the
 // composer, the session line and the Background list. The real entry head is jsonl-viewer's; here a stand-in
 // draws a header and a collapsible block so the view's additions to it can be read.

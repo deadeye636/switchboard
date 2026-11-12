@@ -1392,3 +1392,24 @@ test('an agent task reports its subagent\'s exact start and end, once each', () 
   d.decode({ type: 'system', subtype: 'task_started', task_id: 'fg1', task_type: 'local_agent', is_backgrounded: false });
   assert.deepEqual(edges(d.decode({ type: 'result', subtype: 'success', is_error: false, result: '' })), [['fg1', false]]);
 });
+
+// #865, measured on 2.1.322: the model list is the `initialize` answer, the switch is `set_model`.
+test('the model picker: the list is the CLI\'s own, the switch is set_model, the running model is marked', () => {
+  assert.deepEqual(protocol.modelsCommand('m1'), { type: 'control_request', request_id: 'm1', request: { subtype: 'initialize' } });
+  assert.deepEqual(protocol.setModelCommand('m2', 'sonnet'), { type: 'control_request', request_id: 'm2', request: { subtype: 'set_model', model: 'sonnet' } });
+  const response = { success: true, data: { models: [
+    { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default (recommended)', description: 'Opus 5.5 · Best for everyday tasks' },
+    { value: 'sonnet', resolvedModel: 'claude-sonnet-5-5', displayName: 'Sonnet 5.5', description: 'Most efficient' },
+    { value: 'claude-haiku-4-5-20251001', resolvedModel: 'claude-haiku-4-5-20251001' },
+    { nothing: true },
+  ] } };
+  const rows = protocol.modelsFromResponse(response, { context: { modelId: 'claude-sonnet-5-5[1m]' } });
+  assert.deepEqual(rows.map(r => [r.value, r.label, r.current]), [
+    ['default', 'Default (recommended)', false], ['sonnet', 'Sonnet 5.5', true], ['claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001', false]]);
+  const both = protocol.modelsFromResponse(response, { context: { modelId: 'claude-opus-5-5' } });
+  assert.equal(both[0].current, true);
+  const chosen = protocol.modelsFromResponse(response, { context: { modelId: 'claude-opus-5-5' }, chosen: 'sonnet' });
+  assert.deepEqual(chosen.map(r => r.current), [false, true, false], 'the value chosen in this session decides');
+  assert.deepEqual(protocol.modelsFromResponse({ success: false, error: 'x' }), []);
+  assert.deepEqual(protocol.modelsFromResponse(null), []);
+});

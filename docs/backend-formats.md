@@ -1073,6 +1073,36 @@ and nothing maps one to the other.
 
 ---
 
+## Switching the model of a running session (#865)
+
+Both piped backends can change the model of a session that is running; the status line offers it, from the list the
+runtime itself reports. Measured over the pipe, Claude Code 2.1.322 (Haiku and Sonnet sessions, an isolated working
+directory) and Pi 1.5.2 (no model call made).
+
+- **Claude: the list** is the answer to `{ subtype: 'initialize' }` (also valid when sent again), `response.models`:
+  `{ value, resolvedModel, displayName, description, supportsEffort, supportedEffortLevels, supportsAdaptiveThinking,
+  supportsFastMode, supportsAutoMode, supportsThinkingOff }`. It held the aliases (`default`, `opus`, `fable`, `sonnet`,
+  `haiku`, each with a `resolvedModel`) followed by explicit ids (`claude-haiku-4-5-20251001`, `claude-opus-4-8`, …). `default` and `opus`
+  resolved to the same id. The same answer carries `current_permission_mode` and `session_state`.
+- **Claude: the switch** is `{ subtype: 'set_model', model }`, `model` being a `value` of that list. Success answers
+  `{ model: <resolved id> }` at once, before any turn. An unknown model answers `subtype: 'error'` with
+  `{ error: "Model 'x' not found", error_code: 'not_found', model: <the model still in force> }` and changes nothing.
+  It is the session's only: no setting is written, and the transcript carries nothing until the next turn, whose
+  `message.model` is the new model (so the row's model, and with it the Flow tab's window hint, follows from that turn).
+- **Claude: what follows.** `get_context_usage` right after the switch answers the new model and window (Sonnet 5.5
+  `maxTokens` 1 000 000, Haiku 4.5 200 000; the fill is re-counted for the model). A session in `auto` switched to a model
+  without `supportsAutoMode` (Haiku 4.5) emitted `system/status` with `permissionMode: 'default'` before the success
+  answer, which the decoder already turns into the mode chip. The next `system/init` named the new model and mode.
+  Each model has its own prompt cache, so the next request is read uncached.
+- **Pi: the list** is `{ type: 'get_available_models' }`, `data.models`: Pi's full model objects (`id`, `name`, `provider`,
+  `contextWindow`, `reasoning`, `cost`, …), the models with a configured provider. **The switch** is
+  `{ type: 'set_model', provider, modelId }`; it answers the chosen model object, applies to the running session only
+  (Pi's settings file was untouched), and an unknown one answers `success: false, error: 'Model not found: <provider>/<id>'`.
+  `get_session_stats` then names the new `contextUsage.contextWindow`, `get_state` the new model.
+- The app's row value for Pi is `<provider>/<id>` (Pi's `--model` spelling); only the first `/` splits.
+
+---
+
 ## How full the context window is (#620)
 
 What each store says about the LAST turn's input and the window it ran against. Measured on real installs

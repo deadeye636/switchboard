@@ -406,6 +406,9 @@ contextBridge.exposeInMainWorld('api', {
     stopTask: (id, taskId) => ipcRenderer.invoke('agent-stop-task', id, taskId),
     taskOutput: (id, taskId) => ipcRenderer.invoke('agent-task-output', id, taskId),
     cycleMode: (id) => ipcRenderer.invoke('agent-cycle-mode', id),
+    // The model of the running session (#865): what it offers, and the switch to one of those.
+    models: (id) => ipcRenderer.invoke('agent-models', id),
+    setModel: (id, value) => ipcRenderer.invoke('agent-set-model', id, value),
     // The session's MCP servers (#728): the list again, and one action on one server, named in the backend's words.
     servers: (id) => ipcRenderer.invoke('agent-servers', id),
     serverAction: (id, name, action, extra) => ipcRenderer.invoke('agent-server-action', id, name, action, extra),

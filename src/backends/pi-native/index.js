@@ -154,6 +154,12 @@ module.exports = {
     contextFromResponse: protocol.contextFromResponse,
     // The model is not in that answer; `get_state`, asked anyway for the session id, names it (#692).
     modelFromState: protocol.modelFromState,
+    // The model of the running session, picked from the line under the input (#865): Pi's configured models, the switch,
+    // and the name the switch answers with.
+    modelsCommand: protocol.modelsCommand,
+    modelsFromResponse: protocol.modelsFromResponse,
+    setModelCommand: protocol.setModelCommand,
+    modelFromSwitch: protocol.modelFromSwitch,
     // `/export` and `/copy` (#643), the same shape: the command says it was typed, the answer is asked
     // for here. Each is a PAIR the core feature-checks together — a backend that cannot write a file of
     // its session, or cannot hand back its last reply, declares neither half and the core does nothing.

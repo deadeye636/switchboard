@@ -61,6 +61,18 @@ test('a prompt during a running compaction is held, then sent, and the compactio
   assert.equal(during.quiet, undefined, 'the flag did not outlive the compaction, so the user\'s turn is not quiet');
 });
 
+// #865: a model switch is the user's, and it is refused while the app's own maintenance action runs.
+test('a model switch is refused while a maintenance action runs', async (t) => {
+  const h = await started(t);
+  await agentRpc.sendTurn(sid(h), { text: 'first' });
+  await until(() => isIdle(h));
+  const compaction = agentRpc.maintain(sid(h), { action: 'compact' });
+  const res = await agentRpc.setModel(sid(h), 'anthropic/claude-fable-5');
+  assert.equal(res.ok, false);
+  assert.match(res.error, /housekeeping/);
+  await compaction;
+});
+
 test('a refused compaction ends the action, says so to its caller, and draws no error', async (t) => {
   const h = await started(t);
   const res = await agentRpc.maintain(sid(h), { action: 'compact' });

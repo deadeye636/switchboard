@@ -277,6 +277,10 @@ function createConversationView(getSession, container) {
     context: null,           // { percent, tokens, window, model, baseline?, breakdown? } as the backend last read them (#691, #758)
     mode: null,              // the permission mode, { id, label, symbol, tone } in the backend's words (#696)
     canSwitchMode: false,    // whether the backend can switch it — Pi has no such modes (#696)
+    canSwitchModel: false,   // whether the backend can switch the running session's model; the status line then offers a picker (#865)
+    modelOpen: false,
+    models: null,            // the picker's rows while it is open: [{ value, label, description, current }], null while they load
+    modelSel: 0,
   };
 
   // Whether the user is reading the end (#689). REMEMBERED from the user's own scrolling, not measured when an
@@ -1612,6 +1616,128 @@ function createConversationView(getSession, container) {
     return b;
   }
 
+  // The model picker (#865): the status line's model opens it where the backend can switch a running session's model.
+  // It offers exactly what the session's own runtime lists, and a pick switches the session; the fill, the window and
+  // the permission mode are the runtime's answers to the switch, drawn as they arrive. It stands on the container
+  // like the idle popover, and `view.modelOpen` outlives the redraws of the line that holds its button.
+  const modelPop = document.createElement('div');
+  modelPop.className = 'conversation-bg-pop conversation-model-pop';
+  modelPop.hidden = true;
+  modelPop.tabIndex = -1;
+  modelPop.setAttribute('role', 'dialog');
+  modelPop.setAttribute('aria-label', 'Model');
+  container.appendChild(modelPop);
+
+  let modelSwitching = false;
+  function renderModelPop() {
+    modelPop.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'conversation-bg-head';
+    head.textContent = 'Model';
+    modelPop.appendChild(head);
+    const rows = view.models;
+    if (!rows) {
+      const wait = document.createElement('div');
+      wait.className = 'conversation-model-wait';
+      wait.textContent = 'Asking the session…';
+      modelPop.appendChild(wait);
+    } else {
+      const list = document.createElement('div');
+      list.setAttribute('role', 'listbox');
+      list.setAttribute('aria-label', 'Models this session offers');
+      rows.forEach((m, i) => {
+        const row = document.createElement('div');
+        row.className = 'conversation-bg-row conversation-model-row';
+        row.classList.toggle('sel', i === view.modelSel);
+        row.dataset.index = String(i);
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', i === view.modelSel ? 'true' : 'false');
+        const dot = document.createElement('span');
+        dot.className = 'conversation-bg-dot';
+        dot.style.visibility = m.current ? 'visible' : 'hidden';
+        const text = document.createElement('div');
+        text.className = 'conversation-bg-text';
+        const name = document.createElement('div');
+        name.textContent = m.label;
+        const sub = document.createElement('div');
+        sub.className = 'conversation-bg-detail';
+        sub.textContent = m.description || '';
+        text.appendChild(name);
+        text.appendChild(sub);
+        row.appendChild(dot);
+        row.appendChild(text);
+        row.addEventListener('click', () => { view.modelSel = i; pickModel(m); });
+        list.appendChild(row);
+      });
+      modelPop.appendChild(list);
+    }
+    const foot = document.createElement('div');
+    foot.className = 'conversation-bg-foot';
+    foot.textContent = 'Switching models drops the prompt cache: the next reply reads the whole conversation uncached. ↑/↓ select · Enter switch · Esc close';
+    modelPop.appendChild(foot);
+    const sel = modelPop.querySelector('.conversation-model-row.sel');
+    if (sel && typeof sel.scrollIntoView === 'function') sel.scrollIntoView({ block: 'nearest' });
+  }
+  async function openModelPop() {
+    if (!view.canSwitchModel || view.exited || view.modelOpen) return;
+    view.modelOpen = true;
+    view.models = null;
+    view.modelSel = 0;
+    modelPop.hidden = false;
+    renderModelPop();
+    modelPop.focus();
+    renderStatus(); // the button's aria-expanded
+    let res;
+    try { res = await window.api.agent.models(view.session.sessionId); } catch { res = null; }
+    if (!view.modelOpen) return;
+    if (!res || !res.ok) { closeModelPop(); notice('warning', (res && res.error) || 'The session did not list its models.'); return; }
+    view.models = res.models;
+    // Start on the model in force, so Enter alone changes nothing surprising.
+    const at = res.models.findIndex(m => m.current);
+    view.modelSel = at >= 0 ? at : 0;
+    renderModelPop();
+  }
+  function closeModelPop(refocus = true) {
+    if (!view.modelOpen) return;
+    view.modelOpen = false;
+    view.models = null;
+    modelPop.hidden = true;
+    renderStatus();
+    if (refocus) {
+      const btn = statusText.querySelector('.conversation-model');
+      if (btn) btn.focus(); else focusView();
+    }
+  }
+  async function pickModel(m) {
+    if (modelSwitching || !m) return;
+    if (m.current) { closeModelPop(); return; }
+    modelSwitching = true;
+    let res;
+    try { res = await window.api.agent.setModel(view.session.sessionId, m.value); } catch { res = null; } finally { modelSwitching = false; }
+    closeModelPop();
+    if (!res || !res.ok) { notice('warning', (res && res.error) || 'The model did not change.'); return; }
+    if (res.context) view.context = res.context;
+    if (res.mode) view.mode = res.mode;
+    renderStatus();
+    // The line was rebuilt with the new model, which took the focused button away: the caret goes to the new one.
+    const again = statusText.querySelector('.conversation-model');
+    if (again) again.focus(); else focusView();
+    if (typeof sessionSidebarContextChanged === 'function') sessionSidebarContextChanged(view.session.sessionId);
+  }
+  modelPop.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModelPop(); return; }
+    const rows = view.models;
+    if (!rows || !rows.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); view.modelSel = Math.min(rows.length - 1, view.modelSel + 1); renderModelPop(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); view.modelSel = Math.max(0, view.modelSel - 1); renderModelPop(); }
+    else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); pickModel(rows[view.modelSel]); }
+  });
+  // A click anywhere else closes it, as a menu does.
+  container.addEventListener('mousedown', (e) => {
+    if (!view.modelOpen || modelPop.contains(e.target) || (e.target.closest && e.target.closest('.conversation-model'))) return;
+    closeModelPop(false);
+  });
+
   function renderStatus() {
     renderComposer();
     statusText.replaceChildren();
@@ -1684,8 +1810,22 @@ function createConversationView(getSession, container) {
       add(ctxEl);
     }
     if (c && (c.model || Number.isFinite(c.window))) {
-      add(span([c.model, Number.isFinite(c.window) ? `(${formatWindow(c.window)})` : ''].filter(Boolean).join(' ')));
+      const text = [c.model, Number.isFinite(c.window) ? `(${formatWindow(c.window)})` : ''].filter(Boolean).join(' ');
+      if (view.canSwitchModel && !view.exited) {
+        // A backend that can switch the model offers it here; one that cannot keeps the plain text.
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'conversation-mode conversation-model';
+        b.textContent = text;
+        b.setAttribute('aria-haspopup', 'dialog');
+        b.setAttribute('aria-expanded', view.modelOpen ? 'true' : 'false');
+        b.title = 'Model of this session — click to switch it. A switch drops the prompt cache.';
+        b.ariaLabel = `Model: ${text}. Click to switch it; a switch drops the prompt cache.`;
+        b.addEventListener('click', () => { if (view.modelOpen) closeModelPop(); else openModelPop(); });
+        add(b);
+      } else add(span(text));
     }
+    if (view.modelOpen && (view.exited || !view.canSwitchModel)) { view.modelOpen = false; view.models = null; modelPop.hidden = true; }
     const state = view.exited ? 'Session ended.'
       // A session held by a question is waiting on the reader, not working — the same line the inbox draws.
       : view.asks.size ? 'Waiting for your answer'
@@ -2936,6 +3076,7 @@ function createConversationView(getSession, container) {
     view.context = res.context || null;
     view.mode = res.mode || null;
     view.canSwitchMode = !!res.canSwitchMode;
+    view.canSwitchModel = !!res.canSwitchModel;
     setSuggestion(res.suggestion || null);
     for (const request of res.asks || []) renderAsk(request);
     renderStatus();

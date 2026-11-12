@@ -309,6 +309,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     context: null,           // the context fill and the model, as the backend last read them (#691)
     startNotices: [],        // what the spawn path said through `notice`, handed to an attach until a turn runs (#754)
     stateModel: null,        // the model the runtime's state names, where the fill's answer names none (#692)
+    modelValue: null,        // the model the view chose in this session (#865), by the value its backend listed it under...
+    modelValueKey: '',       // ...and the model the fill named right after, which says whether the choice still stands
+    modelListing: null,      // the last listing, a few seconds (#865)
     mode: null,              // the permission mode the runtime last named, in the backend's words (#696)
     contextTimer: null,      // an ask of the fill scheduled during a turn (#697)
     contextSettleTimer: null, // the next look at the servers, for the fill they add (#758)
@@ -500,8 +503,12 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     if (!context || asked < state.contextApplied) return context;
     if (!context.model && state.stateModel) context = { ...context, model: state.stateModel };
     state.contextApplied = asked;
+    // The health badge reads the window this fill reports (`liveWindowOf`, #865): the sidebar is redrawn when the model or
+    // the window CHANGED (the first fill, a \`/model\` typed in the composer, a pick), never per fill.
+    const moved = !state.context || state.context.window !== context.window || fillKey(state.context) !== fillKey(context);
     state.context = context;
     sendOp(state, { op: 'context', context });
+    if (moved) notifyWindowMoved();
     return context;
   }
   state.followContext = followContext;
@@ -1597,6 +1604,7 @@ async function attach(sessionId) {
     suggestion: state.suggestion,
     mode: state.mode,
     canSwitchMode: canSwitchMode(state),
+    canSwitchModel: canSwitchModel(state),
     notices: state.startNotices,
   };
 }
@@ -1687,6 +1695,7 @@ async function attachFromTranscript(sessionId, state) {
     suggestion: state.suggestion,
     mode: state.mode,
     canSwitchMode: canSwitchMode(state),
+    canSwitchModel: canSwitchModel(state),
     notices: state.startNotices,
   };
 }
@@ -2083,6 +2092,100 @@ async function cycleMode(sessionId) {
   return { ok: false, error: 'No other permission mode is available in this session.' };
 }
 
+// --- the model (#865) ---
+
+// Whether the running session's model can be switched: the half declares the list, the switch, and a way to read
+// the list. A backend that cannot switch declares none of them, and the view keeps the model as plain text.
+function canSwitchModel(state) {
+  const rpc = state.rpc;
+  return typeof rpc.modelsCommand === 'function' && typeof rpc.modelsFromResponse === 'function'
+    && typeof rpc.setModelCommand === 'function';
+}
+
+// What identifies the model a fill named, so a choice made in this session is remembered only while the runtime still
+// reports the model it led to: a switch made another way (a `/model` typed in the composer) changes the fill's model,
+// and the remembered choice then no longer says what is running.
+const fillKey = (context) => (context ? String(context.modelId || context.model || '') : '');
+const LISTING_TTL_MS = 5000;
+
+// The sidebar's badge is read against the live window; it is redrawn when that window or its model moved.
+function notifyWindowMoved() {
+  if (ctx && typeof ctx.notifyProjectsChanged === 'function') { try { ctx.notifyProjectsChanged(); } catch { /* the window is going */ } }
+}
+
+// The models the running session offers, as its own runtime reports them: `{ value, label, description, current }`.
+// The fill is asked first, so `current` is judged against the model the runtime runs on NOW. `reuse` answers from a
+// listing a few seconds old (a pick follows its own open).
+async function listModels(sessionId, { reuse = false } = {}) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (!canSwitchModel(state)) return { ok: false, error: 'This session cannot switch its model.' };
+  if (reuse && state.modelListing && Date.now() - state.modelListing.at < LISTING_TTL_MS) return { ok: true, models: state.modelListing.models };
+  if (typeof state.followContext === 'function') await state.followContext();
+  if (state.modelValue != null && state.modelValueKey !== fillKey(state.context)) state.modelValue = null;
+  const res = await state.request(state.rpc.modelsCommand);
+  if (!res || res.success === false) return { ok: false, error: 'The session did not list its models.' };
+  let models = [];
+  try { models = state.rpc.modelsFromResponse(res, { context: state.context, chosen: state.modelValue }); } catch { models = []; }
+  if (!models.length) return { ok: false, error: 'The session lists no models.' };
+  state.modelListing = { at: Date.now(), models };
+  return { ok: true, models };
+}
+
+// A reason the core itself words for a request that got no real answer is not a sentence for the user.
+const NO_ANSWER = new Set(['no answer', 'not started']);
+
+// Switch the running session to one of the models it listed. Only a value the runtime has just listed is sent, so
+// the view cannot name a model of its own making. The switch is the session's: nothing is written to a setting.
+// What depends on the model is asked of the runtime again — the fill and the window, at once, and the mode comes
+// with the runtime's own status line when the new model refuses the old one. Refused while an idle maintenance turn
+// runs (it would change the model under a turn the user did not send); during the user's own turn it is allowed and
+// applies to the next request.
+async function setModel(sessionId, value) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (!canSwitchModel(state)) return { ok: false, error: 'This session cannot switch its model.' };
+  if (state.maintenance) return { ok: false, error: 'The session is busy with its own housekeeping; try again in a moment.' };
+  const chosen = String(value == null ? '' : value);
+  const listed = await listModels(sessionId, { reuse: true });
+  if (!listed.ok) return listed;
+  if (!listed.models.some(m => m.value === chosen)) return { ok: false, error: 'That model is not offered by this session.' };
+  const res = await state.request((rid) => state.rpc.setModelCommand(rid, chosen));
+  if (!res || res.success === false) {
+    ctx.log.info(`[agent-rpc] model ${chosen} refused: ${(res && res.error) || 'no answer'}`);
+    const error = res && typeof res.error === 'string' && res.error && !NO_ANSWER.has(res.error) ? res.error : 'The model did not change.';
+    return { ok: false, error };
+  }
+  state.modelListing = null;
+  // A runtime whose fill answer names no model learns the new one from the switch's own answer.
+  if (typeof state.rpc.modelFromSwitch === 'function') {
+    let name = null;
+    try { name = state.rpc.modelFromSwitch(res); } catch { name = null; }
+    if (name) state.stateModel = name;
+  }
+  let context = typeof state.followContext === 'function' ? await state.followContext() : null;
+  if (!context && state.stateModel) {
+    // The runtime had no fill to give (Pi right after a compaction): the figures of the old model are dropped
+    // rather than kept beside the new name.
+    context = { model: state.stateModel };
+    state.context = context;
+    sendOp(state, { op: 'context', context });
+    notifyWindowMoved();   // the live window is gone with the figures
+  }
+  state.modelValue = chosen;
+  state.modelValueKey = fillKey(state.context);
+  return { ok: true, context: context || state.context || null, mode: state.mode || null };
+}
+
+// The window the runtime of a RUNNING session reported for the model it is on now, `{ windowTokens, model }`, or null
+// (not running, or no fill yet). The health badge and the Flow tab's window hint read it before the stored row, which
+// knows only how the session started (#865).
+function liveWindowOf(sessionId) {
+  const state = stateFor(sessionId);
+  const c = state && state.context;
+  return c && Number.isFinite(c.window) && c.window > 0 ? { windowTokens: c.window, model: c.modelId || null } : null;
+}
+
 // --- background tasks (#691) ---
 
 // Stop one background task and leave the turn and the other tasks alone. A backend that cannot stop a single
@@ -2217,6 +2320,8 @@ function registerIpc(ipc) {
   ipc.handle('agent-server-action', (_event, sessionId, name, action, extra) => serverAction(sessionId, name, action, extra));
   ipc.handle('agent-stop-task', (_event, sessionId, taskId) => stopTask(sessionId, taskId));
   ipc.handle('agent-cycle-mode', (_event, sessionId) => cycleMode(sessionId));
+  ipc.handle('agent-models', (_event, sessionId) => listModels(sessionId));
+  ipc.handle('agent-set-model', (_event, sessionId, value) => setModel(sessionId, value));
   ipc.handle('agent-task-output', (_event, sessionId, taskId) => taskOutput(sessionId, taskId));
   ipc.handle('agent-attach', (_event, sessionId) => attach(sessionId));
   ipc.handle('agent-send', (_event, sessionId, payload) => sendTurn(sessionId, payload));
@@ -2250,7 +2355,7 @@ module.exports = {
   },
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, noteDraft, abortTurn, stopShellLine, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
-  stopTask, taskOutput, cycleMode, heldAction, listServers, serverAction,
+  stopTask, taskOutput, cycleMode, listModels, setModel, liveWindowOf, heldAction, listServers, serverAction,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
   // What of a maintenance turn is folded, live and read back (spec 45), pure.
   maintenanceEntry, stampWithRecords,

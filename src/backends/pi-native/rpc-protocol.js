@@ -785,6 +785,42 @@ function modelFromState(response) {
   return name || (typeof model.id === 'string' && model.id ? model.id : null);
 }
 
+// The model of the running session (#865), measured on Pi 1.5.2: `get_available_models` answers
+// `{ models: [<model object>] }` (the models Pi has a configured provider for), `set_model { provider, modelId }`
+// answers the chosen model object and applies to the running session only (Pi's settings file stays as it was), and
+// an unknown one answers `success: false, error: 'Model not found: <provider>/<id>'`. The next `get_session_stats`
+// names the new model's `contextWindow`, and `get_state` the new model object.
+// A row's `value` is `<provider>/<id>`, Pi's own `--model` spelling; the provider never contains a `/`, a model id may.
+// The window as the session line writes it (`1M`, `272k`), so the picker and the line read alike.
+const windowWords = (n) => (n >= 1000000 ? `${Math.round(n / 100000) / 10}M`.replace('.0M', 'M') : `${Math.round(n / 1000)}k`);
+const modelsCommand = (id) => ({ id, type: 'get_available_models' });
+const setModelCommand = (id, value) => {
+  const v = String(value || '');
+  const at = v.indexOf('/');
+  return { id, type: 'set_model', provider: at > 0 ? v.slice(0, at) : '', modelId: at > 0 ? v.slice(at + 1) : v };
+};
+function modelsFromResponse(response, { context, chosen } = {}) {
+  const list = response && response.success !== false && response.data && response.data.models;
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const m of list) {
+    if (!m || typeof m.id !== 'string' || !m.id || typeof m.provider !== 'string' || !m.provider) continue;
+    const value = `${m.provider}/${m.id}`;
+    const label = typeof m.name === 'string' && m.name.trim() ? m.name.trim() : m.id;
+    const window = Number.isFinite(m.contextWindow) && m.contextWindow > 0 ? `${windowWords(m.contextWindow)} context` : '';
+    out.push({
+      value,
+      label,
+      description: [m.provider, window].filter(Boolean).join(' · '),
+      // Pi names the running model by its display name only, so before any switch the name is what is compared.
+      current: chosen != null ? value === chosen : !!context && !!context.model && label === context.model,
+    });
+  }
+  return out;
+}
+// The switch's own answer is the chosen model's object; its name is what the line draws until the fill is asked again.
+const modelFromSwitch = (response) => modelFromState({ data: { model: response && response.success !== false ? response.data : null } });
+
 function entriesFromMessages(response, { cwd } = {}) {
   const messages = response && response.data && response.data.messages;
   if (!Array.isArray(messages)) return [];
@@ -820,6 +856,10 @@ module.exports = {
   argumentsCommand,
   stateCommand,
   messagesCommand,
+  modelsCommand,
+  setModelCommand,
+  modelsFromResponse,
+  modelFromSwitch,
   statsCommand,
   statsNotice,
   contextFromResponse,

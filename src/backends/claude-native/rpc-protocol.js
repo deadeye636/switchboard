@@ -1073,6 +1073,42 @@ function modeInfo(mode) {
 }
 const setModeCommand = (id, mode) => control(id, { subtype: 'set_permission_mode', mode: String(mode) });
 
+// The model of the running session (#865), measured on 2.1.322 against Haiku, Sonnet and a non-auto Haiku 4.5:
+//   - The list is the answer to `initialize` (the CLI's own `models`: `value`, `resolvedModel`, `displayName`,
+//     `description`, and flags such as `supportsAutoMode`). It is asked again like `commandsCommand` is; nothing
+//     here names a model.
+//   - `{ subtype: 'set_model', model }` takes a `value` of that list (or `default`, the CLI's own default) and
+//     answers success with `{ model }`, the id it resolved to, at once and before any turn. It changes the
+//     running session only: nothing is written to the settings, and the transcript carries no trace until the
+//     next turn runs on the new model. An unknown model answers `{ subtype: 'error', error, error_code:
+//     'not_found', model }` (the model still in force) and changes nothing.
+//   - Everything that depends on the model follows from the CLI: `get_context_usage` answers the NEW model and its
+//     window straight away (Sonnet 5.5 1 000 000, Haiku 4.5 200 000), and a mode the model does not take falls back
+//     (`auto` to `default`) with a `system/status` line carrying `permissionMode`, which the decoder already reads.
+// A switch costs the prompt cache: each model has its own, so the next request is read uncached.
+const modelsCommand = (id) => control(id, { subtype: 'initialize' });
+const setModelCommand = (id, model) => control(id, { subtype: 'set_model', model: String(model) });
+// The picker's rows, `{ value, label, description, current }`. `current` is the model the session runs on: the
+// value just chosen in this session if there is one, else every entry that resolves to the model of the last
+// `get_context_usage` (`default` and `opus` both resolve to the same id, and both are the truth).
+function modelsFromResponse(response, { context, chosen } = {}) {
+  const list = response && response.success !== false && response.data && response.data.models;
+  if (!Array.isArray(list)) return [];
+  const running = String((context && context.modelId) || '').replace(/\[[^\]]*\]$/, '');
+  const out = [];
+  for (const m of list) {
+    if (!m || typeof m.value !== 'string' || !m.value) continue;
+    const resolved = typeof m.resolvedModel === 'string' ? m.resolvedModel : '';
+    out.push({
+      value: m.value,
+      label: typeof m.displayName === 'string' && m.displayName ? m.displayName : m.value,
+      description: oneLineDescription(m.description),
+      current: chosen != null ? m.value === chosen : !!running && resolved === running,
+    });
+  }
+  return out;
+}
+
 // The mode a session starts in, before its first `system/init` names it (#730), measured on 2.1.286: no request
 // names the running mode. `get_settings` answers `effective.permissions.defaultMode`, the mode the settings
 // files name, which is blind to `--permission-mode` (asked only when none was sent) and to a mode the model
@@ -1592,6 +1628,9 @@ module.exports = {
   contextFromResponse,
   setModeCommand,
   modeInfo,
+  modelsCommand,
+  setModelCommand,
+  modelsFromResponse,
   MODE_CYCLE,
   configuredModeCommand,
   configuredModeFromResponse,
