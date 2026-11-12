@@ -136,13 +136,13 @@ bare spec.
 | Model | Bare spec | `[1m]` |
 |---|---|---|
 | `claude-opus-5` (`opus[1m]` measured), `claude-sonnet-5` (`sonnet[1m]` measured) | 1 000 000 | 1 000 000 |
-| `claude-fable-5`, `claude-fable-5-1`, `claude-opus-4-8`, `claude-opus-4-7` | 1 000 000 | — |
+| `claude-fable-5`, `claude-fable-5-1`, `claude-fable-5-2`, `claude-opus-4-8`, `claude-opus-4-7` | 1 000 000 | — |
 | `claude-opus-4-6`, `claude-sonnet-4-5` | 200 000 | 1 000 000 |
 | `claude-sonnet-4-6` | 200 000 | refused on the measuring account (429 "Usage credits required for 1M context"); the CLI names it 1M |
 | `claude-opus-4-5`, `claude-haiku-4-5` | 200 000 | — |
 
 The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-5`, `haiku` → `claude-haiku-4-5`,
-`fable` → `claude-fable-5-1`. `default` names no model and counts as no spec.
+`fable` → `claude-fable-5-2`. `default` names no model and counts as no spec.
 
 `src/backends/claude/model-windows.js` holds the table and `resolveClaudeWindow`:
 

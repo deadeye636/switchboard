@@ -30,6 +30,7 @@ const WINDOWS = {
   'claude-sonnet-5': { base: ONE_M, oneM: ONE_M },   // `sonnet[1m]` measured as claude-sonnet-5[1m] at 1M
   'claude-fable-5': { base: ONE_M, oneM: null },
   'claude-fable-5-1': { base: ONE_M, oneM: null },
+  'claude-fable-5-2': { base: ONE_M, oneM: null },
   'claude-opus-4-8': { base: ONE_M, oneM: null },
   'claude-opus-4-7': { base: ONE_M, oneM: null },
   'claude-opus-4-6': { base: BASE_200K, oneM: ONE_M },
@@ -48,7 +49,7 @@ const ALIASES = {
   opus: 'claude-opus-5',
   sonnet: 'claude-sonnet-5',
   haiku: 'claude-haiku-4-5',
-  fable: 'claude-fable-5-1',
+  fable: 'claude-fable-5-2',
 };
 
 // Specs that name no model at all: the CLI's own default. They say nothing about a window.

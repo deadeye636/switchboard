@@ -20,7 +20,9 @@ test('a spec is taken apart: case, a date or @version suffix, the [1m] suffix an
   assert.deepEqual(windows.parseSpec('claude-opus-4-6@20251101'), { model: 'claude-opus-4-6', oneM: false, family: null });
   assert.deepEqual(windows.parseSpec(' Claude-Sonnet-4-5[1m] '), { model: 'claude-sonnet-4-5', oneM: true, family: null });
   assert.deepEqual(windows.parseSpec('opus[1m]'), { model: 'claude-opus-5', oneM: true, family: 'opus' });
-  assert.deepEqual(windows.parseSpec('fable'), { model: 'claude-fable-5-1', oneM: false, family: 'fable' });
+  assert.deepEqual(windows.parseSpec('fable'), { model: 'claude-fable-5-2', oneM: false, family: 'fable' });
+  assert.deepEqual(windows.parseSpec('claude-fable-5-2'), { model: 'claude-fable-5-2', oneM: false, family: null });
+  assert.deepEqual(windows.parseSpec('claude-fable-5-1'), { model: 'claude-fable-5-1', oneM: false, family: null });
   assert.equal(windows.parseSpec('default'), null, 'the CLI default names no model');
   assert.equal(windows.parseSpec(''), null);
   assert.equal(windows.parseSpec(null), null);
