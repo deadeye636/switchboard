@@ -281,8 +281,11 @@ window stayed hidden to the renderer); and on Pi a prompt right after `/session`
   prompt and every entry the backend reads as assistant text (`assistantTextOf`) are stamped and folded ("Maintenance: the
   reply"); a compaction's summary and a tool-only line are not. Read back, the assistant text right after a recognised
   maintenance prompt is stamped, and the first entry that is not ends the stretch, so a shell, task or interrupt turn that
-  follows stays visible. Left open: an assistant entry that holds both text and a question to the user is folded with the
-  warm turn, although the question then takes the turn over (#855).
+  follows stays visible. A question takes the turn over (#855, closed
+  2026-11-12): Claude writes the text and the `AskUserQuestion` or `ExitPlanMode` call as two lines, so the text is folded
+  first. When the question (an ask the backend flags `asksUser`, a malformed one included; a permission ask does not count) arrives, main sends an `unfold` op and the view draws the turn's reply text plainly again
+  (the maintenance prompt stays folded); read back, a maintenance turn whose reply stretch is followed directly by such a line stamps only its prompt (a question in a later turn does not unfold it), and a tool call between the reply and the question leaves read-back folded where the live un-fold drew it (a warm turn uses no tools in practice), an attach stamps the merged list, so the live un-fold holds there too. The
+  backend names the line through its optional `rpc.asksUserOf(entry)`; the core knows no tool name.
 - `maintenance_turn` has no retention and does not move on a re-key, so a fork's copied lines stay unmarked.
 - What Pi's one-off jump in the prompt is, and whether it causes the early misses. How Pi behaves in a real conversation: the
   measurement used small prompts with identical text, at Pi's default thinking setting.

@@ -602,6 +602,7 @@ answers instead of the core learning its format:
   Beside it, the decoder may put an `outcome` on a `busy: false` op — `'stopped'` for a turn a Stop ended, `'failed'`
   for one that ended in an error, absent otherwise — and the core hands it to the observer's `onBusy(false, outcome)`.
   A plan the user (or the review runner) declined interrupts the turn too and is neither.
+- `asksUserOf(entry)` — optional (spec 45). Whether an entry is a question to the user or a plan approval (Claude: a line holding an `AskUserQuestion` or `ExitPlanMode` call, which follows the text line). A maintenance turn holding one is taken over: the core draws its reply text, live (an `unfold` op) and on read-back. The turn's prompt stays folded.
 - The decoder may declare `noteSent(line)`: the core hands it every line it wrote, in the backend's own
   format, for an answer that means something only against what was asked. Claude ends a turn it was told to
   stop with the same `error_during_execution` result a failed turn gets (measured), so claude-native's

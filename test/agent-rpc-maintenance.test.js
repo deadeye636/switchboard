@@ -184,6 +184,76 @@ test('a warm turn that asks the user something raises attention and stops being 
   assert.equal(h.signals.find((s) => s.kind === 'waiting').quiet, undefined);
 });
 
+// A runtime that streams, with the fake agent asking after its reply: a question (kind `questions`) or a permission (`approval`).
+function askingRpc() {
+  const text = (e) => (e && e.message && Array.isArray(e.message.content) ? e.message.content.map((b) => b.text).join('') : '');
+  return {
+    createDecoder: () => ({
+      decode: (m) => {
+        if (m.ev === 'append') return [{ op: 'append', entry: m.entry }];
+        if (m.ev === 'ask') return [{ op: 'ask', request: { id: m.id, kind: m.kind, method: 'select', ...(m.kind === 'questions' ? { asksUser: true } : {}) } }];
+        return m.ev === 'result' ? [{ op: 'busy', busy: false }] : [];
+      },
+      currentPartial: () => null,
+    }),
+    responseOf: () => null,
+    sendAcknowledged: false,
+    sendCommand: ({ text: t }) => ({ type: 'user', text: t }),
+    entryKey: (e) => (e && e.uuid) || null,
+    assistantTextOf: (e) => (e && e.type === 'assistant' ? text(e) : null),
+    entriesFromTranscript: async () => [],
+  };
+}
+
+for (const [line, kind, unfolds] of [['reply then ask', 'questions', true], ['reply then approve', 'approval', false]]) {
+  test(`a warm turn's ${kind} ask ${unfolds ? 'un-folds the reply, live and for an attach' : 'leaves the reply folded'} (#855)`, async (t) => {
+    const rpc = askingRpc();
+    rpc.maintenanceCommand = ({ id }) => ({ line: { type: 'user', text: line }, endsBy: 'idle', key: id, text: line });
+    const h = harness({ rpc, fixture: path.join(__dirname, 'fixtures', 'fake-stream-agent.js') });
+    t.after(() => stopped(h));
+    await agentRpc.maintain('launch-id', { action: 'warm' });
+    await until(() => h.signals.some((s) => s.kind === 'waiting'));
+    const ops = h.sent.filter((m) => m.ch === 'agent-event').map((m) => m.op.op);
+    assert.equal(ops.includes('unfold'), unfolds);
+    if (unfolds) assert.ok(ops.indexOf('unfold') < ops.indexOf('ask'), 'before the card');
+    const reply = (await agentRpc.attach('launch-id')).entries.find((e) => e.type === 'assistant');
+    assert.ok(reply, 'the attach holds the reply');
+    assert.equal(reply.maintenance === true, !unfolds, 'and an attach draws it as the view does');
+  });
+}
+
+test('an attach reads the file: a question line there takes the warm reply over, merged with what is live (#855)', async (t) => {
+  const rpc = askingRpc();
+  const warm = { uuid: 'e1', type: 'user', prompt: true, message: { role: 'user', content: [{ type: 'text', text: 'reply then approve' }] } };
+  const said = { uuid: 'e2', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Which one?' }] } };
+  const question = { uuid: 'e3', type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'q', name: 'AskUserQuestion', input: {} }] } };
+  rpc.entriesFromTranscript = async () => [warm, said, question];
+  rpc.asksUserOf = (e) => !!(e && e.message && Array.isArray(e.message.content) && e.message.content.some((b) => b.type === 'tool_use'));
+  rpc.maintenanceCommand = ({ id }) => ({ line: { type: 'user', text: 'reply then approve' }, endsBy: 'idle', key: id, text: 'reply then approve' });
+  const h = harness({ rpc, fixture: path.join(__dirname, 'fixtures', 'fake-stream-agent.js'), maintenanceTurnsOf: () => [{ key: 'e1', text: null }] });
+  t.after(() => stopped(h));
+  await agentRpc.maintain('launch-id', { action: 'warm' });
+  await until(() => h.signals.some((s) => s.kind === 'waiting'));
+  const entries = (await agentRpc.attach('launch-id')).entries;
+  assert.equal(entries.filter((e) => e.uuid === 'e2').length, 1, 'the live reply is the file copy, not drawn twice');
+  assert.deepEqual(entries.map((e) => [e.uuid, e.maintenance === true]), [['e1', true], ['e2', false], ['e3', false]]);
+});
+
+test('claude-native flags a question or plan ask, a malformed one included, and no other (#855)', () => {
+  const ask = (tool, input) => claudeProtocol.createDecoder().decode({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: tool, tool_use_id: 't', input } })[0].request;
+  assert.equal(ask('AskUserQuestion', { questions: [{ question: 'Which?', options: [] }] }).asksUser, true);
+  assert.equal(ask('AskUserQuestion', {}).asksUser, true, 'the approval it falls back to is still a question');
+  assert.equal(ask('ExitPlanMode', { plan: 'p' }).asksUser, true);
+  assert.equal(ask('Bash', { command: 'ls' }).asksUser, undefined);
+});
+
+test('a warm turn without a question sends no unfold op (#855)', async (t) => {
+  const quiet = await started(t);
+  await agentRpc.maintain(sid(quiet), { action: 'warm' });
+  await until(() => isIdle(quiet));
+  assert.ok(!quiet.sent.some((m) => m.ch === 'agent-event' && m.op.op === 'unfold'));
+});
+
 test('a draft in the composer keeps the gate closed until it is gone', async (t) => {
   const h = await started(t);
   assert.equal(agentRpc.maintenanceOpen(sid(h)), true, 'no view has said anything, and nothing can be typed without one');
@@ -384,6 +454,31 @@ test('only a maintenance turn\'s prompt and reply text fold; a summary, a tool-o
   const entries = [prompt('warm words', 'w1'), reply('ok'), summary, reply('after the summary'), prompt('mine', 'u2'), reply('yours')];
   const stamped = agentRpc.stampWithRecords(rpc, entries, [{ key: 'w1', text: null }]);
   assert.deepEqual(stamped.map((e) => e.maintenance === true), [true, true, false, false, false, false]);
+});
+
+test('a question or plan approval takes a maintenance turn over: its reply text is drawn, read back (#855)', () => {
+  const rpc = claudeProtocol;
+  const line = (...content) => ({ type: 'assistant', message: { role: 'assistant', content } });
+  const text = (t) => ({ type: 'text', text: t });
+  const tool = (name) => ({ type: 'tool_use', id: 'q1', name, input: {} });
+  const warm = { type: 'user', uuid: 'w1', prompt: true, message: { role: 'user', content: 'warm' } };
+  const mine = { type: 'user', uuid: 'u2', prompt: true, message: { role: 'user', content: 'mine' } };
+  const records = [{ key: 'w1', text: null }];
+  assert.equal(rpc.asksUserOf(line(tool('AskUserQuestion'))), true);
+  assert.equal(rpc.asksUserOf(line(tool('ExitPlanMode'))), true);
+  assert.equal(rpc.asksUserOf(line(text('ok'), tool('Bash'))), false);
+  for (const name of ['AskUserQuestion', 'ExitPlanMode']) {
+    // Claude writes the text and the call as two lines.
+    const stamped = agentRpc.stampWithRecords(rpc, [warm, line(text('Which one?')), line(tool(name)), mine, line(text('yours'))], records);
+    assert.deepEqual(stamped.map((e) => e.maintenance === true), [true, false, false, false, false], name);
+  }
+  // A question in a LATER turn (a task notice, not a prompt) is that turn's own: the warm reply stays folded.
+  const notice = { type: 'task-notice', message: { role: 'user', content: 'done' } };
+  const later = agentRpc.stampWithRecords(rpc, [warm, line(text('ok')), notice, line(text('Which one?')), line(tool('AskUserQuestion'))], records);
+  assert.deepEqual(later.map((e) => e.maintenance === true), [true, true, false, false, false]);
+  const plain = agentRpc.stampWithRecords(rpc, [warm, line(text('ok')), line(tool('Bash')), mine, line(text('yours'))], records);
+  assert.deepEqual(plain.map((e) => e.maintenance === true), [true, true, false, false, false], 'no question: still folded');
+  assert.equal(agentRpc.maintenanceEntry(rpc, line(text('Which one?'))), true, 'the text alone is a reply until the question arrives');
 });
 
 test('each backend words its own action, and how it ends', () => {

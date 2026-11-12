@@ -507,6 +507,25 @@ function createConversationView(getSession, container) {
     return el;
   }
 
+  // A question took the running maintenance turn over (spec 45, #855): the folded reply entries after the newest prompt (the
+  // search stops at any prompt, the folded maintenance prompt included, which stays folded) lose the mark and are drawn
+  // again in place.
+  function unfoldMaintenanceReplies() {
+    if (drawable()) flushDeferred();
+    for (let i = view.entries.length - 1; i >= 0; i--) {
+      const entry = view.entries[i];
+      if (!entry) continue;
+      if (entry.prompt === true) break;
+      if (!entry.maintenance) continue;
+      view.entries[i] = { ...entry, maintenance: false };
+      if (!drawable()) { deferred.add(i); continue; }
+      const old = view.elements[i];
+      const fresh = renderOne(i);
+      if (old && fresh) old.replaceWith(fresh);
+      view.elements[i] = fresh || old;
+    }
+  }
+
   function insertEntryEl(index, el) {
     if (!el) return;
     // Before the partial/activity/asks tail, which always stays at the bottom of the log.
@@ -2715,6 +2734,7 @@ function createConversationView(getSession, container) {
         if (op.key && snapshotKeys.delete(String(op.key))) return;
         appendEntry(op.entry);
         break;
+      case 'unfold': unfoldMaintenanceReplies(); break;
       case 'partial': view.partial = op.entry || null; renderPartial(); break;
       case 'tool': {
         // When it started is kept across its updates, for the elapsed time on its row (#691).

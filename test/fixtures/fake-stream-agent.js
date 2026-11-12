@@ -26,6 +26,13 @@ function turn(text) {
   if (text === 'rename') emit({ ev: 'identity', id: 'renamed-session' });
   if (text === 'replace') { emit({ ev: 'reset' }); emit({ ev: 'result' }); return; }
   if (text === 'ask me') { emit({ ev: 'ask', id: 'a1', input: { path: 'x.txt' } }); return; }
+  if (text === 'reply then ask' || text === 'reply then approve') {
+    const said = entry('assistant', 'Which one?');
+    record(said);
+    emit({ ev: 'append', entry: said });
+    emit({ ev: 'ask', id: 'a2', kind: text === 'reply then ask' ? 'questions' : 'approval' });
+    return;
+  }
   const reply = entry('assistant', `echo: ${text}`);
   if (!lag) record(reply);
   emit({ ev: 'append', entry: reply });

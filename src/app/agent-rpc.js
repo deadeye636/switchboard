@@ -891,6 +891,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         if (autoAnswer(op.request)) return;
         state.asks.set(op.request.id, op.request);
         flushPartial();
+        // The question takes a maintenance turn over: what it already folded is drawn again (#855).
+        // Only an ask the backend flags as a question or plan approval (`request.asksUser`) does; a permission ask keeps the turn folded.
+        if (state.maintenance && state.maintenance.endsBy === 'idle' && op.request.asksUser === true) unfoldWarmTurn();
         takeOverWarmTurn();
         // A session blocked on a question is waiting on the user, which the inbox has to hear about —
         // the same edge a terminal's binding posts for an extension's prompt (#529).
@@ -1256,6 +1259,13 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
 
   // Someone else's line entered a warm turn, or the turn has asked the user something: it is no longer nobody's work, so it
   // stops being quiet, and what a turn normally clears at its start is cleared now.
+  // The reply text a warm turn already folded is drawn plainly: the view un-folds the entries of the running turn, and what an
+  // attach would replay from memory loses its mark too. The turn's prompt stays folded.
+  function unfoldWarmTurn() {
+    state.recentAppends = state.recentAppends.map((e) => (e && e.maintenance === true && e.prompt !== true ? { ...e, maintenance: false } : e));
+    sendOp(state, { op: 'unfold' });
+  }
+
   function takeOverWarmTurn() {
     if (!state.maintenance || state.maintenance.endsBy !== 'idle') return;
     state.maintenance = null;
@@ -1635,7 +1645,7 @@ async function attachFromTranscript(sessionId, state) {
     // A task notice read back names its output file; whether there is output to offer is decided here, the
     // files stat'ed in parallel rather than one after another on the main thread (#725). Inside the read, so a
     // reset while they are asked is caught by the same check as one during the read.
-    entries = await Promise.all(stampMaintenanceTurns(state, sessionId, Array.isArray(entries) ? entries : []).map(async (e) => {
+    entries = await Promise.all((Array.isArray(entries) ? entries : []).map(async (e) => {
       const split = splitTaskOutput(e);
       return split ? settleTaskOutput(state, split, await statSize(split.file)) : e;
     }));
@@ -1658,12 +1668,14 @@ async function attachFromTranscript(sessionId, state) {
       if (k && !seen.has(String(k))) { out.push(e); seen.add(String(k)); }
     }
   }
-  out.push(...carriedEntries(state));
+  // Stamped over the merged list, so a question still only in `recentAppends` is seen by the look-ahead.
+  const stamped = stampMaintenanceTurns(state, sessionId, out);
+  stamped.push(...carriedEntries(state));
   return {
     ok: true,
     seq,
     keys,
-    entries: out,
+    entries: stamped,
     partial: state.decoder.currentPartial(),
     busy: state.busy,
     queue: state.queue,
@@ -1734,6 +1746,11 @@ function maintenanceEntry(rpc, entry) {
   if (entry.prompt === true) return true;
   return replyText(rpc, entry);
 }
+// Whether the backend reads an entry as a question to the user (a question or a plan approval): the turn it is in is taken over.
+function asksUser(rpc, entry) {
+  if (typeof rpc.asksUserOf !== 'function') return false;
+  try { return rpc.asksUserOf(entry) === true; } catch { return false; }
+}
 function replyText(rpc, entry) {
   if (typeof rpc.assistantTextOf !== 'function') return false;
   try { return typeof rpc.assistantTextOf(entry) === 'string'; } catch { return false; }
@@ -1757,22 +1774,31 @@ function stampWithRecords(rpc, entries, records) {
   const byText = records.filter((r) => !r.key && r.text).map((r) => r.text);
   // The assistant text right after a maintenance prompt is its reply, folded with it; the first entry that is not ends the
   // turn, so a shell, task or interrupt turn that follows stays as it is (spec 45, "Known gaps").
+  // A turn that asks the user something is taken over (#855): its prompt stays folded, its reply text is drawn.
   let inTurn = false;
-  return entries.map((e) => {
+  // Only the line right after the reply stretch counts: whatever else ends it (a task, shell or interrupt turn) is another turn's.
+  const askedFrom = (i) => {
+    let j = i + 1;
+    while (j < entries.length && !asksUser(rpc, entries[j]) && (!entries[j] || (entries[j].prompt !== true && replyText(rpc, entries[j])))) j++;
+    return j < entries.length && entries[j].prompt !== true && asksUser(rpc, entries[j]);
+  };
+  return entries.map((e, i) => {
     if (!e) return e;
     if (e.prompt !== true) {
+      // Already un-folded by a question that took its turn over (the attach's copy of a live entry).
+      if (e.maintenance === false) { inTurn = false; return e; }
       if (inTurn && replyText(rpc, e)) return { ...e, maintenance: true };
       inTurn = false;
       return e;
     }
     inTurn = false;
     const key = typeof rpc.entryKey === 'function' ? rpc.entryKey(e) : null;
-    if (key && byKey.has(key)) { inTurn = true; return { ...e, maintenance: true }; }
+    if (key && byKey.has(key)) { inTurn = !askedFrom(i); return { ...e, maintenance: true }; }
     const text = typeof rpc.promptTextOf === 'function' ? rpc.promptTextOf(e) : null;
     const at = text ? byText.indexOf(text) : -1;
     if (at < 0) return e;
     byText.splice(at, 1);
-    inTurn = true;
+    inTurn = !askedFrom(i);
     return { ...e, maintenance: true };
   });
 }

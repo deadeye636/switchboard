@@ -825,6 +825,9 @@ function createDecoder() {
       options: [],
       // Kept for the answer: an allow hands the tool's input back as `updatedInput` (point 7 above).
       input,
+      // The call is a question to the user or a plan approval, whichever way the card is drawn (a malformed one falls
+      // back to an approval). A maintenance turn holding one is taken over (spec 45, #855).
+      ...(r.tool_name === QUESTION_TOOL || r.tool_name === PLAN_TOOL ? { asksUser: true } : {}),
     };
     if (r.tool_name === QUESTION_TOOL) {
       const questions = questionsOf(input);
@@ -1569,10 +1572,16 @@ const assistantTextOf = (entry) => {
   return text || null;
 };
 
+// Whether an assistant entry asks the user something: a call to the question tool or the plan-approval tool among its content
+// blocks. Claude writes the call as a line of its own after the text. A maintenance turn holding one is taken over (spec 45, #855).
+const asksUserOf = (entry) => !!(entry && entry.type === 'assistant' && entry.message && Array.isArray(entry.message.content)
+  && entry.message.content.some(b => b && b.type === 'tool_use' && (b.name === QUESTION_TOOL || b.name === PLAN_TOOL)));
+
 module.exports = {
   createDecoder,
   responseOf,
   assistantTextOf,
+  asksUserOf,
   sendCommand,
   maintenanceCommand,
   promptTextOf,

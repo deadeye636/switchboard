@@ -1825,3 +1825,23 @@ test('the elapsed timer runs only while a shell line runs and the view is shown 
   conv.apply({ op: 'localCommand', seq: 3, id: 'r1', status: 'done', exitCode: 0, output: 'more' });
   assert.ok(timers.includes('clear'), 'and disarmed at the end');
 });
+
+// Spec 45 (#855): a question took the warm turn over, so the reply entries the view folded are drawn plainly again, in place,
+// and the maintenance prompt stays folded.
+test('unfold: the folded reply after the newest prompt is drawn plainly again; the prompt stays folded', () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  const msg = (role, text) => ({ type: 'message', message: { role, content: [{ type: 'text', text }] } });
+  conv.apply({ op: 'append', entry: { ...msg('user', 'warm'), prompt: true, maintenance: true } });
+  conv.apply({ op: 'append', entry: { ...msg('assistant', 'Which one?'), maintenance: true } });
+  const folded = () => h.entry.element.querySelectorAll('details.conversation-maintenance-entry').length;
+  assert.equal(folded(), 2);
+  conv.apply({ op: 'unfold' });
+  assert.equal(folded(), 1, 'only the prompt is folded now');
+  const entries = [...h.entry.element.querySelectorAll('[data-entry-index]')];
+  assert.equal(entries.length, 2, 'both still drawn, in order');
+  assert.equal(entries[0].tagName, 'DETAILS');
+  assert.notEqual(entries[1].tagName, 'DETAILS');
+  conv.apply({ op: 'unfold' });
+  assert.equal(folded(), 1, 'a second one changes nothing');
+});
