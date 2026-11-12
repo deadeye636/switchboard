@@ -432,6 +432,12 @@ starts a new session in the same process (measured). A local command answers wit
 model is `<synthetic>` and an ordinary `result`, so it is drawn as an entry and busy/ready come from the
 same `result` as for any turn. `/login` answers that it is not available in this environment.
 
+**Remote Control is not reachable over the pipe (measured on 2.1.322).** `/remote-control` and its alias `/rc`
+answer "/remote-control isn't available in this environment." as a `<synthetic>` line with a `success`
+`result`, like `/login`. The start flag `--remote-control [name]`, which `--help` describes as starting an
+interactive session, is accepted next to `-p` without an error, but nothing in the stream shows a Remote
+Control session; whether one is registered was not checked.
+
 **The typed command is never played back (#718, measured on 2.1.284 with `/mcp`, `/cost`, `/context` and
 `/compact`).** `--replay-user-messages` returns an ordinary prompt when its turn starts, but for a local
 command the stream sends only `system/init`, the output and the `result`; `/compact` even sends its
@@ -1196,6 +1202,11 @@ worktree"; the same project opened with git's spelling worked). That is the CLI'
 the same spelling was not measured.
 
 Every key, its default and what it means: `docs/settings-reference.md`.
+
+Since #761 Claude and Claude (GUI) are one row and one page in Settings ([spec 26](26-settings-screen.md)). The
+fields both declare alike (`model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `restricted`, `autocompact` and
+the two tool offers) are stored once under Claude. `permissionMode` is not shared, because the choices differ, so it is
+set per mode; `promptSuggestionsOff` is this backend's own and stays under its id.
 
 ## Known gaps
 
