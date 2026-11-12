@@ -36,6 +36,8 @@ function setup(backend = BACKEND) {
     profiles: { list: async () => ({ profiles: [] }) },
   };
   window.navigator.clipboard = { writeText: async () => {} };
+  // settings.html loads the shared mode module before the panel (#761).
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'shared', 'backend-modes.js'), 'utf8'), dom.getInternalVMContext(), { filename: 'backend-modes.js' });
   vm.runInContext(fs.readFileSync(PANEL, 'utf8'), dom.getInternalVMContext(), { filename: PANEL });
   return { window, dom, root: window.document.getElementById('root') };
 }

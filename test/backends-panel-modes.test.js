@@ -257,3 +257,99 @@ test('settings.html loads the shared module before the panel', () => {
   const panel = srcs.findIndex(s => s.endsWith('panels/backends-panel.js'));
   assert.ok(mod >= 0 && panel > mod);
 });
+
+// --- T7: the PROJECT scope has one pane per CLI ---------------------------------------------------------------
+
+async function setupProject(backends, own = {}, globalOwn = {}) {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
+    url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const { window } = dom;
+  window.api = {
+    backends: {
+      list: async () => ({ backends, defaultLaunchTarget: backends[0].id }),
+      listResources: async () => ({ ok: true, resources: [] }),
+    },
+    profiles: { list: async () => ({ profiles: [] }) },
+  };
+  Object.defineProperty(window, 'CSS', { value: { escape: (s) => String(s).replace(/([^\w-])/g, '\$1') }, configurable: true });
+  const ctxVm = dom.getInternalVMContext();
+  vm.runInContext(fs.readFileSync(path.join(SRC, 'shared', 'backend-modes.js'), 'utf8'), ctxVm, { filename: 'backend-modes.js' });
+  vm.runInContext(fs.readFileSync(PANEL, 'utf8'), ctxVm, { filename: PANEL });
+  const root = window.document.getElementById('root');
+  let panes = null;
+  await window.backendsPanel.mount(root, {
+    isProject: true, projectPath: '/home/someone/projects/demo',
+    settings: { backendDefaults: own }, globalDefaults: globalOwn,
+    fieldValue: (_k, fb) => fb, useGlobalCheckbox: () => '',
+    onBackendPanes: (list) => { panes = plain(list); },
+  });
+  return { window, root, panes: () => panes, close: () => window.close() };
+}
+
+const pane = (root, id) => root.querySelector(`section[data-cat="backend:${id}"]`);
+const untick = (ctx, bid, opt, value) => {
+  const cb = ctx.root.querySelector(`.backend-inherit-cb[data-backend="${bid}"][data-opt="${opt}"]`);
+  cb.checked = false;
+  fire(cb, 'change');
+  const el = input(ctx.root, bid, opt);
+  if (el.dataset.type === 'toggle') el.checked = value; else el.value = value;
+  fire(el, 'change');
+};
+
+test('project scope: one nav entry and one pane per CLI, none for a mode of its own', async () => {
+  const ctx = await setupProject([A, A_GUI, LONE, C, C_GUI, C_SRV]);
+  try {
+    assert.deepEqual(ctx.panes().map(p => p.id), ['cli-a', 'lone', 'cli-c']);
+    assert.ok(pane(ctx.root, 'cli-a') && pane(ctx.root, 'lone'));
+    assert.equal(pane(ctx.root, 'cli-a-gui'), null);
+    assert.equal(pane(ctx.root, 'cli-c-srv'), null);
+    assert.equal(ctx.root.querySelectorAll('section.settings-cat').length, 3);
+  } finally { ctx.close(); }
+});
+
+test('project scope: a section per enabled mode (all when none is), none for a lone backend', async () => {
+  const ctx = await setupProject([A, { ...A_GUI, enabled: false }, LONE]);
+  try {
+    assert.deepEqual(sections(pane(ctx.root, 'cli-a')), ['cli-a']);
+    assert.deepEqual(sections(pane(ctx.root, 'lone')), []);
+    assert.deepEqual(titles(pane(ctx.root, 'lone')), []);
+  } finally { ctx.close(); }
+  const none = await setupProject([{ ...A, enabled: false }, { ...A_GUI, enabled: false }]);
+  try {
+    assert.deepEqual(sections(pane(none.root, 'cli-a')), ['cli-a', 'cli-a-gui']);
+  } finally { none.close(); }
+});
+
+test('project scope: the count covers every id of the CLI, a hidden mode included', async () => {
+  const own = { 'cli-a': { model: 'x', afk: 5 }, 'cli-a-gui': { suggestOff: true, permissionMode: 'plan' } };
+  const ctx = await setupProject([A, { ...A_GUI, enabled: false }, LONE], { ...own, lone: { x: true } });
+  try {
+    const byId = Object.fromEntries(ctx.panes().map(p => [p.id, p.overrides]));
+    assert.equal(byId['cli-a'], 4);
+    assert.equal(byId.lone, 1);
+  } finally { ctx.close(); }
+});
+
+test('project scope: a shared override is stored under the owner, a driver-only one under the driver', async () => {
+  const ctx = await setupProject([A, A_GUI]);
+  try {
+    untick(ctx, 'cli-a', 'model', 'opus');
+    untick(ctx, 'cli-a-gui', 'suggestOff', true);
+    assert.deepEqual(plain(ctx.window.backendsPanel.readProjectDefaults(ctx.root)),
+      { 'cli-a': { model: 'opus' }, 'cli-a-gui': { suggestOff: true } });
+  } finally { ctx.close(); }
+});
+
+test('project scope: inherited values come from the layered global defaults and the box starts ticked', async () => {
+  const ctx = await setupProject([A, A_GUI], {}, { 'cli-a': { model: 'big' }, 'cli-a-gui': { suggestOff: true } });
+  try {
+    const model = input(ctx.root, 'cli-a', 'model');
+    assert.equal(model.value, 'big');
+    assert.equal(model.disabled, true);
+    assert.equal(inherit(ctx.root, 'cli-a', 'model').checked, true);
+    assert.equal(input(ctx.root, 'cli-a-gui', 'suggestOff').checked, true);
+    assert.equal(input(ctx.root, 'cli-a-gui', 'model'), null, 'a driver draws no control for a shared field');
+    assert.match(pane(ctx.root, 'cli-a').querySelector('.backend-mode-note').textContent, /GUI: Driver wording/);
+  } finally { ctx.close(); }
+});

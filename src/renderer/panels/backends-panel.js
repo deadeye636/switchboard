@@ -37,7 +37,7 @@
     return keys;
   };
 
-  // Launch defaults live on a per-backend page now, so at most one backend's inputs exist in the DOM.
+  // Launch defaults live on a per-CLI page now, so at most one CLI's inputs exist in the DOM.
   // `storedDefaults` = what this settings scope has on disk; `pendingDefaults` = what the user changed
   // since the panel mounted, on any page. Save reads stored ⊕ pending — never the DOM alone.
   let storedDefaults = {};      // what THIS scope has on disk
@@ -579,30 +579,37 @@
   //
   // How many launch options this project overrides for one backend. The number a project screen exists to
   // answer, and since #490 it is what that backend's entry in the settings nav shows.
-  function overrideCount(backend, ownDefaults) {
+  function overrideCount(backend, ownDefaults, group) {
+    const own = ownDefaults || {};
+    const set = (id, fields) => fields.filter(f => (own[id] || {})[f.id] !== undefined && (own[id] || {})[f.id] !== null).length;
+    if (group && group.modes.length > 1) {
+      // A CLI's pane counts every value it stores, across all its ids and hidden modes included: a hidden
+      // mode's value applies again the moment that mode is switched on (#761).
+      const split = backendModes.fieldSplit(group);
+      const shared = split.shared.map(x => x.field);
+      return set(group.owner.id, [...shared, ...split.own[group.owner.id]])
+        + group.drivers.reduce((n, d) => n + set(d.id, split.own[d.id]), 0);
+    }
     const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
-    const own = (ownDefaults && ownDefaults[backend.id]) || {};
-    return fields.filter(f => own[f.id] !== undefined && own[f.id] !== null).length;
+    return set(backend.id, fields);
   }
 
   // The PROJECT scope has no gear pages — since #490 each backend has a PANE of its own, reached from the
   // settings nav, holding its launch defaults and its resources together. Before that they were two flat
-  // lists, and a backend was never next to the resources that belong to it.
+  // lists, and a backend was never next to the resources that belong to it. Since #761 a CLI's modes share
+  // one pane (`modes = { group, shown }`, the same shape the global page takes).
   //
   // Each OPTION carries its own "Use global default" checkbox (#149). The defaults cascade per option:
   // a project stores only what it actually overrides, so overriding one Codex option does not freeze
   // every other backend's defaults at the value they happened to have that day.
-  function inlineDefaultsSection(backend, ownDefaults, globalDefaults) {
-    const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
-    if (!fields.length) return '';
-    const own = (ownDefaults && ownDefaults[backend.id]) || {};
-    const inherited = (globalDefaults && globalDefaults[backend.id]) || {};
-
-    const rows = fields.map(f => {
-      const overridden = own[f.id] !== undefined && own[f.id] !== null;
-      const value = overridden ? own[f.id]
-        : (inherited[f.id] !== undefined ? inherited[f.id] : f.default);
-      return `
+  //
+  // `backend` is the descriptor the row STORES under (`data-backend`): the owner for a field the modes share.
+  // `inherited` is what the project would read from the global scope for that id (`launchLayer`).
+  function inlineFieldRow(backend, f, own, inherited, notes) {
+    const overridden = own[f.id] !== undefined && own[f.id] !== null;
+    const value = overridden ? own[f.id]
+      : (inherited[f.id] !== undefined ? inherited[f.id] : f.default);
+    return `
         <div class="settings-field"${requiresAttrs(backend, f)}>
           <div class="settings-field-info">
             <div class="settings-field-header">
@@ -613,11 +620,44 @@
               </label>
             </div>
             <div class="settings-description">${esc(f.description || `Used when you start a ${backend.label} session in this project without opening its configure dialog.`)}</div>
+            ${(notes || []).map(n => `<div class="settings-hint backend-mode-note">${esc(`${n.label}: ${n.description}`)}</div>`).join('')}
             ${requiresNote(backend, f)}
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, !overridden)}</div>
         </div>${withheldShell(backend, f)}${sourcePreviewShell(backend, f)}`;
-    }).join('');
+  }
+
+  function inlineDefaultsSection(backend, ownDefaults, globalDefaults, modes) {
+    if (modes && modes.group) {
+      const group = modes.group;
+      const split = backendModes.fieldSplit(group);
+      const members = [group.owner, ...group.drivers];
+      const byId = new Map((modes.all || members).map(b => [b.id, b]));
+      const own = (id) => (ownDefaults && ownDefaults[id]) || {};
+      const inheritedOf = (b) => backendModes.launchLayer(globalDefaults || {}, b, byId);
+      const sharedRows = split.shared
+        .map(({ field, notes }) => inlineFieldRow(group.owner, field, own(group.owner.id), inheritedOf(group.owner), notes)).join('');
+      const sections = group.modes.filter(m => modes.shown.has(m.id)).map(m => {
+        const b = members.find(x => x.id === m.id);
+        const rows = split.own[b.id].map(f => inlineFieldRow(b, f, own(b.id), inheritedOf(b), [])).join('');
+        return `
+      <div class="backend-mode-section" data-mode-for="${esc(b.id)}">
+        <div class="settings-section" data-defaults-for="${esc(b.id)}">
+          <div class="settings-section-title">${esc(m.label)}</div>
+          ${rows || '<div class="settings-hint">No launch options of its own.</div>'}
+        </div>
+      </div>`;
+      }).join('');
+      return `
+      ${sharedRows ? `<div class="settings-section" data-defaults-for="${esc(group.owner.id)}"><div class="settings-section-title">Launch defaults</div>${sharedRows}</div>` : ''}
+      ${sections}`;
+    }
+    const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
+    if (!fields.length) return '';
+    const own = (ownDefaults && ownDefaults[backend.id]) || {};
+    const inherited = (globalDefaults && globalDefaults[backend.id]) || {};
+
+    const rows = fields.map(f => inlineFieldRow(backend, f, own, inherited, [])).join('');
 
     // No disclosure around it any more (#490): the pane IS the disclosure, and the "N overrides" marker
     // the summary used to carry moved onto the nav entry — otherwise "what does this project override"
@@ -635,8 +675,8 @@
   // The inheritance sentence is here rather than once at the top, because there is no landing pane to put
   // it on: every entry under BACKENDS in the nav goes straight to a backend. It names the backend, so the
   // repetition reads as being about this one rather than as boilerplate.
-  function backendPane(backend, ownDefaults, globalDefaults, projectPath) {
-    const defaults = inlineDefaultsSection(backend, ownDefaults, globalDefaults);
+  function backendPane(backend, ownDefaults, globalDefaults, projectPath, modes) {
+    const defaults = inlineDefaultsSection(backend, ownDefaults, globalDefaults, modes);
     const resources = backend.resourceDiscovery
       ? resourcesShell(
         backend,
@@ -1466,8 +1506,21 @@
       // One PANE per backend since #490, holding that backend's defaults and its own resources. The panes
       // are `.settings-cat` sections like every other category; what the settings panel cannot write down
       // is the nav entries that reach them, because the backend list arrives here — hence `onBackendPanes`.
-      box.innerHTML = readyBackends
-        .map(b => backendPane(b, mergedOwnDefaults(), inheritedDefaults, ctx.projectPath))
+      //
+      // One pane per CLI since #761: the modes of a CLI share a pane under the owner's id, and a mode that
+      // is switched off draws no section (none enabled: all of them, D15). Nothing navigates to a mode's id.
+      const cliGroups = backendModes.cliGroups(backends).filter(g => g.modes.length > 1);
+      const modeIds = new Set(cliGroups.flatMap(g => g.ids));
+      const groupOf = new Map(cliGroups.map(g => [g.owner.id, g]));
+      const panes = readyBackends.filter(b => !modeIds.has(b.id) || groupOf.has(b.id));
+      const modesOf = (b) => {
+        const g = groupOf.get(b.id);
+        if (!g) return null;
+        const on = g.ids.filter(id => (backends.find(x => x.id === id) || {}).enabled);
+        return { group: g, shown: new Set(on.length ? on : g.ids), all: backends };
+      };
+      box.innerHTML = panes
+        .map(b => backendPane(b, mergedOwnDefaults(), inheritedDefaults, ctx.projectPath, modesOf(b)))
         .join('');
       bindResourceCopy(box);
       bindLazyResources(box, ctx.projectPath || null);
@@ -1493,17 +1546,22 @@
         recordDefault(e.target);
       });
       // A launch here reads global ⊕ this project's own overrides — what the spawn path reads.
-      bindSourcePreviews(box, ctx.projectPath || null,
-        (bid) => ({ ...(inheritedDefaults[bid] || {}), ...(mergedOwnDefaults()[bid] || {}) }));
+      // Each scope is layered through the launch readers' function (a driver reads the owner's shared values),
+      // then the project's over the global, per option (#761).
+      const byIdAll = new Map(backends.map(b => [b.id, b]));
+      bindSourcePreviews(box, ctx.projectPath || null, (bid) => {
+        const b = byIdAll.get(bid) || { id: bid };
+        return { ...backendModes.launchLayer(inheritedDefaults, b, byIdAll), ...backendModes.launchLayer(mergedOwnDefaults(), b, byIdAll) };
+      });
       root.replaceChildren(box);
       paintIcons(box);
       if (typeof ctx.onBackendPanes === 'function') {
-        ctx.onBackendPanes(readyBackends.map(b => ({
+        ctx.onBackendPanes(panes.map(b => ({
           id: b.id,
           label: b.label,
           icon: b.icon || b.colour || b.id,
           monogram: b.monogram || null,
-          overrides: overrideCount(b, mergedOwnDefaults()),
+          overrides: overrideCount(b, mergedOwnDefaults(), groupOf.get(b.id)),
         })));
       }
       return;
@@ -1632,8 +1690,8 @@
 
     bindCapabilityMatrix(box);
 
-    // --- the per-backend page (gear) -------------------------------------------------------------
-    // Only ONE backend's inputs are in the DOM at a time, so the Save button can no longer read the
+    // --- the per-CLI page (gear) -------------------------------------------------------------
+    // Only ONE CLI's inputs are in the DOM at a time, so the Save button can no longer read the
     // others off the page. Edits are therefore recorded as they happen (`pendingDefaults`) and merged
     // over the stored blob at save time — otherwise opening Claude's page and saving would wipe Codex's
     // defaults, which is the sort of quiet data loss a settings screen must never do.
@@ -1941,7 +1999,7 @@
 
   // backendDefaults.<backendId>.<optionId> — the GLOBAL scope's blob.
   //
-  // The DOM only ever holds ONE backend's page, so it is not the source of truth: the stored blob is,
+  // The DOM only ever holds ONE CLI's page, so it is not the source of truth: the stored blob is,
   // with the edits made in this settings session merged over it. Reading the DOM alone would drop every
   // backend the user did not happen to have open when they hit Save.
   // Store ONLY what the user actually decided (#163). This used to write every option on the open page,
