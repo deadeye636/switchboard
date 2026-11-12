@@ -72,6 +72,9 @@ const DEFAULT_SHORTCUTS = {
   // Unlike the two above it, taking a row RUNS it: the picker submits the line unless the setting says
   // otherwise, because picking a skill is asking for it rather than quoting it.
   insertSkill: { primary: true, alt: false, shift: true, key: 's' },
+  // Ctrl/Cmd+Shift+Y — open the task picker in the focused terminal (#857). Fifth of the family and, like the
+  // plan and handoff pickers, it leaves the text in the prompt: a task is something to talk about, not a command.
+  insertTask: { primary: true, alt: false, shift: true, key: 'y' },
   // Ctrl/Cmd+Shift+M — enter "move mode" on the focused grid card: bare arrows
   // reorder it, Shift+arrows resize it, Esc/Enter leave. A mode (rather than a
   // second arrow chord) keeps this off Ctrl+Alt+Arrow, which is the workspace
@@ -180,6 +183,13 @@ const SHORTCUT_DEFS = [
     id: 'insertSkill',
     label: 'Insert skill',
     description: 'Open the skill picker in the focused terminal and hand the chosen skill to the CLI',
+    family: 'key',
+    group: 'general',
+  },
+  {
+    id: 'insertTask',
+    label: 'Insert task',
+    description: 'Open the task picker in the focused terminal and insert a project task at the cursor',
     family: 'key',
     group: 'general',
   },

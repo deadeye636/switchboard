@@ -332,6 +332,8 @@
     // own skills live. Both in the cascade; the defaults have to match SETTING_DEFAULTS in src/app/settings.js.
     const skillInsertTemplateValue = fieldValue('skillInsertTemplate', 'Use the skill at {path}');
     const skillsDirValue = fieldValue('skillsDir', '');
+    // #857 what the task picker and the sidebar's task rows type. In the cascade; the default matches SETTING_DEFAULTS.
+    const taskInsertTemplateValue = fieldValue('taskInsertTemplate', '{title} (task #{id})');
     // #468/#469 where this project's handoff packets are read from and written to, and what the handoff
     // picker types. All three in the cascade; the defaults have to match SETTING_DEFAULTS in
     // src/app/settings.js. The read list is one comma-separated field rather than a list editor: it is
@@ -909,6 +911,19 @@
               <input type="text" class="settings-input" id="sv-skill-insert-template" placeholder="Use the skill at {path}" value="${escapeHtml(skillInsertTemplateValue)}" ${fieldDisabled('skillInsertTemplate')}>
             </div>
           </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Task insert template</span>
+                ${useGlobalCheckbox('taskInsertTemplate')}
+              </div>
+              <div class="settings-description">What the task picker and the session sidebar's task rows type into the prompt in this project. Shift keeps to the bare title.</div>
+              <div class="settings-more">Placeholders: <code>{title}</code> the task's title, <code>{id}</code> its number, <code>{status}</code> <code>open</code> or <code>in_progress</code>, <code>{note}</code> its note (empty when it has none). Leave empty for the default.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-task-insert-template" placeholder="{title} (task #{id})" value="${escapeHtml(taskInsertTemplateValue)}" ${fieldDisabled('taskInsertTemplate')}>
+            </div>
+          </div>
         </div>
 
         </section>
@@ -1056,7 +1071,7 @@ ${window.settingsInstructions.sectionHtml('project')}
         collapseDefaultValue, collapseAgeValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         paneCloseEmptyValue, paneBackgroundScrollbackValue,
-        externalEditorValue, planInsertTemplateValue, planDirValue, planDirNamesValue, skillInsertTemplateValue, skillsDirValue,
+        externalEditorValue, planInsertTemplateValue, planDirValue, planDirNamesValue, skillInsertTemplateValue, skillsDirValue, taskInsertTemplateValue,
         handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue,
         submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue,
         editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
@@ -1266,6 +1281,7 @@ ${window.settingsInstructions.sectionHtml('project')}
           planDirNames: 'sv-plan-dir-names',
           skillsDir: 'sv-skills-dir',
           skillInsertTemplate: 'sv-skill-insert-template',
+          taskInsertTemplate: 'sv-task-insert-template',
           handoffDir: 'sv-handoff-dir',
           handoffDirNames: 'sv-handoff-dir-names',
           handoffInsertTemplate: 'sv-handoff-insert-template',
@@ -1460,6 +1476,7 @@ ${window.settingsInstructions.sectionHtml('project')}
               planDirNames: () => readPlanDirNames(),
               handoffDir: () => (settingsViewerBody.querySelector('#sv-handoff-dir')?.value || '').trim() || '.handoffs',
               handoffDirNames: () => readHandoffDirNames(),
+              taskInsertTemplate: () => (settingsViewerBody.querySelector('#sv-task-insert-template')?.value || '').trim(),
               handoffInsertTemplate: () => (settingsViewerBody.querySelector('#sv-handoff-insert-template')?.value || '').trim(),
               terminalShellProfile: () => settingsViewerBody.querySelector('#sv-terminal-shell-profile').value || 'inherit',
               // Custom launchers (T-3.10): the project stores only its OWN entries. The effective
@@ -1577,6 +1594,8 @@ ${window.settingsInstructions.sectionHtml('project')}
         // so changing a default later still reaches everyone who has opened Settings once.
         const svSkillTemplate = settingsViewerBody.querySelector('#sv-skill-insert-template');
         if (svSkillTemplate) settings.skillInsertTemplate = (svSkillTemplate.value || '').trim();
+        const svTaskTemplate = settingsViewerBody.querySelector('#sv-task-insert-template');
+        if (svTaskTemplate) settings.taskInsertTemplate = (svTaskTemplate.value || '').trim();
         const svSkillsDir = settingsViewerBody.querySelector('#sv-skills-dir');
         if (svSkillsDir) settings.skillsDir = (svSkillsDir.value || '').trim();
         const svSubmitSkill = settingsViewerBody.querySelector('#sv-submit-skill-on-pick');

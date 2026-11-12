@@ -51,7 +51,7 @@
       collapseDefaultValue, collapseAgeValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
-      externalEditorValue, planInsertTemplateValue, planDirValue, planDirNamesValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue,
+      externalEditorValue, planInsertTemplateValue, planDirValue, planDirNamesValue, skillInsertTemplateValue, skillsDirValue, taskInsertTemplateValue, submitSkillOnPickValue,
       handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue, idleMaintenanceFields,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
@@ -656,6 +656,16 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-skill-insert-template" placeholder="Use the skill at {path}" value="${escapeHtml(skillInsertTemplateValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Task insert template</span>${help}</div>
+                    <div class="settings-description">What the task picker and the session sidebar's task rows type into the prompt. Shift keeps to the bare title.</div>
+                    <div class="settings-more">Placeholders: <code>{title}</code> the task's title, <code>{id}</code> its number, <code>{status}</code> <code>open</code> or <code>in_progress</code>, <code>{note}</code> its note (empty when it has none). Leave empty for the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-task-insert-template" placeholder="{title} (task #{id})" value="${escapeHtml(taskInsertTemplateValue)}">
                   </div>
                 </div>
                 <div class="settings-field">

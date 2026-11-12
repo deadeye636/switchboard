@@ -1041,6 +1041,7 @@ function createConversationView(getSession, container) {
     insertPlan: () => (typeof openPlanPalette === 'function' ? openPlanPalette : null),
     insertHandoff: () => (typeof openHandoffPalette === 'function' ? openHandoffPalette : null),
     insertSkill: () => (typeof openSkillPalette === 'function' ? openSkillPalette : null),
+    insertTask: () => (typeof openTaskPalette === 'function' ? openTaskPalette : null),
   };
 
   input.addEventListener('keydown', (e) => {

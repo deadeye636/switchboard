@@ -6,11 +6,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
+  sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, sidebarItemHtml,
 } = require('../src/renderer/session/session-sidebar');
 const { skillInsertText } = require('../src/renderer/terminal/skill-palette');
+const { taskInsertText } = require('../src/renderer/terminal/task-palette');
 
-const helpers = { skillInsertText };
+const helpers = { skillInsertText, taskInsertText };
 
 test('each kind offers only the buttons it can honour', () => {
   assert.deepEqual(sidebarRowActions('task', { id: 1 }), ['open', 'copy']);
@@ -24,8 +25,9 @@ test('each kind offers only the buttons it can honour', () => {
 });
 
 test('a task inserts its title and a reference; Shift the bare title', () => {
-  assert.equal(taskInsertText({ id: 7, title: ' Fix it ' }), 'Fix it (task #7)');
-  assert.equal(sidebarInsertText('task', { id: 7, title: 'Fix it' }, { plain: true }), 'Fix it');
+  assert.equal(sidebarInsertText('task', { id: 7, title: ' Fix it ' }, { helpers }), 'Fix it (task #7)');
+  assert.equal(sidebarInsertText('task', { id: 7, title: 'Fix it' }, { helpers, template: 'Task {id}: {title}' }), 'Task 7: Fix it');
+  assert.equal(sidebarInsertText('task', { id: 7, title: 'Fix it' }, { plain: true, helpers }), 'Fix it');
   assert.equal(sidebarCopyText('task', { id: 7, title: 'Fix it' }), 'Fix it');
 });
 

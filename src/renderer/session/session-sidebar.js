@@ -208,24 +208,18 @@ function sidebarRowActions(kind, src) {
   });
 }
 
-// A local task is inserted as its title and a reference the agent can quote back. There is no task picker (and so no
-// template setting) yet; Shift inserts the bare title.
-function taskInsertText(task, plain = false) {
-  const title = String((task && task.title) || '').trim();
-  if (!title || plain) return title;
-  return task.id != null ? `${title} (task #${task.id})` : title;
-}
-
-// What the row inserts. A handoff is its path (no template on a click, owner decision on #822); the skill text is the
-// skill picker's own function, template included, and that picker has no plain form, so Shift changes nothing there.
+// What the row inserts. A handoff is its path (no template on a click, owner decision on #822); the skill and task
+// texts are the pickers' own functions, template included. A skill has no plain form, so Shift changes nothing there;
+// a task's plain form is its bare title.
 function sidebarInsertText(kind, src, { plain = false, template = '', helpers = {} } = {}) {
   if (!src) return '';
   const h = {
     skillInsertText: typeof skillInsertText === 'function' ? skillInsertText : undefined,
+    taskInsertText: typeof taskInsertText === 'function' ? taskInsertText : undefined,
     ...helpers,
   };
   switch (kind) {
-    case 'task': return taskInsertText(src, plain);
+    case 'task': return h.taskInsertText ? h.taskInsertText(src, template, plain) : String(src.title || '').trim();
     case 'issue': return src.number != null ? `#${src.number}` : '';
     case 'handoff': return src.filePath || '';
     case 'skill': return h.skillInsertText ? h.skillInsertText(src, template) : (src.invocation || '');
@@ -237,7 +231,7 @@ function sidebarInsertText(kind, src, { plain = false, template = '', helpers = 
 function sidebarCopyText(kind, src) {
   if (!src) return '';
   switch (kind) {
-    case 'task': return taskInsertText(src, true);
+    case 'task': return String(src.title || '').trim();
     case 'issue': return src.number != null ? `#${src.number}` : '';
     case 'handoff': return src.filePath || '';
     default: return '';
@@ -248,7 +242,7 @@ function sidebarCopyText(kind, src) {
 function sidebarRowModel(kind, src, meta = '', index = 0) {
   const s = src || {};
   switch (kind) {
-    case 'task': return { kind, key: `task:${s.id}`, main: s.title || '', meta: meta || (s.status === 'in_progress' ? 'In progress' : ''), tip: 'Insert the title and a task reference', actions: sidebarRowActions(kind, s) };
+    case 'task': return { kind, key: `task:${s.id}`, main: s.title || '', meta: meta || (s.status === 'in_progress' ? 'In progress' : ''), tip: 'Insert the task', actions: sidebarRowActions(kind, s) };
     case 'issue': return { kind, key: `issue:${s.number}`, main: `#${s.number} ${s.title || ''}`, meta, tip: 'Insert the issue id', actions: sidebarRowActions(kind, s) };
     case 'handoff': return { kind, key: `handoff:${s.filePath || ''}`, main: s.title || s.label || s.filename || '', meta, tip: 'Insert the path', actions: sidebarRowActions(kind, s) };
     case 'skill': return { kind, key: `skill:${s.filePath || `#${index}`}`, main: s.name || '', meta, tip: 'Insert the skill', actions: sidebarRowActions(kind, s) };
@@ -358,7 +352,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
     instructionGroups, instructionRow, repositoryRows, repositorySignature, repositoryRowHtml, processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure,
-    sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
+    sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
   };
@@ -603,10 +597,11 @@ async function sessionSidebarRowClick(entry, key, plain) {
   if (!held) return;
   const { kind, src } = held;
   let settings = null;
-  if (kind === 'skill') {
+  if (kind === 'skill' || kind === 'task') {
     try { settings = await window.api.getEffectiveSettings(sidebarSessionOf(entry).projectPath || null); } catch { settings = null; }
   }
-  const template = kind === 'skill' ? settings && settings.skillInsertTemplate : '';
+  const template = kind === 'skill' ? settings && settings.skillInsertTemplate
+    : kind === 'task' ? settings && settings.taskInsertTemplate : '';
   const text = sidebarInsertText(kind, src, { plain, template });
   if (kind === 'skill') {
     // As the skill picker: it is asked to run unless the setting says otherwise, and a text insert says so.

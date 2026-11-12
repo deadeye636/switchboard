@@ -237,6 +237,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/lib/sidebar-groups.js': [],
   'src/renderer/terminal/plan-palette.js': [],
   'src/renderer/terminal/skill-palette.js': [],
+  'src/renderer/terminal/task-palette.js': [],
   'src/renderer/terminal/handoff-palette.js': [],
   'src/renderer/terminal/page-key-routing.js': [],
   'src/renderer/terminal/newline-key-routing.js': [],

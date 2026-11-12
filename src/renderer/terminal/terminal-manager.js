@@ -271,6 +271,15 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
       return false;
     }
 
+    // Insert a project task (default Cmd/Ctrl+Shift+Y) — the same palette once more (#857), left in the prompt.
+    if (matchShortcut('insertTask', e, isMac, appShortcuts)) {
+      if (e.type === 'keydown') {
+        e._handled = true;
+        if (typeof openTaskPalette === 'function') openTaskPalette(terminal, getSessionId());
+      }
+      return false;
+    }
+
     // Session navigation: Cmd+Shift+[/], Cmd+Arrow
     if (isSessionNavKey(e)) {
       if (e.type === 'keydown') { e._handled = true; handleSessionNavKey(e); }

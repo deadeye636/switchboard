@@ -207,6 +207,7 @@ a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/
 | `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` (for a bundle plan, `{filename}` is its path below the plans directory, e.g. `<slug>/PLAN.md`) | `Follow the plan at {path}` | global + project |
 | `skillsDir` | Where the app's own skills live. A network path (anything spelled with two leading separators, `\\host\share` or `//host/share`, on every platform; #844), a filesystem root (also reached through a link), or the home directory and anything above it lists no skills at all; a directory at, inside or above a CLI's own directory lists them but they cannot be edited in Settings → Plugins (#803) | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |
 | `skillInsertTemplate` | Skill insert template | string with `{path}` / `{name}` | `Use the skill at {path}` | global + project |
+| `taskInsertTemplate` | Task insert template — what the task picker and the session sidebar's task rows type; Shift keeps to the bare title (#857) | string with `{title}` / `{id}` / `{status}` (`open` or `in_progress`) / `{note}` | `{title} (task #{id})` | global + project |
 | `submitSkillOnPick` | Picking a skill runs it | `true` \| `false` | `true` | global + project |
 | `handoffDirNames` | Handoff directories | list of project-relative paths | `['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs']` | global + project |
 | `handoffDir` | Save handoffs to | project-relative path | `.handoffs` | global + project |
@@ -463,6 +464,7 @@ Ctrl/Cmd+K until #491, which is kill-line in every readline shell and was being 
 | `insertVariable` | Insert variable | primary+Shift+V |
 | `insertPlan` | Insert plan | primary+Shift+P |
 | `insertSkill` | Insert skill | primary+Shift+S |
+| `insertTask` | Insert task — opens the task picker (open tasks of the session's project) in the focused terminal or conversation input (#857) | primary+Shift+Y |
 | `commandPalette` | Command palette | F1 |
 | `gridToggle` | Toggle grid view | primary+Shift+G |
 | `gridMoveMode` | Move / resize grid card | primary+Shift+M |

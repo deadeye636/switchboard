@@ -115,6 +115,10 @@ const SETTING_DEFAULTS = {
   // `{name}` are substituted. In the cascade for the same reason the plan template is: how a CLI should
   // be told about a document is a matter of taste and of which CLI it is.
   skillInsertTemplate: 'Use the skill at {path}',
+  // What the task picker and the session sidebar's task rows type (#857). `{title}`, `{id}`, `{status}` and
+  // `{note}` are substituted. In the cascade, like the skill and plan templates: a project whose agents want a
+  // different phrasing says so. The default is the text a task row inserted before the template existed.
+  taskInsertTemplate: '{title} (task #{id})',
   // Where the app's own skills live (#462). Unset means the `skills` directory beside the database,
   // which is the case that needs no decision from anyone. A value set here is a path: absolute as given,
   // otherwise resolved against the project when there is one and against the data directory when there

@@ -68,7 +68,7 @@ rest; E2 a local task inserts its title plus a task reference.
 
 | Row | Click | Shift+click | Hover buttons |
 |---|---|---|---|
-| Local task | title and `(task #id)` | the title | open in the Tasks view, copy the title |
+| Local task | the `taskInsertTemplate` setting (default `{title} (task #{id})`), through `taskInsertText`; Shift the bare title | the title | open in the Tasks view, copy the title |
 | Forge issue | `#number` | same | open in the browser (when it has a url), copy `#number` |
 | Handoff | the path, with no template (requirement 4) | same | open in the preview (editable), copy the path |
 | Skill | the invocation from the backend's `skillInvocation` hook, through `skillInsertText` (template only for a skill with none), submitted unless `submitSkillOnPick` is off | same | edit: Settings → Plugins → Skills on that skill |
@@ -78,8 +78,10 @@ rest; E2 a local task inserts its title plus a task reference.
 - **One way to insert.** Every insert goes through `sidebarInsert` to `insertResolvedText`, with the pickers' text
   functions (`handoffInsertText`, `skillInsertText`); the caret returns to the session afterwards (requirement 8). A
   conversation view takes the text into its input, a terminal pastes it.
-- **Gap: no task picker exists**, so a task has no template setting and `Title (task #id)` is fixed in
-  `taskInsertText`. It stays until a task picker with a template exists (#857).
+- **A task has a picker and a template (#857).** `terminal/task-palette.js` is the task picker (`insertTask`, default
+  `Ctrl/Cmd+Shift+Y`, also a command-palette row "Insert a task"): this project's open tasks, inserted as text through the
+  effective `taskInsertTemplate` (global or the project's) and left in the prompt, Shift+Enter for the bare title. `taskInsertText` lives there, and the
+  sidebar's task rows insert through the same function, so one task reads the same wherever it is picked from.
 - **A handoff's Open leaves the file editable**: handoffs are working documents, not configuration, so unlike an
   instruction file it opens in the ordinary preview, not read-only.
 - **A memory file's row reads the neutral `path`** that the backend puts on the memory row (`title` stays the tooltip).
