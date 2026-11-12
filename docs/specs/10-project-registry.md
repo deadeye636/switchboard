@@ -919,6 +919,40 @@ near its top or bottom edge, and the target is re-measured after each step. A re
 list or well past its ends, or a `pointercancel`, drops nothing. Guarded by `test/project-sort.test.js` and
 `test/sidebar-project-drop-vm.test.js`.
 
+### The Activity order holds while the list is in use (#867)
+
+A session writing in another project moves that project up, and the row under the pointer slid away before the
+click landed. While the pointer is over the project list, a popover opened from one of its rows is showing (the
+new-session popover, marked `data-project-list` by `showNewSessionPopover`; a bare `.popover` anywhere else does
+not count, the composer keeps a hidden one), or keyboard focus (`:focus-visible`) is in the list, `renderProjects`
+draws the order already on screen instead of the sorted one. The render is **not** skipped, so status, counts and
+new sessions keep updating. `holdProjectOrder` (`src/renderer/lib/project-sort.js`) keeps a drawn project in its
+place, appends one the screen lacks at the end (the only spot that moves no row), drops a vanished one, and keeps
+the favorites block together. `applyProjectOrderHold` (`src/renderer/shell/sidebar-sort.js`) decides; when the held
+order differs it schedules one plain `refreshSidebar()` after `PROJECT_ORDER_RELEASE_MS` (300 ms), restarted by
+`mouseleave` and re-armed only while a release is pending and the list is still in use. A hidden window
+(`document.hidden`, `body.window-hidden`) re-arms nothing; `visibilitychange` resumes a pending release.
+Only the Activity sort holds, and an explicit `resort` (Refresh, a sort or filter change) never does.
+
+**Actions inside the list hold too.** A session pin and a project favorite toggle pass
+`refreshSidebar({ resort: true, keepProjectOrder: true })`: the items re-sort as before, the project order
+keeps holding. A favorite toggle still moves that one project across the favorites divider, because the
+favorites block stays one block; inside its new block the project keeps its previously drawn rank, and the
+Activity position follows at release. A group is matched to its drawn place through `findProjectGroup`, so a
+spelling change of its path does not drop it to the end. Guarded by `test/sidebar-order-hold-vm.test.js`
+(including the `renderProjects` wiring).
+
+### Re-ordered projects glide into place (#868)
+
+When an Activity render changes the relative order of the project groups, `finalizeSidebar` measures every group
+before morphdom (`beginProjectGlide`, `src/renderer/shell/sidebar-sort.js`), and after it plays a ~180 ms
+`translateY` from the old place to the new one (FLIP; morphdom keeps the elements, keyed by id). The decision is
+`shouldGlideProjects` in `src/renderer/lib/project-sort.js`: Activity sort only, order actually changed (an added
+or removed project alone is not a re-order), not under `prefers-reduced-motion`, not in a hidden window. Each
+animation ends by itself, so nothing keeps running (`.claude/rules/renderer.md`, "Motion is paid for BY THE
+FRAME"). The release of a held order (#867) is an ordinary render, so it glides too. Guarded by
+`test/sidebar-project-glide-vm.test.js`.
+
 ## Known gaps
 
 - A removed project's sessions are out of **search** until it is registered again. Intended — it was

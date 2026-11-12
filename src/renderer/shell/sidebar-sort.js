@@ -96,3 +96,120 @@ window._persistProjectOrder = (arr) => {
 resortBtn.addEventListener('click', () => {
   loadProjects({ resort: true });
 });
+
+// --- Holding the Activity order under the pointer (#867) ---
+// A session in another project writing moves that project to the top, and the row under the pointer slides
+// away mid-click. While the list is in use (the pointer over it, a menu or popover from it open, keyboard focus
+// in it) renderProjects asks applyProjectOrderHold for the order to draw: the one already on screen, with
+// everything else in the rows still updating. The render is NOT skipped: a skipped render would freeze status,
+// counts and new sessions. Once the list is free again the held order is released with one ordinary render.
+// An explicit `resort` (the Refresh button, a sort or filter change) is never held: the user asked for it.
+const PROJECT_ORDER_RELEASE_MS = 300;
+// A popover opened from a row of the list lives in <body>; dialogs.js marks it `data-project-list`. A bare
+// `.popover` is NOT counted: other surfaces keep hidden ones around (the composer's completion box).
+const PROJECT_LIST_MENU_SELECTOR = '[data-project-list]';
+let _projectOrderPending = false;
+let _projectOrderTimer = null;
+let _projectOrderReleasing = false;
+
+function isProjectListInUse() {
+  if (typeof sidebarContent === 'undefined' || !sidebarContent) return false;
+  if (sidebarContent.matches(':hover')) return true;
+  // Keyboard focus only: a row clicked with the mouse keeps focus afterwards, and that must not hold forever.
+  const ae = document.activeElement;
+  if (ae && ae !== document.body && sidebarContent.contains(ae) && ae.matches(':focus-visible')) return true;
+  return [...document.querySelectorAll(PROJECT_LIST_MENU_SELECTOR)]
+    .some(el => el.isConnected && !el.hidden && getComputedStyle(el).display !== 'none');
+}
+
+function clearProjectOrderTimer() {
+  _projectOrderPending = false;
+  if (_projectOrderTimer !== null) { clearTimeout(_projectOrderTimer); _projectOrderTimer = null; }
+}
+
+function isWindowHidden() {
+  return document.hidden || document.body.classList.contains('window-hidden');
+}
+
+function scheduleProjectOrderRelease() {
+  _projectOrderPending = true;
+  clearTimeout(_projectOrderTimer);
+  _projectOrderTimer = setTimeout(() => {
+    _projectOrderTimer = null;
+    // A hidden window re-arms nothing; the visibilitychange listener below resumes it.
+    if (isWindowHidden()) return;
+    if (isProjectListInUse()) { scheduleProjectOrderRelease(); return; }
+    _projectOrderPending = false;
+    _projectOrderReleasing = true;
+    try { refreshSidebar(); } finally { _projectOrderReleasing = false; }
+  }, PROJECT_ORDER_RELEASE_MS);
+}
+
+// `sorted` is sortProjects' answer. Returns the list to draw.
+function applyProjectOrderHold(sorted, resort) {
+  const holding = !resort && !_projectOrderReleasing && projectSortMode === 'activity'
+    && typeof holdProjectOrder === 'function' && sortedOrder.length > 0 && isProjectListInUse();
+  if (!holding) {
+    clearProjectOrderTimer(); // this render draws the sorted order, so nothing is pending any more
+    return sorted;
+  }
+  // A group whose spelling changed since the last draw is still the same group (#671): ask findProjectGroup
+  // for its current spelling rather than comparing the raw paths.
+  const heldPaths = sortedOrder.map(e => {
+    const g = typeof findProjectGroup === 'function' ? findProjectGroup(sorted, e.projectPath, [sorted]) : null;
+    return g ? g.projectPath : e.projectPath;
+  });
+  const held = holdProjectOrder(sorted, heldPaths, { favoritesFirst: !favoritesOwnList });
+  if (held.some((p, i) => p !== sorted[i])) scheduleProjectOrderRelease();
+  else clearProjectOrderTimer();
+  return held;
+}
+
+// The pointer leaving is the usual end of a hold: restart the delay from there.
+sidebarContent.addEventListener('mouseleave', () => {
+  if (_projectOrderPending) scheduleProjectOrderRelease();
+});
+// A hidden window stops the release timer; coming back to it resumes a pending release.
+document.addEventListener('visibilitychange', () => {
+  if (_projectOrderPending && !isWindowHidden()) scheduleProjectOrderRelease();
+});
+
+// --- Gliding re-ordered projects into place (#868) ---
+// FLIP: measure every project group before morphdom, let morphdom move them (it keeps the elements, keyed by
+// id), measure again, and play a transform from the old place to the new. TRANSIENT on purpose: each animation
+// ends in ~180 ms and leaves nothing running (renderer.md, "Motion is paid for BY THE FRAME"). It also plays
+// for the order #867 held back, because that release is an ordinary render through finalizeSidebar.
+const PROJECT_GLIDE_MS = 180;
+
+function projectGroupsOf(container) {
+  return [...container.children].filter(el => el.classList.contains('project-group') && el.id);
+}
+
+// Called by finalizeSidebar before morphdom with the new tree; returns null (no glide) or a function to call
+// after morphdom.
+function beginProjectGlide(newSidebar) {
+  if (typeof shouldGlideProjects !== 'function' || typeof sidebarContent === 'undefined') return null;
+  const before = projectGroupsOf(sidebarContent);
+  const reducedMotion = typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!shouldGlideProjects({
+    mode: projectSortMode,
+    reducedMotion,
+    hidden: document.hidden || document.body.classList.contains('window-hidden'),
+    prevIds: before.map(el => el.id),
+    nextIds: projectGroupsOf(newSidebar).map(el => el.id),
+  })) return null;
+  // A glide still running from the render before would be measured mid-transform: cancel it first, so the old
+  // places are the real ones.
+  for (const el of before) if (typeof el.getAnimations === 'function') el.getAnimations().forEach(a => a.cancel());
+  const tops = new Map(before.map(el => [el.id, el.getBoundingClientRect().top]));
+  return () => {
+    for (const el of projectGroupsOf(sidebarContent)) {
+      if (!tops.has(el.id) || typeof el.animate !== 'function') continue;
+      const dy = tops.get(el.id) - el.getBoundingClientRect().top;
+      if (Math.abs(dy) < 1) continue;
+      el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }],
+        { duration: PROJECT_GLIDE_MS, easing: 'ease-out' });
+    }
+  };
+}

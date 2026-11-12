@@ -920,6 +920,7 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
     for (const item of sessionRowEls(activeSessionId, newSidebar)) item.classList.add('active');
   }
 
+  const glideAfter = typeof beginProjectGlide === 'function' ? beginProjectGlide(newSidebar) : null;
   morphdom(sidebarContent, newSidebar, {
     childrenOnly: true,
     // Every clause that used to sit here inline is `preserveSidebarState` in sidebar-state.js (#229) —
@@ -932,6 +933,8 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
       return node.id || undefined;
     }
   });
+
+  if (glideAfter) glideAfter();
 
   // Save the full sorted order (project order + item order) as source of truth
   sortedOrder = newSortedOrder;
@@ -952,7 +955,7 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
   }
 }
 
-function renderProjects(projects, resort) {
+function renderProjects(projects, resort, keepProjectOrder = false) {
   // A breadcrumb for a renderer stall report (shell/stall-report.js, #707).
   window.noteRendererWork?.('sidebar-render');
   // #277: gather the on-screen repo cwds during this render so main polls exactly what's visible.
@@ -978,6 +981,7 @@ function renderProjects(projects, resort) {
   // #17: apply the chosen project sort (favorites pin + activity/alpha/manual).
   if (typeof sortProjects === 'function') {
     projects = sortProjects(projects, { favoritesOwnList, projectSortMode, projectOrder });
+    if (typeof applyProjectOrderHold === 'function') projects = applyProjectOrderHold(projects, resort && !keepProjectOrder);
   }
   sidebarContent.classList.toggle('sort-manual', typeof projectSortMode !== 'undefined' && projectSortMode === 'manual');
 

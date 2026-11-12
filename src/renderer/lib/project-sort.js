@@ -121,5 +121,47 @@
     return order;
   }
 
-  return { sortProjects, moveInProjectOrder };
+  // The order the Activity sort would change, held at the one already on screen (#867). `sorted` is what
+  // sortProjects answered, `heldPaths` the paths in the order last drawn. A project the screen already has keeps
+  // its place; one it does not have yet goes at the END, in sorted order, because the end is the only place that
+  // moves no row under the pointer; one that is gone drops out. The favorites block stays one block when
+  // `favoritesFirst` (the divider and the sort both assume it), so a project favorited meanwhile moves up at once.
+  function holdProjectOrder(sorted, heldPaths, opts) {
+    const favoritesFirst = !!(opts && opts.favoritesFirst);
+    const held = Array.isArray(heldPaths) ? heldPaths : [];
+    const rank = new Map();
+    held.forEach((path, i) => { if (!rank.has(path)) rank.set(path, i); });
+    const decorated = sorted.map((p, i) => ({ p, i }));
+    decorated.sort((a, b) => {
+      if (favoritesFirst) {
+        const fa = a.p.favorited ? 0 : 1;
+        const fb = b.p.favorited ? 0 : 1;
+        if (fa !== fb) return fa - fb;
+      }
+      const ra = rank.has(a.p.projectPath) ? rank.get(a.p.projectPath) : Infinity;
+      const rb = rank.has(b.p.projectPath) ? rank.get(b.p.projectPath) : Infinity;
+      if (ra !== rb) return ra - rb;
+      return a.i - b.i;
+    });
+    return decorated.map(d => d.p);
+  }
+
+  // Did the projects both lists hold change their order relative to each other? An added or removed project
+  // alone is not a re-order (#868): nothing was swapped, so nothing glides.
+  function projectOrderChanged(prevIds, nextIds) {
+    const next = new Set(nextIds);
+    const prev = new Set(prevIds);
+    const a = prevIds.filter(id => next.has(id));
+    const b = nextIds.filter(id => prev.has(id));
+    return a.length !== b.length || a.some((id, i) => id !== b[i]);
+  }
+
+  // Whether a render glides its projects to new places (#868): only the Activity sort, only when the order
+  // changed, not under reduced motion and not in a window nobody can see.
+  function shouldGlideProjects({ mode, reducedMotion, hidden, prevIds, nextIds }) {
+    if (mode !== 'activity' || reducedMotion || hidden) return false;
+    return projectOrderChanged(prevIds || [], nextIds || []);
+  }
+
+  return { sortProjects, moveInProjectOrder, holdProjectOrder, projectOrderChanged, shouldGlideProjects };
 });

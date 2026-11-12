@@ -474,7 +474,7 @@ async function toggleProjectFavorite(project) {
     const p = list && findProjectGroup(list, project.projectPath, lists);
     if (p) p.favorited = fav;
   }
-  refreshSidebar({ resort: true });
+  refreshSidebar({ resort: true, keepProjectOrder: true });
 }
 
 async function remapProject(project) {
@@ -713,7 +713,7 @@ async function archiveOlderGroup(olderToggle) {
 async function toggleSessionPin(session) {
   const { starred } = await window.api.toggleStar(session.sessionId);
   session.starred = starred;
-  refreshSidebar({ resort: true });
+  refreshSidebar({ resort: true, keepProjectOrder: true });
 }
 
 async function copySessionId(session) {

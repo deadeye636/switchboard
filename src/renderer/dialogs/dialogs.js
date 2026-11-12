@@ -503,6 +503,8 @@ async function showNewSessionPopover(project, anchorEl) {
 
   const popover = document.createElement('div');
   popover.className = 'new-session-popover';
+  // Opened from a row of the project list: the Activity order holds while it is open (#867, shell/sidebar-sort.js).
+  if (anchorEl && anchorEl.closest && anchorEl.closest('#sidebar-content')) popover.dataset.projectList = '1';
 
   // One row per ready && enabled backend (T-3.2). The row BODY launches with the effective defaults;
   // the inline gear opens the Configure dialog for a one-off override. This merges Claude's old

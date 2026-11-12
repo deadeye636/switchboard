@@ -824,7 +824,9 @@ function dismissAttentionItem(sessionId) {
 // --- Single entry point for all sidebar renders ---
 // resort=true: re-sort items by priority+time (use for user-initiated actions)
 // resort=false (default): preserve existing DOM order, new items go to top
-function refreshSidebar({ resort = false } = {}) {
+// keepProjectOrder=true: an action inside the project list (a pin, a favorite) re-sorts the items it changed,
+// but the Activity order of the projects keeps holding while the list is in use (#867).
+function refreshSidebar({ resort = false, keepProjectOrder = false } = {}) {
   // When searching, always use all projects (search ignores archive filter)
   let projects = (searchMatchIds !== null)
     ? cachedAllProjects
@@ -879,7 +881,7 @@ function refreshSidebar({ resort = false } = {}) {
     projects = filterProjectSessionsByTags(projects, sessionTagMap, activeSessionTagFilter);
   }
 
-  renderProjects(projects, resort);
+  renderProjects(projects, resort, keepProjectOrder);
   if (typeof updateCollapseAllToggle === 'function') updateCollapseAllToggle();
 }
 
