@@ -68,7 +68,7 @@ function tracksEntries() {
 }
 
 function shortHash(text) {
-  return crypto.createHash('sha1').update(String(text)).digest('hex').slice(0, 12);
+  return crypto.createHash('sha256').update(String(text)).digest('hex').slice(0, 12);
 }
 
 function entryId(sessionId, summary) {
