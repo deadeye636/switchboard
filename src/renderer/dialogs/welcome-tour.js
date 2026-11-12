@@ -1,8 +1,9 @@
 // welcome-tour.js — the first-launch tour (#146).
 //
-// Nine panes over one dialog: a welcome pane and eight things a fresh installation does not explain by
-// itself. Shown once, on the first launch of a profile that has no `welcomeDismissed` in its global
-// settings, and reachable afterwards from Settings → Maintenance.
+// A welcome pane and one pane per thing a fresh installation does not explain by itself, over one dialog.
+// `PANES` is the list; nothing here writes down how many there are. Shown once, on the first launch of a
+// profile that has no `welcomeDismissed` in its global settings, and reachable afterwards from
+// Settings → Maintenance.
 //
 // Three things about it are decisions rather than taste, and they are the ones to keep:
 //
@@ -16,11 +17,16 @@
 //   not re-arm the backends. So a nested value (`backendDefaults.<id>.<opt>`, `shortcuts.<id>`) and
 //   anything needing the re-arm (`backendEnabled`) go through a read-modify-write on `set-setting`, the
 //   way settings-panel.js does it. A shallow merge of `backendEnabled` drops every other backend's state.
+//   A CLI's mode select (#761) writes every id of the CLI in that same one write, and moves a stored
+//   `defaultLaunchTarget` that pointed at a mode now off — the values the Backends list writes, because
+//   both ask `backendModes` (src/shared/backend-modes.js) for them.
 //
-//   IT NAMES NO BACKEND. Pane 2's toggle is resolved by asking the registry which backend DECLARES an
-//   integration field with that id, and pane 6's by asking which one declares that config option. Both
-//   panes disappear when no installed backend declares theirs. The ids named here (`attentionHooks`,
-//   `mcpEmulation`) are capability ids, not backend ids — reflex 5.
+//   IT NAMES NO BACKEND. The attention pane's toggle is resolved by asking the registry which backend
+//   DECLARES an integration field with that id, the review pane's by asking which one declares that config
+//   option, and the keep-warm pane's by asking which installed, enabled one answers the `idleMaintenance`
+//   capability (the projection of the descriptor hook of that name). Each pane disappears when no backend
+//   declares its own. The ids named here (`attentionHooks`, `mcpEmulation`, `idleMaintenance`) are
+//   capability ids, not backend ids — reflex 5. The CLIs pane groups through `backendModes.cliGroups`.
 //
 // The figures are drawn here rather than shipped as images, because five of them answer to the pane's
 // own controls: pick Grid and the picture shows Grid, type a directory name and the tree shows it. A
@@ -29,8 +35,10 @@
 // `FIG_GEAR` carries the argument. **There is no image file and no `assets/` directory.**
 //
 // Depends on renderer globals: window.api · window.isDetachedWindow (shell/detach-window.js) ·
-// window._backendsById (backends/backend-registry.js) · window.backendBadgeHtml (backends/backend-icons.js) ·
-// reapplyGlobalSettings (app.js).
+// window._backendsById, window._defaultBackendId (backends/backend-registry.js) · window.backendBadgeHtml (backends/backend-icons.js) ·
+// reapplyGlobalSettings (app.js) · backendModes (shared/backend-modes.js) · SESSION_SIDEBAR_GROUP_NAMES
+// (lib/sidebar-groups.js) · conventionDirNameProblem (shared/convention-dir-name.js). All read at call time;
+// the section names are asked with `typeof` first, and `backendModes` only once the registry has a backend.
 
 (function () {
   const FLAG = 'welcomeDismissed';
@@ -237,6 +245,64 @@
       </svg>`;
   }
 
+  // The session sidebar's section names, from lib/sidebar-groups.js — the list the sidebar and the settings
+  // screen read. Never a copy here: a section added there is drawn and named here on the same day.
+  function sidebarSectionLabels() {
+    return typeof SESSION_SIDEBAR_GROUP_NAMES !== 'undefined' && Array.isArray(SESSION_SIDEBAR_GROUP_NAMES)
+      ? SESSION_SIDEBAR_GROUP_NAMES.map((g) => g.label)
+      : [];
+  }
+
+  function figSessionSidebar(open) {
+    const labels = sidebarSectionLabels();
+    const termRight = open ? 352 : 524;
+    const lines = [150, 210, 120, 186, 96, 230, 140].map((w, i) => {
+      const width = Math.min(w, termRight - 128);
+      return `<rect x="116" y="${66 + i * 18}" width="${width}" height="6" rx="2" fill="rgba(255,255,255,0.07)"/>`;
+    }).join('');
+    const side = open
+      ? `<rect x="364" y="52" width="164" height="144" rx="6" fill="rgba(128,136,255,0.07)" stroke="rgba(128,136,255,0.30)"/>
+        ${labels.slice(0, 7).map((label, i) => `<path d="M376 ${68 + i * 18} l4 3 -4 3" fill="none" stroke="#8088ff" stroke-width="1.2" stroke-linejoin="round"/>
+          <text x="388" y="${74 + i * 18}" font-family="sans-serif" font-size="10" fill="#c8c8d8">${esc(label)}</text>`).join('')}`
+      : '';
+    return `<svg viewBox="0 0 640 220" role="img" aria-label="A session with its sidebar ${open ? 'open on the right' : 'closed'}">
+        <rect x="100" y="16" width="440" height="188" rx="8" fill="#1a1a24" stroke="rgba(255,255,255,0.10)"/>
+        <circle cx="116" cy="32" r="3.6" fill="#3ecf5a"/>
+        <text x="128" y="36" font-family="sans-serif" font-size="10.5" fill="#c8c8d8">session</text>
+        <rect x="506" y="23" width="22" height="18" rx="4" fill="${open ? 'rgba(128,136,255,0.18)' : 'rgba(255,255,255,0.04)'}" stroke="${open ? '#8088ff' : 'rgba(255,255,255,0.18)'}"/>
+        <rect x="511" y="27" width="12" height="10" rx="1.5" fill="none" stroke="${open ? '#8088ff' : '#7a7a90'}" stroke-width="1.2"/>
+        <path d="M519 27 V 37" stroke="${open ? '#8088ff' : '#7a7a90'}" stroke-width="1.2"/>
+        ${lines}${side}
+      </svg>`;
+  }
+
+  // A timeline from the user's last turn. Every mark on it is a model turn the app sends, so each is drawn
+  // and labelled — the point of the pane is that none of them is free.
+  function figIdle(mode) {
+    const warm = mode === 'warm' || mode === 'warm-compact';
+    const compact = mode === 'compact' || mode === 'warm-compact';
+    const ticks = warm ? [170, 260, 350] : [];
+    const compactAt = mode === 'compact' ? 300 : 460;
+    const tickMarks = ticks.map((x) => `<circle cx="${x}" cy="96" r="5" fill="#d8a657"/>
+        <text x="${x}" y="80" font-family="sans-serif" font-size="10" fill="#d8a657" text-anchor="middle">refresh</text>`).join('');
+    const compactMark = compact
+      ? `<rect x="${compactAt - 6}" y="90" width="12" height="12" rx="2" fill="#e06c75" transform="rotate(45 ${compactAt} 96)"/>
+        <text x="${compactAt}" y="80" font-family="sans-serif" font-size="10" fill="#e06c75" text-anchor="middle">compact</text>`
+      : '';
+    const note = mode === 'off'
+      ? 'nothing is sent while the session is idle'
+      : 'each mark is a model turn that costs tokens';
+    return `<svg viewBox="0 0 640 170" role="img" aria-label="What happens after your last turn while the session is idle: ${esc(note)}">
+        <path d="M70 96 H 570" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
+        <circle cx="70" cy="96" r="6" fill="#3ecf5a"/>
+        <text x="70" y="122" font-family="sans-serif" font-size="10" fill="#7a7a90" text-anchor="middle">your last turn</text>
+        <path d="M570 86 V 106" stroke="rgba(255,255,255,0.30)" stroke-width="1.5"/>
+        <text x="570" y="122" font-family="sans-serif" font-size="10" fill="#7a7a90" text-anchor="middle">nothing after this</text>
+        ${tickMarks}${compactMark}
+        <text x="320" y="154" font-family="sans-serif" font-size="10.5" fill="${mode === 'off' ? '#5a5a70' : '#d8a657'}" text-anchor="middle">${esc(note)}</text>
+      </svg>`;
+  }
+
   // A name the app will not use is drawn as the directory it will use instead (#630). The figure promises
   // where the next plan and the next handoff go, and `../plans` or `.` is a value every project replaces —
   // so drawing it as typed made the tour the one surface still claiming the setting applied. The rule is
@@ -305,9 +371,11 @@
 
   // ── The panes ──────────────────────────────────────────────────────────────────────────────────
   //
-  // `setting` says how a control is written, and there are four shapes because there are four shapes in
-  // the code (see the header). `backendOption` and `integration` name a CAPABILITY id and are resolved
-  // through the registry, so no backend is named here.
+  // `setting` says how a control is written, and there is one shape per shape in the code (see the
+  // header). `backendOption` and `integration` name a CAPABILITY id and are resolved through the registry,
+  // so no backend is named here; `backendEnabled` and `backendMode` are built from the registry at open time.
+  // A pane's `capability` names a capability row an installed, enabled backend has to answer for the pane
+  // to be shown. A `body` may be a function, read when the pane is drawn.
 
   const PANES = [
     {
@@ -316,8 +384,8 @@
       title: 'Welcome to Switchboard',
       body: `<p>Switchboard finds the coding-CLI sessions already on this machine, groups them by project,
         and keeps them running side by side. Nothing here starts a session on its own.</p>
-        <p>Eight short panes cover what a fresh installation does not explain by itself. Every one of them
-        lets you change the setting it talks about, right here. Settings → Maintenance brings the tour
+        <p>The short panes that follow cover what a fresh installation does not explain by itself. Each
+        one that names a setting lets you change it, right here. Settings → Maintenance brings the tour
         back at any time.</p>`,
     },
     {
@@ -341,6 +409,36 @@
         prompt. The switch is one level in: the gear beside the backend's row, then Integrations.</p>`,
       controls: [{ kind: 'toggle', label: 'Hooks for attention', setting: { type: 'integration', field: 'attentionHooks' } }],
       figure: { svg: FIG_GEAR, cap: 'The gear on a backend row opens more than launch defaults — Integrations lives behind it.' },
+    },
+    {
+      rail: 'Keep warm',
+      title: 'Idle sessions can be kept warm or compacted',
+      where: 'Settings → Session idle maintenance · the Idle button on a session',
+      body: `<p>A session driven over a pipe can be looked after while you are away: its prompt cache kept
+        warm so your next turn costs less, its context compacted, or both.</p>
+        <p><b>Every refresh and every compaction is a real model turn</b>, counted against your plan or
+        your API bill. A compaction cannot be undone. That is why this is off until you choose it.</p>
+        <p>A project can set its own mode in its project settings. The Idle button on a running session
+        changes it for that session alone.</p>`,
+      // Shown only when an installed, enabled backend answers the `idleMaintenance` capability.
+      capability: 'idleMaintenance',
+      controls: [{
+        kind: 'select',
+        label: 'While a session sits idle',
+        options: [
+          { value: 'off', label: 'Off' }, { value: 'warm', label: 'Keep warm' },
+          { value: 'compact', label: 'Compact only' }, { value: 'warm-compact', label: 'Warm then compact' },
+        ],
+        setting: { type: 'flat', key: 'idleMaintenanceMode', fallback: 'off' },
+      }],
+      figureOf: (v) => ({
+        svg: figIdle(v[0]),
+        cap: ({
+          warm: 'Keep warm — a few refreshes after your last turn, then nothing.',
+          compact: 'Compact only — one compaction once the session has sat idle for a while.',
+          'warm-compact': 'Warm then compact — the refreshes first, then one compaction.',
+        })[v[0]] || 'Off — nothing is sent while a session sits idle.',
+      }),
     },
     {
       rail: 'Splitting',
@@ -380,6 +478,35 @@
       figureOf: (v) => ({
         svg: figSidebar(v[0], v[1]),
         cap: 'A project with 14 sessions, folded by the two numbers above. A running session never folds.',
+      }),
+    },
+    {
+      rail: 'Session sidebar',
+      title: 'Each session has a sidebar of its own',
+      where: 'The sidebar button on a session · Settings → Sessions',
+      // A function, so the section names are read from lib/sidebar-groups.js when the pane is drawn.
+      body: () => {
+        const labels = sidebarSectionLabels().map(esc);
+        const list = labels.length > 1
+          ? `: ${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
+          : '';
+        return `<p>Next to every session sits a sidebar with what belongs to it${list}.</p>
+        <p>The sidebar button on the session opens and closes it, and each session keeps its own choice.
+        Drag a section by its grip to change the order, and right-click a section's heading to choose which
+        ones are shown. Both apply to every session.</p>`;
+      },
+      controls: [{
+        kind: 'select',
+        label: 'In a new session, the sidebar starts',
+        desc: 'A session you have already opened or closed it in keeps its own state.',
+        options: [{ value: 'closed', label: 'Closed' }, { value: 'open', label: 'Open' }],
+        setting: { type: 'flat', key: 'sessionSidebarDefault', fallback: 'closed' },
+      }],
+      figureOf: (v) => ({
+        svg: figSessionSidebar(v[0] === 'open'),
+        cap: v[0] === 'open'
+          ? 'Open — a new session shows its sidebar on the right from the start.'
+          : 'Closed — a new session starts without it; the button on the session opens it.',
       }),
     },
     {
@@ -478,6 +605,9 @@
   let panes = [];              // PANES with pane 1's controls resolved
   let previousFocus = null;
   let escapeHandler = null;
+  // The mode a CLI had when its toggle was switched off in this tour, so switching it on brings that mode
+  // back (D14 of #761, the Backends list's `rememberedModes`). Not stored: a reopened tour starts empty.
+  let rememberedModes = {};
 
   const isOpen = () => !!overlay;
 
@@ -502,6 +632,33 @@
       Array.isArray(b.configFields) && b.configFields.some((f) => f && f.id === optionId)) || null;
   }
 
+  // Is this backend switched on in this blob? The stored flag, else what the registry answered.
+  function enabledIn(blob, b) {
+    const stored = ((blob && blob.backendEnabled) || {})[b.id];
+    return stored === undefined ? b.enabled !== false : stored !== false;
+  }
+
+  // Which installed, enabled backend answers this capability row with yes or limited? The row is the
+  // descriptor's own declaration, projected through `backends-list` (`capabilities`), so a backend whose
+  // hook is there only to decline answers no and does not count.
+  function backendDeclaringCapability(capabilityId) {
+    return backendsList().find((b) => {
+      const answer = b.capabilities && b.capabilities[capabilityId];
+      return b.status === 'ready' && b.available !== false && enabledIn(settings, b)
+        && !!answer && (answer.state === 'yes' || answer.state === 'limited');
+    }) || null;
+  }
+
+  // One CLI's `backendEnabled` values in this blob, one boolean per id of its group.
+  function groupEnabledIn(blob, group) {
+    const out = {};
+    for (const b of [group.owner, ...group.drivers]) out[b.id] = enabledIn(blob, b);
+    return out;
+  }
+
+  // What switching a CLI on enables when no mode is remembered: the owner alone, as the Backends list does.
+  const ownerOnly = (group) => Object.fromEntries(group.ids.map((id) => [id, id === group.owner.id]));
+
   function readValue(setting) {
     if (!setting) return null;
     if (setting.type === 'flat') {
@@ -512,6 +669,9 @@
       const map = settings.backendEnabled || {};
       const stored = map[setting.backendId];
       return stored === undefined ? !!setting.fallback : stored !== false;
+    }
+    if (setting.type === 'backendMode') {
+      return groupEnabledIn(settings, setting.group);
     }
     if (setting.type === 'integration') {
       return settings[setting.field] === true;
@@ -557,6 +717,27 @@
 
     if (setting.type === 'backendEnabled') {
       fresh.backendEnabled = Object.assign({}, fresh.backendEnabled, { [setting.backendId]: value });
+    } else if (setting.type === 'backendMode') {
+      // A CLI with more than one mode (#761): `true`/`false` from its toggle, a choice value from its select.
+      // The values are the Backends list's: off writes every id false, on brings back the mode remembered
+      // in this tour or the owner alone (D14), a choice writes `enabledForChoice`. The default target in the
+      // group follows the mode (D6). With none stored (a first launch) it starts from the target the app
+      // resolved — what the Backends list's select shows — and is written only when it moves; otherwise
+      // `getDefaultLaunchTarget` would fall to the first enabled backend instead of this CLI's other mode.
+      const group = setting.group;
+      let next;
+      if (value === true) {
+        next = rememberedModes[group.owner.id] || ownerOnly(group);
+      } else if (value === false) {
+        rememberedModes[group.owner.id] = groupEnabledIn(fresh, group);
+        next = Object.fromEntries(group.ids.map((id) => [id, false]));
+      } else {
+        next = backendModes.enabledForChoice(group, value);
+      }
+      fresh.backendEnabled = Object.assign({}, fresh.backendEnabled, next);
+      const target = fresh.defaultLaunchTarget || window._defaultBackendId || '';
+      const moved = target ? backendModes.targetAfterModeChange(target, group, next) : target;
+      if (moved !== target) fresh.defaultLaunchTarget = moved;
     } else if (setting.type === 'backendOption') {
       const backend = backendDeclaringOption(setting.option);
       if (!backend) return null;
@@ -577,6 +758,24 @@
     if (control.kind === 'toggle') {
       return `<label class="settings-toggle">
           <input type="checkbox" id="${id}" ${value ? 'checked' : ''}>
+          <span class="settings-toggle-slider"></span>
+        </label>`;
+    }
+    if (control.kind === 'mode') {
+      // The Backends list's row controls (#761): the mode select, then the CLI's toggle. While the toggle is
+      // off the select shows the mode switching on would bring back, and is disabled. A combination the
+      // select cannot offer is shown as it is, never rewritten (D13).
+      const group = control.setting.group;
+      const on = group.ids.some((gid) => value[gid] === true);
+      const shown = backendModes.choiceFor(group, value)
+        || backendModes.choiceFor(group, rememberedModes[group.owner.id] || ownerOnly(group));
+      const extra = shown && shown.readOnly
+        ? `<option value="${esc(shown.value)}" disabled selected>${esc(shown.label)}</option>` : '';
+      const opts = extra + backendModes.modeChoices(group).map((c) =>
+        `<option value="${esc(c.value)}" ${shown && !shown.readOnly && shown.value === c.value ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
+      return `<select class="settings-select" id="${id}" aria-label="Mode of ${esc(control.label)}" ${on ? '' : 'disabled'}>${opts}</select>
+        <label class="settings-toggle">
+          <input type="checkbox" id="${id}-on" aria-label="Enable ${esc(control.label)}" ${on ? 'checked' : ''}>
           <span class="settings-toggle-slider"></span>
         </label>`;
     }
@@ -636,7 +835,7 @@
     body.innerHTML = `
       <h3 class="wt-title">${esc(pane.title)}</h3>
       ${pane.where ? `<div class="wt-where">${esc(pane.where)}</div>` : ''}
-      <div class="wt-prose">${pane.body}</div>
+      <div class="wt-prose">${typeof pane.body === 'function' ? pane.body() : pane.body}</div>
       <div class="wt-controls">${renderControls(pane)}</div>
       ${pane.intro ? `<div class="wt-intro-actions">
           <button class="new-session-secondary-btn" type="button" data-wt-import>Import settings</button>
@@ -675,10 +874,10 @@
         }
         return el.value;
       };
-      const commit = async () => {
+      const commit = async (value, focusId) => {
         let result = null;
         try {
-          result = await writeValue(control.setting, readEl());
+          result = await writeValue(control.setting, value);
         } catch (err) {
           showStatus(root, 'That setting could not be saved: ' + (err && err.message ? err.message : 'unknown error'));
           return;
@@ -702,8 +901,14 @@
         // …and the OTHER windows are told, because a detached window loads the same shell (#390) and
         // does listen. Free of a double apply: the broadcast excludes the sender, which is us.
         try { window.api.notifySettingsChanged?.(); } catch { /* best-effort */ }
+        // A CLI switched on or off changes what the row shows (the select follows the toggle) and which
+        // panes apply (keep warm needs an enabled backend that answers it), so the tour is rebuilt from
+        // the blob just written.
+        if (control.setting.type === 'backendMode' || control.setting.type === 'backendEnabled') rebuildPanes(focusId);
       };
-      el.addEventListener('change', () => { drawFigure(pane, root); commit(); });
+      el.addEventListener('change', () => { drawFigure(pane, root); commit(readEl(), el.id); });
+      const onEl = control.kind === 'mode' ? root.querySelector('#wt-ctl-' + n + '-on') : null;
+      if (onEl) onEl.addEventListener('change', () => commit(onEl.checked, onEl.id));
       if (el.type === 'number' || el.type === 'text') {
         el.addEventListener('input', () => drawFigure(pane, root));
       }
@@ -728,28 +933,41 @@
         // that can never take effect.
         const list = backendsList().filter((b) => b.status === 'ready');
         if (!list.length) continue;
+        // One entry per CLI (#761), grouped by the module the Backends list asks: a CLI with more than one
+        // mode gets the mode select beside its toggle, a CLI with one mode exactly the toggle it had.
         out.push(Object.assign({}, pane, {
-          controls: list.map((b) => ({
-            kind: 'toggle',
-            label: b.label || b.id,
-            desc: b.available === false ? (b.unavailableReason || 'Not installed on this machine.') : '',
-            // The SAME badge the settings screen draws BESIDE A TOGGLE — `backends-panel.js`'s enable
-            // list, which spells the key `colour || id` and deliberately NOT `icon`. The per-backend
-            // page header uses `icon` first and therefore shows Claude's Anthropic mark; the enable
-            // list shows a monogram for every backend, so the column reads as one set. This pane is
-            // that list, so it takes that key. Two earlier spellings both looked right on their own and
-            // put a different badge next to the same backend in the two places: passing `colour` as an
-            // OPTION (it overrides the fill the key would have chosen), and reaching for `icon` first.
-            badge: typeof window.backendBadgeHtml === 'function'
-              ? window.backendBadgeHtml(b.colour || b.id, 20, { monogram: b.monogram })
-              : '',
-            setting: { type: 'backendEnabled', backendId: b.id, fallback: b.enabled !== false },
-          })),
+          controls: backendModes.cliGroups(list).map((g) => {
+            const b = g.owner;
+            const multi = g.modes.length > 1;
+            const missing = g.modes
+              .map((m) => ({ m, d: m.id === b.id ? b : g.drivers.find((x) => x.id === m.id) }))
+              .filter((x) => x.d && x.d.available === false);
+            return {
+              kind: multi ? 'mode' : 'toggle',
+              label: b.label || b.id,
+              desc: missing.map((x) => (multi ? `${x.m.label}: ` : '')
+                + (x.d.unavailableReason || 'Not installed on this machine.')).join(' '),
+              // The SAME badge the settings screen draws BESIDE A TOGGLE — `backends-panel.js`'s enable
+              // list, which spells the key `colour || id` and deliberately NOT `icon`. The per-backend
+              // page header uses `icon` first and therefore shows Claude's Anthropic mark; the enable
+              // list shows a monogram for every backend, so the column reads as one set. This pane is
+              // that list, so it takes that key. Two earlier spellings both looked right on their own and
+              // put a different badge next to the same backend in the two places: passing `colour` as an
+              // OPTION (it overrides the fill the key would have chosen), and reaching for `icon` first.
+              badge: typeof window.backendBadgeHtml === 'function'
+                ? window.backendBadgeHtml(b.colour || b.id, 20, { monogram: b.monogram })
+                : '',
+              setting: multi
+                ? { type: 'backendMode', group: g }
+                : { type: 'backendEnabled', backendId: b.id, fallback: b.enabled !== false },
+            };
+          }),
         }));
         continue;
       }
       // A pane whose control nothing installed declares is not a pane — it would explain a switch the
       // user does not have.
+      if (pane.capability && !backendDeclaringCapability(pane.capability)) continue;
       const needsIntegration = (pane.controls || []).find((c) => c.setting && c.setting.type === 'integration');
       if (needsIntegration && !backendDeclaringIntegration(needsIntegration.setting.field)) continue;
       const needsOption = (pane.controls || []).find((c) => c.setting && c.setting.type === 'backendOption');
@@ -759,6 +977,30 @@
     return out;
   }
 
+  function railHtml() {
+    return `<div class="wt-rail-title">Getting started</div>
+          ${panes.map((p, i) => `<button type="button" class="wt-rail-item" data-wt-go="${i}">
+              <span class="wt-rail-num">${i === 0 ? '·' : i}</span><span>${esc(p.rail)}</span>
+            </button>`).join('')}`;
+  }
+
+  // The panes again, from the blob as it is now: a CLI switched on or off can add or drop a pane whose
+  // capability only an enabled backend answers. The pane on screen and the panes already seen are kept by
+  // their rail label, because their indices can move.
+  function rebuildPanes(focusId) {
+    if (!overlay) return;
+    const railOf = (i) => panes[i] && panes[i].rail;
+    const onScreen = railOf(current);
+    const seenRails = new Set([...seen].map(railOf));
+    panes = buildPanes();
+    if (!panes.length) { close(); return; }
+    seen = new Set(panes.map((p, i) => (seenRails.has(p.rail) ? i : -1)).filter((i) => i >= 0));
+    overlay.querySelector('.wt-rail').innerHTML = railHtml();
+    const at = panes.findIndex((p) => p.rail === onScreen);
+    renderPane(at >= 0 ? at : Math.min(current, panes.length - 1));
+    if (focusId) overlay.querySelector('#' + focusId)?.focus();
+  }
+
   async function open() {
     if (isOpen()) { overlay.querySelector('.wt-next')?.focus(); return; }
     settings = (await window.api.getSetting('global')) || {};
@@ -766,6 +1008,7 @@
     if (!panes.length) return;
     current = 0;
     seen = new Set([0]);
+    rememberedModes = {};
     previousFocus = document.activeElement;
 
     overlay = document.createElement('div');
@@ -775,12 +1018,7 @@
     overlay.setAttribute('aria-label', 'Welcome to Switchboard');
     overlay.innerHTML = `
       <div class="new-session-dialog wt-dialog">
-        <nav class="wt-rail">
-          <div class="wt-rail-title">Getting started</div>
-          ${panes.map((p, i) => `<button type="button" class="wt-rail-item" data-wt-go="${i}">
-              <span class="wt-rail-num">${i === 0 ? '·' : i}</span><span>${esc(p.rail)}</span>
-            </button>`).join('')}
-        </nav>
+        <nav class="wt-rail">${railHtml()}</nav>
         <section class="wt-pane">
           <button class="va-dialog-close wt-close" type="button" aria-label="Close the tour" title="Close the tour">&times;</button>
           <div class="wt-body"></div>
@@ -880,7 +1118,7 @@
   window.api?.onSettingsChanged?.(async () => {
     if (!isOpen()) return;
     try { settings = (await window.api.getSetting('global')) || settings; } catch { return; }
-    renderPane(current);
+    rebuildPanes(null);
   });
 
   window.welcomeTour = { open, close, maybeShowOnLaunch, isOpen };
