@@ -17,9 +17,10 @@
 //   not re-arm the backends. So a nested value (`backendDefaults.<id>.<opt>`, `shortcuts.<id>`) and
 //   anything needing the re-arm (`backendEnabled`) go through a read-modify-write on `set-setting`, the
 //   way settings-panel.js does it. A shallow merge of `backendEnabled` drops every other backend's state.
-//   A CLI's mode select (#761) writes every id of the CLI in that same one write, and moves a stored
+//   A CLI's mode switch (#761) writes every id of the CLI in that same one write, and moves a stored
 //   `defaultLaunchTarget` that pointed at a mode now off — the values the Backends list writes, because
-//   both ask `backendModes` (src/shared/backend-modes.js) for them.
+//   both ask `backendModes` (src/shared/backend-modes.js) for them. Its "Default in the picker" switch
+//   writes `pickerModeByBackend.<owner>` the same whole-blob way.
 //
 //   IT NAMES NO BACKEND. The attention pane's toggle is resolved by asking the registry which backend
 //   DECLARES an integration field with that id, the review pane's by asking which one declares that config
@@ -722,7 +723,7 @@
       // The values are the Backends list's: off writes every id false, on brings back the mode remembered
       // in this tour or the owner alone (D14), a choice writes `enabledForChoice`. The default target in the
       // group follows the mode (D6). With none stored (a first launch) it starts from the target the app
-      // resolved — what the Backends list's select shows — and is written only when it moves; otherwise
+      // resolved — what the Backends list's target select shows — and is written only when it moves; otherwise
       // `getDefaultLaunchTarget` would fall to the first enabled backend instead of this CLI's other mode.
       const group = setting.group;
       let next;
@@ -738,6 +739,9 @@
       const target = fresh.defaultLaunchTarget || window._defaultBackendId || '';
       const moved = target ? backendModes.targetAfterModeChange(target, group, next) : target;
       if (moved !== target) fresh.defaultLaunchTarget = moved;
+    } else if (setting.type === 'pickerMode') {
+      // "Default in the picker" (#761 E6 d): the mode id under the CLI's owner, the value the Backends list saves.
+      fresh.pickerModeByBackend = Object.assign({}, fresh.pickerModeByBackend, { [setting.group.owner.id]: value });
     } else if (setting.type === 'backendOption') {
       const backend = backendDeclaringOption(setting.option);
       if (!backend) return null;
@@ -762,18 +766,20 @@
         </label>`;
     }
     if (control.kind === 'mode') {
-      // The Backends list's row controls (#761): the mode select, then the CLI's toggle. While the toggle is
-      // off the select shows the mode switching on would bring back, and is disabled. A combination the
-      // select cannot offer is shown as it is, never rewritten (D13).
+      // The Backends list's row choices (#761 E6 c) as a segmented switch, then the CLI's toggle. While the toggle
+      // is off the switch shows the mode switching on would bring back, and is disabled. A combination the
+      // switch cannot offer presses no segment and is named in a note, never rewritten (D13).
       const group = control.setting.group;
       const on = group.ids.some((gid) => value[gid] === true);
       const shown = backendModes.choiceFor(group, value)
         || backendModes.choiceFor(group, rememberedModes[group.owner.id] || ownerOnly(group));
-      const extra = shown && shown.readOnly
-        ? `<option value="${esc(shown.value)}" disabled selected>${esc(shown.label)}</option>` : '';
-      const opts = extra + backendModes.modeChoices(group).map((c) =>
-        `<option value="${esc(c.value)}" ${shown && !shown.readOnly && shown.value === c.value ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
-      return `<select class="settings-select" id="${id}" aria-label="Mode of ${esc(control.label)}" ${on ? '' : 'disabled'}>${opts}</select>
+      const fixed = !!(shown && shown.readOnly);
+      const buttons = backendModes.modeChoices(group).map((c, i) => {
+        const pressed = !fixed && !!shown && shown.value === c.value;
+        return `<button type="button" class="fp-toolbar-btn viewer-mode-btn${pressed ? ' active' : ''}" id="${id}-c${i}" data-choice="${esc(c.value)}" aria-pressed="${pressed}" ${on ? '' : 'disabled'}>${esc(c.label)}</button>`;
+      }).join('');
+      const note = fixed ? `<span class="wt-unit wt-mode-note">Now: ${esc(shown.label)}</span>` : '';
+      return `${note}<div class="viewer-mode-group wt-mode-switch" role="group" id="${id}" aria-label="Mode of ${esc(control.label)}">${buttons}</div>
         <label class="settings-toggle">
           <input type="checkbox" id="${id}-on" aria-label="Enable ${esc(control.label)}" ${on ? 'checked' : ''}>
           <span class="settings-toggle-slider"></span>
@@ -791,6 +797,25 @@
     return `<input class="settings-input wt-input-path" type="text" id="${id}" value="${esc(value)}">`;
   }
 
+  // "Default in the picker" under a CLI's description (#761 E6 d), only while more than one of its modes is on:
+  // the choices of the Backends list's picker badge, over the same `pickerModeByBackend` value and the same fallback
+  // (`pickerModeOf`).
+  function pickerSwitchHtml(control, id) {
+    if (control.kind !== 'mode') return '';
+    const group = control.setting.group;
+    const enabled = groupEnabledIn(settings, group);
+    const on = group.modes.filter((m) => enabled[m.id] === true);
+    if (on.length < 2) return '';
+    const current = backendModes.pickerModeOf(group, (settings.pickerModeByBackend || {})[group.owner.id], enabled);
+    const buttons = on.map((m, i) => {
+      const pressed = m.id === current;
+      return `<button type="button" class="fp-toolbar-btn viewer-mode-btn${pressed ? ' active' : ''}" id="${id}-p${i}" data-picker-mode="${esc(m.id)}" aria-pressed="${pressed}">${esc(m.label)}</button>`;
+    }).join('');
+    return `<div class="wt-row-desc wt-picker-mode">Default in the picker
+        <div class="viewer-mode-group wt-picker-mode-switch" role="group" aria-label="Default in the picker for ${esc(control.label)}">${buttons}</div>
+      </div>`;
+  }
+
   function renderControls(pane) {
     if (!pane.controls || !pane.controls.length) {
       return pane.ctlNote ? `<div class="wt-note">${pane.ctlNote}</div>` : '';
@@ -802,6 +827,7 @@
           <div>
             <label class="wt-row-label" for="wt-ctl-${n}">${esc(control.label)}</label>
             ${control.desc ? `<div class="wt-row-desc">${esc(control.desc)}</div>` : ''}
+            ${pickerSwitchHtml(control, 'wt-ctl-' + n)}
           </div>
         </div>
         <div class="wt-row-control">${controlWidget(control, 'wt-ctl-' + n)}</div>
@@ -874,10 +900,10 @@
         }
         return el.value;
       };
-      const commit = async (value, focusId) => {
+      const commit = async (value, focusId, setting = control.setting) => {
         let result = null;
         try {
-          result = await writeValue(control.setting, value);
+          result = await writeValue(setting, value);
         } catch (err) {
           showStatus(root, 'That setting could not be saved: ' + (err && err.message ? err.message : 'unknown error'));
           return;
@@ -901,12 +927,29 @@
         // …and the OTHER windows are told, because a detached window loads the same shell (#390) and
         // does listen. Free of a double apply: the broadcast excludes the sender, which is us.
         try { window.api.notifySettingsChanged?.(); } catch { /* best-effort */ }
-        // A CLI switched on or off changes what the row shows (the select follows the toggle) and which
+        // A CLI switched on or off changes what the row shows (the switch follows the toggle) and which
         // panes apply (keep warm needs an enabled backend that answers it), so the tour is rebuilt from
         // the blob just written.
-        if (control.setting.type === 'backendMode' || control.setting.type === 'backendEnabled') rebuildPanes(focusId);
+        if (['backendMode', 'backendEnabled', 'pickerMode'].includes(setting.type)) rebuildPanes(focusId);
       };
-      el.addEventListener('change', () => { drawFigure(pane, root); commit(readEl(), el.id); });
+      if (control.kind === 'mode') {
+        // The segments are buttons: Tab reaches them, Enter / Space press them, a click commits. The picker
+        // default sits in the row's info column, so it is looked up in the row.
+        el.addEventListener('click', (e) => {
+          const btn = e.target.closest('[data-choice]');
+          if (btn && !btn.disabled) commit(btn.dataset.choice, btn.id);
+        });
+        const row = el.closest('.wt-row');
+        const picker = row && row.querySelector('.wt-picker-mode-switch');
+        if (picker) {
+          picker.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-picker-mode]');
+            if (btn) commit(btn.dataset.pickerMode, btn.id, { type: 'pickerMode', group: control.setting.group });
+          });
+        }
+      } else {
+        el.addEventListener('change', () => { drawFigure(pane, root); commit(readEl(), el.id); });
+      }
       const onEl = control.kind === 'mode' ? root.querySelector('#wt-ctl-' + n + '-on') : null;
       if (onEl) onEl.addEventListener('change', () => commit(onEl.checked, onEl.id));
       if (el.type === 'number' || el.type === 'text') {
@@ -934,7 +977,7 @@
         const list = backendsList().filter((b) => b.status === 'ready');
         if (!list.length) continue;
         // One entry per CLI (#761), grouped by the module the Backends list asks: a CLI with more than one
-        // mode gets the mode select beside its toggle, a CLI with one mode exactly the toggle it had.
+        // mode gets the mode switch beside its toggle, a CLI with one mode exactly the toggle it had.
         out.push(Object.assign({}, pane, {
           controls: backendModes.cliGroups(list).map((g) => {
             const b = g.owner;

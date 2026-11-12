@@ -548,9 +548,11 @@ async function showNewSessionPopover(project, anchorEl) {
     popover.appendChild(cliLabel);
   }
 
-  // A CLI with a terminal and a GUI mode is ONE row (#761 E5): the row starts the terminal mode, the GUI button
-  // beside the gear starts the GUI mode. With only the GUI mode enabled the row starts it under the GUI's own
-  // label. A template is a row of its own, as before. The modes come from `cliLaunchModesOf`; no id is named here.
+  // A CLI with a terminal and a GUI mode is ONE row (#761 E5): the row starts the mode chosen as "Default in the
+  // picker" (E6 d, `modes.primary`, the terminal mode unless the GUI was chosen) under the CLI's label, and the
+  // button beside the gear starts the other mode, labelled with that mode. With only the GUI mode enabled the
+  // row starts it under the GUI's own label. A template is a row of its own, as before. The modes come from
+  // `cliLaunchModesOf`; no id is named here.
   const shownClis = new Set();
   for (const listed of backendList) {
     const modes = listed.isProfile ? null : cliLaunchModesOf(listed.id);
@@ -558,8 +560,14 @@ async function showNewSessionPopover(project, anchorEl) {
       if (shownClis.has(modes.key)) continue;
       shownClis.add(modes.key);
     }
-    const backend = modes ? (modes.terminal || modes.gui) : listed;
-    const guiBackend = modes && modes.terminal ? modes.gui : null;
+    const both = !!(modes && modes.terminal && modes.gui);
+    const rowStartsGui = both && modes.primary && modes.primary.id === modes.gui.id;
+    const backend = modes ? (rowStartsGui ? modes.gui : (modes.terminal || modes.gui)) : listed;
+    const otherBackend = both ? (rowStartsGui ? modes.terminal : modes.gui) : null;
+    const otherLabel = both ? (rowStartsGui ? modes.terminalLabel : modes.guiLabel) : '';
+    // With both modes the row is the CLI's, whichever mode it starts: its face and label are the owner's.
+    const face = both ? modes.terminal : backend;
+    const rowLabel = both ? modes.cliLabel : backend.label;
     const rowIsDefault = backend.id === defaultId || (!!modes && modes.ids.includes(defaultId));
 
     const row = document.createElement('div');
@@ -569,17 +577,17 @@ async function showNewSessionPopover(project, anchorEl) {
     launchBtn.className = 'popover-option-body';
     launchBtn.title = `Start a ${backend.label} session with the current defaults`;
     if (window.renderBackendIcon) {
-      const icon = window.renderBackendIcon(backend.icon || backend.id, 16, { monogram: backend.monogram });
+      const icon = window.renderBackendIcon(face.icon || face.id, 16, { monogram: face.monogram });
       icon.classList.add('popover-option-icon');
       launchBtn.appendChild(icon);
-      launchBtn.append(' ' + backend.label);
+      launchBtn.append(' ' + rowLabel);
     } else {
-      launchBtn.textContent = backend.label;
+      launchBtn.textContent = rowLabel;
     }
 
     // Say which one a plain click on the project's + button would start. Nothing marked it before — not a
     // class, not a tooltip — so the default was indistinguishable from the rest. The row carries it for any
-    // mode of its CLI; when that mode is the GUI, the GUI button is marked as well (below).
+    // mode of its CLI; when that mode is the one the side button starts, that button is marked as well (below).
     if (rowIsDefault) {
       const tag = document.createElement('span');
       tag.className = 'popover-option-tag';
@@ -597,22 +605,22 @@ async function showNewSessionPopover(project, anchorEl) {
     };
     row.appendChild(launchBtn);
 
-    // The GUI mode of a CLI whose row starts the terminal: a real button, so Tab reaches it and Enter/Space
-    // press it, with the toolbar button look the dialogs' Terminal | GUI switch already wears (reflex 8).
-    if (guiBackend) {
-      const guiBtn = document.createElement('button');
-      guiBtn.type = 'button';
-      guiBtn.className = 'fp-toolbar-btn popover-option-mode';
-      guiBtn.textContent = modes.guiLabel;
-      const guiIsDefault = guiBackend.id === defaultId;
-      if (guiIsDefault) guiBtn.classList.add('active');
-      guiBtn.setAttribute('aria-label', `Start ${modes.cliLabel} in ${modes.guiLabel} mode${guiIsDefault ? ' (default)' : ''}`);
-      guiBtn.title = `Start a ${guiBackend.label} session with the current defaults${guiIsDefault ? ' (this is the default backend)' : ''}`;
-      guiBtn.onclick = async () => {
+    // The mode the row does not start: a real button, so Tab reaches it and Enter/Space press it, with the
+    // toolbar button look the dialogs' Terminal | GUI switch already wears (reflex 8).
+    if (otherBackend) {
+      const modeBtn = document.createElement('button');
+      modeBtn.type = 'button';
+      modeBtn.className = 'fp-toolbar-btn popover-option-mode';
+      modeBtn.textContent = otherLabel;
+      const otherIsDefault = otherBackend.id === defaultId;
+      if (otherIsDefault) modeBtn.classList.add('active');
+      modeBtn.setAttribute('aria-label', `Start ${modes.cliLabel} in ${otherLabel} mode${otherIsDefault ? ' (default)' : ''}`);
+      modeBtn.title = `Start a ${otherBackend.label} session with the current defaults${otherIsDefault ? ' (this is the default backend)' : ''}`;
+      modeBtn.onclick = async () => {
         popover.remove();
-        launchNewSession(project, await resolveLaunchOptionsFor(project, guiBackend.id));
+        launchNewSession(project, await resolveLaunchOptionsFor(project, otherBackend.id));
       };
-      row.appendChild(guiBtn);
+      row.appendChild(modeBtn);
     }
 
     const gearBtn = document.createElement('button');
@@ -1025,15 +1033,24 @@ async function showNewSessionDialog(project, backendId) {
 // picker and the Configure dialog derive no group of their own; a mode counts when it is ready and enabled, the
 // rule `launchableBackends` applies. `terminal` is the owner's mode, `gui` the first launchable driver's; labels
 // are the group's mode labels (`modeLabel`), `cliLabel` the owner's. No backend is named here.
+//
+// `primary` is the mode the picker row starts and the Configure dialog opens on (#761 E6 d): the CLI's stored
+// `pickerModeByBackend` entry through `backendModes.pickerModeOf`, so a preference that is unknown or switched
+// off falls back to the terminal mode. A stored GUI mode is the `gui` this returns when it can launch.
 function cliLaunchModesOf(backendId) {
   const byId = window._backendsById || {};
   const canLaunch = (b) => !!(b && b.status === 'ready' && b.enabled);
   const group = backendModes.cliGroups(Object.values(byId)).find(g => g.ids.includes(backendId));
   if (!group) return null;
-  const terminalMode = group.modes.find(m => m.kind === 'terminal' && canLaunch(byId[m.id]));
-  const guiMode = group.modes.find(m => m.kind === 'driver' && canLaunch(byId[m.id]));
+  const launchable = Object.fromEntries(group.ids.map(id => [id, canLaunch(byId[id])]));
+  const stored = ((typeof appGlobalSettings !== 'undefined' && appGlobalSettings && appGlobalSettings.pickerModeByBackend) || {})[group.owner.id];
+  const preferred = backendModes.pickerModeOf(group, stored, launchable);
+  const terminalMode = group.modes.find(m => m.kind === 'terminal' && launchable[m.id]);
+  const guiMode = group.modes.find(m => m.kind === 'driver' && m.id === preferred)
+    || group.modes.find(m => m.kind === 'driver' && launchable[m.id]);
   if (!terminalMode && !guiMode) return null;
   return {
+    primary: byId[preferred] || null,
     key: group.owner.id,
     cliLabel: group.owner.label || group.owner.id,
     terminal: terminalMode ? byId[terminalMode.id] : null,

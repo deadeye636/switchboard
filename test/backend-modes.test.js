@@ -1,4 +1,4 @@
-// The pure module behind "one row per CLI, a mode select, launch defaults stored once" (#761, T2).
+// The pure module behind "one row per CLI, a mode choice, launch defaults stored once" (#761, T2).
 //
 // Expectations are DERIVED from the real descriptors' `configFields` (registry-driven, like
 // backend-parity.test.js); the only ids written out are the two cases D11 names by field (`permissionMode`
@@ -255,7 +255,7 @@ test('choices: two modes read Terminal / <mode word> / Both', () => {
     assert.equal(new Set(c.map(x => x.value)).size, 3, 'values are distinct');
   }
   const single = GROUPS.find(x => !x.drivers.length);
-  assert.deepEqual(modes.modeChoices(single), [], 'no twin, no select');
+  assert.deepEqual(modes.modeChoices(single), [], 'no twin, no choices');
 });
 
 test('choices: three modes read three singles + All', () => {
@@ -325,4 +325,17 @@ test('loaded as a classic script (no module), the file adds exactly one global: 
   assert.deepEqual(Object.keys(sandbox.backendModes).sort(), Object.keys(modes).sort());
   // Top-level let/const would not show as properties, so also prove none is visible by name.
   assert.equal(vm.runInContext("typeof isSet + typeof fieldsOf + typeof OWNER_MODE_LABEL", sandbox), 'undefinedundefinedundefined');
+});
+
+test('pickerModeOf: the stored mode while it is enabled, else the terminal mode, else the first enabled one', () => {
+  const owner = { id: 'pk', label: 'Pk', status: 'ready' };
+  const gui = { id: 'pk-gui', label: 'Pk (GUI)', modeLabel: 'GUI', status: 'ready', transcriptsOf: 'pk' };
+  const [g] = modes.cliGroups([owner, gui]);
+  const both = { pk: true, 'pk-gui': true };
+  assert.equal(modes.pickerModeOf(g, 'pk-gui', both), 'pk-gui');
+  assert.equal(modes.pickerModeOf(g, undefined, both), 'pk', 'nothing stored: the terminal mode');
+  assert.equal(modes.pickerModeOf(g, 'gone', both), 'pk', 'an unknown id falls back to the terminal mode');
+  assert.equal(modes.pickerModeOf(g, 'pk-gui', { pk: true, 'pk-gui': false }), 'pk', 'a mode switched off falls back');
+  assert.equal(modes.pickerModeOf(g, 'pk', { pk: false, 'pk-gui': true }), 'pk-gui', 'no terminal: the first enabled mode');
+  assert.equal(modes.pickerModeOf(g, 'pk', {}), '', 'nothing enabled');
 });

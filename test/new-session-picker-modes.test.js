@@ -29,7 +29,7 @@ function registry(patch = {}) {
   return byId;
 }
 
-function setup({ backends = registry(), defaultId = 'ow' } = {}) {
+function setup({ backends = registry(), defaultId = 'ow', globalSettings = null } = {}) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><button id="anchor"></button></body></html>', {
     url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true,
   });
@@ -38,6 +38,8 @@ function setup({ backends = registry(), defaultId = 'ow' } = {}) {
   const launched = [];
   window._backendsById = backends;
   window._defaultBackendId = defaultId;
+  // What app.js holds as the global blob; the picker reads `pickerModeByBackend` from it (#761 E6 d).
+  if (globalSettings) window.appGlobalSettings = globalSettings;
   window.getBackend = (id) => backends[id] || null;
   window.launchableBackends = () => Object.values(backends).filter(b => b.status === 'ready' && b.enabled);
   window.escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -156,6 +158,58 @@ test('the Configure switch is there only with both modes, and starts the mode it
   t = setup();
   dialog = await t.openConfigure('solo');
   assert.equal(dialog.querySelector('.new-session-mode-switch'), null, 'no switch for a CLI without a GUI');
+});
+
+// --- T9d (E6 d): "Default in the picker" decides which mode the row starts -------------------------------------
+
+const PREFER_GUI = { pickerModeByBackend: { ow: 'ow-gui' } };
+
+test('picker default GUI: the row starts the GUI under the CLI label, the button starts Terminal', async () => {
+  const t = setup({ globalSettings: PREFER_GUI });
+  let popover = await t.openPicker();
+  const owner = rows(popover)[0];
+  assert.match(rowText(owner), /^\s*Owner(?!\s*\()/, 'the row keeps the CLI label');
+  const btn = owner.querySelector('button.popover-option-mode');
+  assert.equal(btn.textContent, 'Terminal', 'the button names the OTHER mode');
+  assert.equal(btn.getAttribute('aria-label'), 'Start Owner in Terminal mode (default)', 'the default target is the terminal mode');
+  assert.ok(btn.classList.contains('active'));
+  assert.ok(owner.querySelector('.popover-option-tag'), 'the DEFAULT badge logic is unchanged');
+  owner.querySelector('.popover-option-body').click();
+  await settle();
+  assert.equal(t.launched.at(-1).backendId, 'ow-gui');
+
+  popover = await t.openPicker();
+  rows(popover)[0].querySelector('.popover-option-mode').click();
+  await settle();
+  assert.equal(t.launched.at(-1).backendId, 'ow');
+});
+
+test('picker default GUI: the gear opens Configure on the GUI mode', async () => {
+  const t = setup({ globalSettings: PREFER_GUI });
+  const popover = await t.openPicker();
+  rows(popover)[0].querySelector('.popover-option-gear').click();
+  await settle();
+  const dialog = t.window.document.querySelector('.new-session-dialog');
+  assert.equal(dialog.querySelector('.new-session-mode-switch [data-mode="ow-gui"]').getAttribute('aria-pressed'), 'true');
+  assert.match(dialog.querySelector('h3').textContent, /^New Owner GUI Session/);
+});
+
+test('picker default falls back to Terminal when the preferred mode is off or unknown', async () => {
+  let t = setup({ globalSettings: { pickerModeByBackend: { ow: 'gone' } } });
+  let popover = await t.openPicker();
+  let owner = rows(popover)[0];
+  assert.equal(owner.querySelector('.popover-option-mode').textContent, 'GUI');
+  owner.querySelector('.popover-option-body').click();
+  await settle();
+  assert.equal(t.launched.at(-1).backendId, 'ow');
+
+  t = setup({ backends: registry({ 'ow-gui': { enabled: false } }), globalSettings: PREFER_GUI });
+  popover = await t.openPicker();
+  owner = rows(popover)[0];
+  assert.equal(owner.querySelector('.popover-option-mode'), null, 'one mode on: no side button');
+  owner.querySelector('.popover-option-body').click();
+  await settle();
+  assert.equal(t.launched.at(-1).backendId, 'ow');
 });
 
 test('the new code names no backend id', () => {

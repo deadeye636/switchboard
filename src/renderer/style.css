@@ -11869,6 +11869,19 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   background: rgba(217,128,128,0.1);
 }
 .backend-unavailable { color: #d98080; }
+/* A CLI row's mode badge and "Default in the picker" badge (#761 E6): `.conversation-bg-chip` pills. Each opens a
+   `.conversation-bg-pop` on `document.body`, `position: fixed`, placed by the panel from the badge's rect (inside the
+   row the settings list clipped it). One line of choices, never a scrollbar. Layout only. */
+.backend-badge-anchor { display: inline-flex; }
+.backend-badge-anchor[hidden] { display: none; }
+.conversation-bg-chip.backend-mode-badge:disabled { opacity: 0.5; cursor: default; border-color: rgba(255,255,255,0.12); }
+.conversation-bg-pop.backend-badge-pop {
+  position: fixed; top: 0; left: 0; right: auto; bottom: auto;
+  width: max-content; max-width: none; max-height: none; overflow: visible; white-space: nowrap; z-index: 1000;
+}
+.backend-badge-pop .conversation-idle-choices { flex-wrap: nowrap; margin-bottom: 0; }
+/* The welcome tour's "Default in the picker" line under a CLI's name. */
+.wt-picker-mode { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 
 /* Row action buttons (Set default / Edit / Delete) + the editor's small buttons. */
 .backend-btn {

@@ -70,7 +70,7 @@ async function setup(backends, stored = {}, opts = {}) {
   vm.runInContext(fs.readFileSync(path.join(SRC, 'shared', 'backend-modes.js'), 'utf8'), ctxVm, { filename: 'backend-modes.js' });
   vm.runInContext(fs.readFileSync(PANEL, 'utf8'), ctxVm, { filename: PANEL });
   const root = window.document.getElementById('root');
-  const settings = { backendDefaults: stored, ...(opts.enabled ? { backendEnabled: opts.enabled } : {}) };
+  const settings = { backendDefaults: stored, ...(opts.enabled ? { backendEnabled: opts.enabled } : {}), ...(opts.pickerModes ? { pickerModeByBackend: opts.pickerModes } : {}) };
   const mountCtx = { isProject: false, settings, fieldValue: (k, fb) => (settings[k] !== undefined ? settings[k] : fb) };
   await window.backendsPanel.mount(root, mountCtx);
   return { window, root, mountCtx, close: () => window.close() };
@@ -229,9 +229,8 @@ test('R2: a value edited in a section survives that section being hidden, and Sa
     fire(el, 'change');
     await back(ctx);
     // The mode is switched off in the list, then the page is opened again: its section is not drawn.
-    const mode = ctx.root.querySelector('.backend-mode-select[data-group="cli-a"]');
-    mode.value = 'cli-a';
-    fire(mode, 'change');
+    ctx.root.querySelector('.backend-mode-badge[data-group="cli-a"]').click();
+    ctx.window.document.querySelector('.backend-badge-pop [data-choice="cli-a"]').click();
     const again = openGear(ctx, 'cli-a');
     assert.deepEqual(sections(again), ['cli-a']);
     assert.equal(input(again, 'cli-a-gui', 'suggestOff'), null);
@@ -362,31 +361,50 @@ test('project scope: Save keeps a hidden mode\'s stored overrides', async () => 
   } finally { ctx.close(); }
 });
 
-// --- T8: the list has one row per CLI, a toggle and a mode select, over one state map ----------------------------
+// --- T8 / T9d: the list has one row per CLI, a toggle, a mode badge and a picker-default badge, over one state map
 
 const rowOf = (root, id) => root.querySelector(`.backend-row[data-backend-row="${id}"]`);
-const modeSel = (root, id) => root.querySelector(`.backend-mode-select[data-group="${id}"]`);
+const modeBadge = (root, id) => root.querySelector(`.backend-mode-badge[data-group="${id}"]`);
+const pickerBadge = (root, id) => root.querySelector(`.backend-picker-badge[data-group="${id}"]`);
+const popOf = (root) => root.ownerDocument.querySelector('.backend-badge-pop');   // on document.body, not in the row
+const openMode = (root, id) => { modeBadge(root, id).click(); return popOf(root); };
+const openPicker = (root, id) => { pickerBadge(root, id).click(); return popOf(root); };
+const choiceLabels = (pop) => [...pop.querySelectorAll('.conversation-idle-choices button')].map(b => b.textContent);
+const pressedIn = (pop) => [...pop.querySelectorAll('[aria-pressed="true"]')].map(b => b.textContent);
 const toggleOf = (root, id) => root.querySelector(`.backend-cli-toggle[data-group="${id}"]`);
 const targetSel = (root) => root.querySelector('#sv-default-launch-target');
 const enabledOf = (ctx) => plain(ctx.window.backendsPanel.readGlobal(ctx.root).backendEnabled);
-const chooseMode = (root, id, value) => { const s = modeSel(root, id); s.value = value; fire(s, 'change'); };
+const chooseMode = (root, id, value) => openMode(root, id).querySelector(`[data-choice="${value}"]`).click();
 const flip = (root, id, on) => { const t = toggleOf(root, id); t.checked = on; fire(t, 'change'); };
+const pickerShown = (root, id) => !pickerBadge(root, id).closest('.backend-picker-anchor').hidden;
+const pickerOf = (ctx) => plain(ctx.window.backendsPanel.readGlobal(ctx.root).pickerModeByBackend);
+const key = (el, k) => el.dispatchEvent(new el.ownerDocument.defaultView.KeyboardEvent('keydown', { key: k, bubbles: true }));
 
-test('one row per CLI: a lone backend has a toggle and no select, a pair has Terminal / GUI / Both', async () => {
+test('one row per CLI: a lone backend has a toggle and no badge, a pair has a mode badge naming the choice', async () => {
   const ctx = await setup([LONE, A, A_GUI]);
   try {
     assert.deepEqual([...ctx.root.querySelectorAll('.backend-row[data-backend-row]')].map(r => r.dataset.backendRow), ['lone', 'cli-a']);
     assert.equal(rowOf(ctx.root, 'cli-a-gui'), null, 'a mode draws no row of its own');
-    assert.equal(modeSel(ctx.root, 'lone'), null);
+    assert.equal(modeBadge(ctx.root, 'lone'), null);
+    assert.equal(pickerBadge(ctx.root, 'lone'), null);
     assert.ok(toggleOf(ctx.root, 'lone'));
-    const sel = modeSel(ctx.root, 'cli-a');
-    assert.ok(sel.classList.contains('settings-select'), 'the select reuses the settings class');
-    assert.deepEqual([...sel.options].map(o => o.textContent), ['Terminal', 'GUI', 'Both']);
-    assert.equal(sel.selectedOptions[0].textContent, 'Both');
-    // Control order: select, toggle, gear last (owner's call after the first look).
+    const badge = modeBadge(ctx.root, 'cli-a');
+    assert.equal(badge.tagName, 'BUTTON');
+    assert.equal(badge.type, 'button');
+    assert.ok(badge.classList.contains('conversation-bg-chip'), 'the badge reuses a styled pill (reflex 8)');
+    assert.equal(badge.textContent, 'Both');
+    assert.equal(badge.getAttribute('aria-haspopup'), 'dialog');
+    assert.equal(badge.getAttribute('aria-expanded'), 'false');
+    assert.equal(ctx.root.querySelector('select.backend-mode-select, .backend-mode-switch'), null, 'no dropdown, no inline switch');
+    assert.equal(rowOf(ctx.root, 'cli-a').querySelector('.settings-field-info .backend-picker-badge'), null,
+      'nothing under the description any more');
+    // Control order: mode badge, picker badge, toggle, gear last.
     const control = rowOf(ctx.root, 'cli-a').querySelector('.settings-field-control');
-    const kinds = [...control.querySelectorAll('.backend-gear, .backend-mode-select, .backend-cli-toggle')].map(el => el.className.split(' ').pop());
-    assert.deepEqual(kinds, ['backend-mode-select', 'backend-cli-toggle', 'backend-gear']);
+    const kinds = [...control.querySelectorAll('.backend-mode-badge, .backend-picker-badge, .backend-cli-toggle, .backend-gear')]
+      .map(el => ['backend-mode-badge', 'backend-picker-badge', 'backend-cli-toggle', 'backend-gear'].find(c => el.classList.contains(c)));
+    assert.deepEqual(kinds, ['backend-mode-badge', 'backend-picker-badge', 'backend-cli-toggle', 'backend-gear']);
+    assert.equal(badge.closest('.backend-badge-anchor').nextElementSibling, pickerBadge(ctx.root, 'cli-a').closest('.backend-badge-anchor'),
+      'the picker badge sits right of the mode badge');
     assert.equal(ctx.root.querySelector('.backend-enable'), null, 'no per-id checkbox is left');
   } finally { ctx.close(); }
 });
@@ -399,12 +417,104 @@ test('a mode not installed is named under the description', async () => {
   } finally { ctx.close(); }
 });
 
-test('choosing GUI writes the owner off and the driver on', async () => {
+test('the mode badge opens its choices side by side with the current one marked; a pick applies and closes', async () => {
   const ctx = await setup([A, A_GUI, LONE]);
   try {
-    chooseMode(ctx.root, 'cli-a', 'cli-a-gui');
+    const pop = openMode(ctx.root, 'cli-a');
+    assert.ok(pop, 'the popover opens');
+    assert.ok(pop.classList.contains('conversation-bg-pop'), 'the idle chooser\'s popover look');
+    assert.equal(pop.getAttribute('role'), 'dialog');
+    assert.ok(pop.querySelector('.conversation-idle-choices'), 'choices side by side, as the idle chooser');
+    assert.deepEqual(choiceLabels(pop), ['Terminal', 'GUI', 'Both']);
+    assert.ok([...pop.querySelectorAll('button')].every(b => b.classList.contains('new-session-secondary-btn')));
+    assert.deepEqual(pressedIn(pop), ['Both']);
+    assert.equal(modeBadge(ctx.root, 'cli-a').getAttribute('aria-expanded'), 'true');
+    assert.equal(ctx.window.document.activeElement, pop.querySelector('[aria-pressed="true"]'), 'focus goes into the popover');
+    pop.querySelector('[data-choice="cli-a-gui"]').click();
+    assert.equal(popOf(ctx.root), null, 'a pick closes it');
     assert.deepEqual(enabledOf(ctx), { 'cli-a': false, 'cli-a-gui': true, lone: true });
-    assert.equal(modeSel(ctx.root, 'cli-a').selectedOptions[0].textContent, 'GUI');
+    assert.equal(modeBadge(ctx.root, 'cli-a').textContent, 'GUI');
+    assert.equal(ctx.window.document.activeElement, modeBadge(ctx.root, 'cli-a'), 'and the badge has the focus again');
+  } finally { ctx.close(); }
+});
+
+test('every choice writes the same backendEnabled as enabledForChoice', async () => {
+  const ctx = await setup([A, A_GUI, LONE]);
+  try {
+    const modes = ctx.window.backendModes;
+    const group = modes.cliGroups([A, A_GUI]).find(g => g.owner.id === 'cli-a');
+    for (const c of modes.modeChoices(group)) {
+      chooseMode(ctx.root, 'cli-a', c.value);
+      assert.deepEqual(enabledOf(ctx), { ...plain(modes.enabledForChoice(group, c.value)), lone: true }, c.label);
+      assert.equal(modeBadge(ctx.root, 'cli-a').textContent, c.label);
+    }
+  } finally { ctx.close(); }
+});
+
+test('the popover lives on document.body, placed from the badge, and a scroll or a resize closes it', async () => {
+  const ctx = await setup([A, A_GUI]);
+  try {
+    const badge = modeBadge(ctx.root, 'cli-a');
+    // jsdom lays nothing out: give the badge a rect and the popover a size, so the placement has numbers to use.
+    badge.getBoundingClientRect = () => ({ left: 300, right: 360, top: 100, bottom: 120, width: 60, height: 20 });
+    const doc = ctx.window.document;
+    Object.defineProperty(doc.documentElement, 'clientWidth', { value: 800, configurable: true });
+    Object.defineProperty(doc.documentElement, 'clientHeight', { value: 600, configurable: true });
+    Object.defineProperty(ctx.window.HTMLElement.prototype, 'offsetWidth', { get() { return 200; }, configurable: true });
+    Object.defineProperty(ctx.window.HTMLElement.prototype, 'offsetHeight', { get() { return 80; }, configurable: true });
+    let pop = openMode(ctx.root, 'cli-a');
+    assert.equal(pop.parentElement, doc.body, 'outside every clipping ancestor');
+    assert.ok(!ctx.root.contains(pop));
+    assert.equal(pop.style.top, '126px', 'below the badge');
+    assert.equal(pop.style.left, '160px', 'right-aligned to the badge');
+    fire(ctx.root, 'scroll');
+    assert.equal(popOf(ctx.root), null, 'a scroll of the settings content closes it');
+    assert.equal(doc.activeElement, badge);
+    // Near the bottom it opens above; near the left edge it is clamped into the viewport.
+    badge.getBoundingClientRect = () => ({ left: 10, right: 70, top: 560, bottom: 580, width: 60, height: 20 });
+    pop = openMode(ctx.root, 'cli-a');
+    assert.equal(pop.style.top, '474px', 'flipped above the badge');
+    assert.equal(pop.style.left, '8px', 'clamped inside the viewport');
+    ctx.window.dispatchEvent(new ctx.window.Event('resize'));
+    assert.equal(popOf(ctx.root), null, 'a resize closes it');
+  } finally { ctx.close(); }
+});
+
+test('focus leaving both the popover and its badge closes the popover and leaves the focus where it went', async () => {
+  const ctx = await setup([A, A_GUI]);
+  try {
+    const doc = ctx.window.document;
+    const pop = openMode(ctx.root, 'cli-a');
+    pop.querySelector('[data-choice="cli-a"]').focus();
+    assert.ok(popOf(ctx.root), 'focus moving inside the popover keeps it');
+    modeBadge(ctx.root, 'cli-a').focus();
+    assert.ok(popOf(ctx.root), 'focus on its own badge keeps it');
+    const gear = rowOf(ctx.root, 'cli-a').querySelector('.backend-gear');
+    gear.focus();   // Tab to the gear
+    assert.equal(popOf(ctx.root), null, 'no orphan popover is left behind');
+    assert.equal(doc.activeElement, gear, 'and the focus is not pulled back to the badge');
+    assert.equal(modeBadge(ctx.root, 'cli-a').getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(enabledOf(ctx), { 'cli-a': true, 'cli-a-gui': true }, 'nothing written');
+  } finally { ctx.close(); }
+});
+
+test('Escape or a click outside closes the popover without writing and returns focus to the badge', async () => {
+  const ctx = await setup([A, A_GUI]);
+  try {
+    let pop = openMode(ctx.root, 'cli-a');
+    key(ctx.window.document.activeElement, 'Escape');
+    assert.equal(popOf(ctx.root), null);
+    assert.equal(ctx.window.document.activeElement, modeBadge(ctx.root, 'cli-a'));
+    assert.equal(modeBadge(ctx.root, 'cli-a').getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(enabledOf(ctx), { 'cli-a': true, 'cli-a-gui': true });
+    pop = openMode(ctx.root, 'cli-a');
+    assert.ok(pop);
+    fire(ctx.window.document.body, 'mousedown');
+    assert.equal(popOf(ctx.root), null, 'a click outside closes it');
+    assert.equal(ctx.window.document.activeElement, modeBadge(ctx.root, 'cli-a'));
+    modeBadge(ctx.root, 'cli-a').click();
+    modeBadge(ctx.root, 'cli-a').click();
+    assert.equal(popOf(ctx.root), null, 'a second click on the badge closes it');
   } finally { ctx.close(); }
 });
 
@@ -414,17 +524,18 @@ test('toggle off writes every id off; on restores the remembered mode, with none
     chooseMode(ctx.root, 'cli-a', 'cli-a-gui');
     flip(ctx.root, 'cli-a', false);
     assert.deepEqual(enabledOf(ctx), { 'cli-a': false, 'cli-a-gui': false });
-    const sel = modeSel(ctx.root, 'cli-a');
-    assert.equal(sel.disabled, true, 'the select is disabled while the CLI is off');
-    assert.equal(sel.selectedOptions[0].textContent, 'GUI', 'and shows the last mode');
+    assert.equal(modeBadge(ctx.root, 'cli-a').disabled, true, 'the badge is disabled while the CLI is off');
+    assert.equal(modeBadge(ctx.root, 'cli-a').textContent, 'GUI', 'and shows the last mode');
+    modeBadge(ctx.root, 'cli-a').click();
+    assert.equal(popOf(ctx.root), null, 'a disabled badge opens nothing');
     flip(ctx.root, 'cli-a', true);
     assert.deepEqual(enabledOf(ctx), { 'cli-a': false, 'cli-a-gui': true });
-    assert.equal(sel.disabled, false);
+    assert.equal(modeBadge(ctx.root, 'cli-a').disabled, false);
   } finally { ctx.close(); }
   const off = await setup([A, A_GUI], {}, { enabled: { 'cli-a': false, 'cli-a-gui': false } });
   try {
     assert.equal(toggleOf(off.root, 'cli-a').checked, false);
-    assert.equal(modeSel(off.root, 'cli-a').disabled, true);
+    assert.equal(modeBadge(off.root, 'cli-a').disabled, true);
     flip(off.root, 'cli-a', true);
     assert.deepEqual(enabledOf(off), { 'cli-a': true, 'cli-a-gui': false });
   } finally { off.close(); }
@@ -444,17 +555,18 @@ test('the default target follows the mode: a target on a mode switched off moves
   } finally { ctx.close(); }
 });
 
-test('a three-mode group offers each mode and All, and shows an unofferable combination read-only', async () => {
+test('a three-mode group offers each mode and All, and names an unofferable combination with nothing marked', async () => {
   const ctx = await setup([C, C_GUI, C_SRV], {}, { enabled: { 'cli-c': true, 'cli-c-gui': true, 'cli-c-srv': false } });
   try {
-    const sel = modeSel(ctx.root, 'cli-c');
-    const labels = [...sel.options].map(o => o.textContent);
-    assert.deepEqual(labels, ['Terminal + GUI', 'Terminal', 'GUI', 'Server', 'All']);
-    assert.equal(sel.selectedOptions[0].textContent, 'Terminal + GUI');
-    assert.equal(sel.selectedOptions[0].disabled, true);
+    assert.equal(modeBadge(ctx.root, 'cli-c').textContent, 'Terminal + GUI', 'the badge names the combination');
+    const pop = openMode(ctx.root, 'cli-c');
+    assert.deepEqual(choiceLabels(pop), ['Terminal', 'GUI', 'Server', 'All']);
+    assert.deepEqual(pressedIn(pop), [], 'no choice marked for a combination it cannot offer');
+    assert.match(pop.querySelector('.conversation-idle-info').textContent, /Terminal \+ GUI/);
     assert.deepEqual(enabledOf(ctx), { 'cli-c': true, 'cli-c-gui': true, 'cli-c-srv': false }, 'opening rewrites nothing');
-    chooseMode(ctx.root, 'cli-c', 'cli-c-srv');
+    pop.querySelector('[data-choice="cli-c-srv"]').click();
     assert.deepEqual(enabledOf(ctx), { 'cli-c': false, 'cli-c-gui': false, 'cli-c-srv': true });
+    assert.equal(modeBadge(ctx.root, 'cli-c').textContent, 'Server');
   } finally { ctx.close(); }
 });
 
@@ -467,7 +579,7 @@ test('readGlobal while a gear page is open returns the live map (#163)', async (
     assert.deepEqual(saved.backendEnabled, { 'cli-a': false, 'cli-a-gui': true, lone: true });
     assert.equal(saved.defaultLaunchTarget, 'cli-a-gui');
     await back(ctx);
-    assert.equal(modeSel(ctx.root, 'cli-a').selectedOptions[0].textContent, 'GUI', 'Back keeps the unsaved mode');
+    assert.equal(modeBadge(ctx.root, 'cli-a').textContent, 'GUI', 'Back keeps the unsaved mode');
     assert.equal(targetSel(ctx.root).value, 'cli-a-gui');
   } finally { ctx.close(); }
 });
@@ -483,4 +595,55 @@ test('a template on a driver base follows that base', async () => {
     chooseMode(ctx.root, 'cli-a', 'cli-a-gui');
     assert.ok(listed().includes('tpl'));
   } finally { ctx.close(); }
+});
+
+// --- T9d (E6 d): "Default in the picker" ----------------------------------------------------------------------
+
+test('the picker badge shows only with 2+ modes on, starts on Terminal, and is saved through readGlobal', async () => {
+  const ctx = await setup([A, A_GUI, LONE]);
+  try {
+    assert.ok(pickerShown(ctx.root, 'cli-a'), 'both modes on: shown');
+    const badge = pickerBadge(ctx.root, 'cli-a');
+    assert.ok(badge.classList.contains('conversation-bg-chip'));
+    assert.equal(badge.textContent, 'Picker: Terminal', 'nothing stored: the terminal mode');
+    assert.deepEqual(pickerOf(ctx), {}, 'opening stores nothing');
+    const pop = openPicker(ctx.root, 'cli-a');
+    assert.deepEqual(choiceLabels(pop), ['Terminal', 'GUI']);
+    assert.deepEqual(pressedIn(pop), ['Terminal']);
+    pop.querySelector('[data-picker-mode="cli-a-gui"]').click();
+    assert.equal(popOf(ctx.root), null);
+    assert.equal(ctx.window.document.activeElement, badge, 'focus back on the picker badge');
+    assert.deepEqual(pickerOf(ctx), { 'cli-a': 'cli-a-gui' });
+    assert.equal(badge.textContent, 'Picker: GUI');
+    chooseMode(ctx.root, 'cli-a', 'cli-a');
+    assert.ok(!pickerShown(ctx.root, 'cli-a'), 'one mode on: hidden');
+    chooseMode(ctx.root, 'cli-a', 'cli-a|cli-a-gui');
+    assert.ok(pickerShown(ctx.root, 'cli-a'));
+    assert.equal(pickerBadge(ctx.root, 'cli-a').textContent, 'Picker: GUI', 'the choice made in this session is kept');
+    openPicker(ctx.root, 'cli-a');
+    key(ctx.window.document.activeElement, 'Escape');
+    assert.equal(popOf(ctx.root), null);
+    assert.equal(ctx.window.document.activeElement, pickerBadge(ctx.root, 'cli-a'));
+  } finally { ctx.close(); }
+  const one = await setup([A, { ...A_GUI, enabled: false }]);
+  try {
+    assert.ok(!pickerShown(one.root, 'cli-a'), 'hidden from the start with one mode on');
+  } finally { one.close(); }
+});
+
+test('a stored picker default is shown; one that is not an enabled mode shows Terminal', async () => {
+  let ctx = await setup([A, A_GUI], {}, { pickerModes: { 'cli-a': 'cli-a-gui' } });
+  try {
+    assert.equal(pickerBadge(ctx.root, 'cli-a').textContent, 'Picker: GUI');
+    assert.deepEqual(pickerOf(ctx), { 'cli-a': 'cli-a-gui' }, 'kept on save');
+  } finally { ctx.close(); }
+  ctx = await setup([A, A_GUI], {}, { pickerModes: { 'cli-a': 'gone' } });
+  try {
+    assert.equal(pickerBadge(ctx.root, 'cli-a').textContent, 'Picker: Terminal');
+  } finally { ctx.close(); }
+});
+
+test('settings-panel saves pickerModeByBackend from readGlobal', () => {
+  const src = stripComments(fs.readFileSync(path.join(SRC, 'renderer', 'panels', 'settings-panel.js'), 'utf8'));
+  assert.match(src, /settings\.pickerModeByBackend\s*=\s*bs\.pickerModeByBackend/);
 });

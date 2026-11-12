@@ -9,6 +9,7 @@
 // time (readGlobal / readProjectDefaults). The settings keys written:
 //   backendEnabled.<id>          boolean, GLOBAL-only (a `planned` backend can never be enabled)
 //   defaultLaunchTarget          backendId — the ONE "default" marker in the UI
+//   pickerModeByBackend.<owner>  mode id the New Session picker row starts with both modes on, GLOBAL-only
 //   backendDefaults.<id>.<opt>   per-backend launch options, generated from that backend's configFields
 //
 // Profiles (user Axis-A backends) are NOT settings — they live in profiles.json and are written
@@ -52,12 +53,15 @@
   // Reading them off the DOM at save time therefore found nothing whenever a gear page was open, and the
   // save silently dropped EVERY backend setting the user had just made on that page (#163).
   let mountedGlobal = false;      // has the global section been rendered in this settings session?
-  // The ONE live answer to "is this id enabled", for every ready built-in: the rows' toggles and mode selects
+  // The ONE live answer to "is this id enabled", for every ready built-in: the rows' toggles and mode badges
   // write it, the default-target select, the gear page and the save read it (#761). Nothing reads a checkbox.
   let liveEnabled = {};           // backendId -> bool
   // Per CLI (owner id): the `liveEnabled` slice its toggle switched off, so switching it on again in this
   // settings session restores that mode (D14). Not stored: after a save and reopen, on means Terminal.
   let rememberedModes = {};
+  // Per CLI (owner id): the mode the New Session picker row starts when more than one mode is on (#761 E6 d),
+  // seeded from `pickerModeByBackend` when the list first mounts and saved with Save, like `liveEnabled`.
+  let livePickerModes = {};
   // '' = "nothing has said what the target is yet", which is what this genuinely means before the list is
   // mounted. It used to start at 'claude' — a guess that outlived its truth once Claude became disablable
   // (#162): a user with Claude off could have this stale value reach the saved settings as their default.
@@ -1389,7 +1393,7 @@
     storedBackendEnv = isProject ? {} : (ctx.fieldValue('backendEnv', {}) || {});
     if (!ctx.keepPending) {
       pendingDefaults = {}; clearedDefaults = {}; pendingPromptOverrides = {};
-      pendingBackendEnv = {}; mountedGlobal = false; rememberedModes = {};
+      pendingBackendEnv = {}; mountedGlobal = false; rememberedModes = {}; livePickerModes = {};
       stagedTemplates = new Map(); deletedTemplates = new Set();
     }
     storedPromptOverrides = {
@@ -1581,8 +1585,10 @@
     };
     // The live map is seeded from the stored state when the panel opens. A re-mount inside the same settings
     // session (Back from a gear page, a staged template) keeps what the user switched, and the target with it.
-    if (!mountedGlobal) liveEnabled = {};
-    else if (liveLaunchTarget) defaultLaunchTarget = liveLaunchTarget;
+    if (!mountedGlobal) {
+      liveEnabled = {};
+      livePickerModes = { ...(((ctx.settings || {}).pickerModeByBackend) || {}) };
+    } else if (liveLaunchTarget) defaultLaunchTarget = liveLaunchTarget;
     for (const b of builtins) if (b.status === 'ready' && liveEnabled[b.id] === undefined) liveEnabled[b.id] = isEnabled(b);
 
     // One row per CLI (#761): the modes of a CLI share the owner's row; a planned built-in keeps a row of its own.
@@ -1590,17 +1596,36 @@
     const groupByOwner = new Map(groups.map(g => [g.owner.id, g]));
     const ownerOnly = (g) => Object.fromEntries(g.ids.map(id => [id, id === g.owner.id]));
     const groupOn = (g) => g.ids.some(id => liveEnabled[id] === true);
-    // What the select shows: the enabled modes; while the toggle is off, the mode it would switch back on (D14).
+    // What the mode badge shows: the enabled modes; while the toggle is off, the mode it would switch back on (D14).
     const shownChoice = (g) => backendModes.choiceFor(g, liveEnabled)
       || backendModes.choiceFor(g, rememberedModes[g.owner.id] || ownerOnly(g));
-    const modeOptionsHtml = (g) => {
+    // The picker default (#761 E6 d) is offered only while more than one mode of the CLI is on.
+    const pickerModesOn = (g) => g.modes.filter(m => liveEnabled[m.id] === true);
+    const pickerLabel = (g) => {
+      const id = backendModes.pickerModeOf(g, livePickerModes[g.owner.id], liveEnabled);
+      const mode = g.modes.find(m => m.id === id);
+      return `Picker: ${mode ? mode.label : ''}`;
+    };
+    // The mode badge and the picker-default badge (#761 E6, the owner's second look): a pill that names the current
+    // choice and opens a popover with the choices side by side, the session line's idle chooser in the settings
+    // window. A combination the choices cannot offer (three modes and up) is the badge's text, with no choice marked,
+    // and is never rewritten by opening the page (D13). The mode badge is disabled while the CLI's toggle is off (D14).
+    const modeBadgeHtml = (g, on) => {
       const shown = shownChoice(g);
-      const choices = backendModes.modeChoices(g);
-      // A combination the select cannot offer (three modes and up) is shown as it is, never rewritten (D13).
-      const extra = shown && shown.readOnly
-        ? `<option value="${esc(shown.value)}" disabled selected>${esc(shown.label)}</option>` : '';
-      return extra + choices.map(c =>
-        `<option value="${esc(c.value)}" ${shown && !shown.readOnly && shown.value === c.value ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
+      return `<span class="backend-badge-anchor">
+          <button type="button" class="conversation-bg-chip backend-mode-badge" data-group="${esc(g.owner.id)}"
+                  aria-haspopup="dialog" aria-expanded="false" title="Mode of ${esc(g.owner.label)}. Click to change it."
+                  aria-label="Mode of ${esc(g.owner.label)}: ${esc(shown ? shown.label : '')}" ${on ? '' : 'disabled'}>${esc(shown ? shown.label : '')}</button>
+        </span>`;
+    };
+    const pickerBadgeHtml = (g) => {
+      const shown = pickerModesOn(g).length > 1;
+      return `<span class="backend-badge-anchor backend-picker-anchor" ${shown ? '' : 'hidden'}>
+          <button type="button" class="conversation-bg-chip backend-picker-badge" data-group="${esc(g.owner.id)}"
+                  aria-haspopup="dialog" aria-expanded="false"
+                  title="Which mode the New Session list starts for ${esc(g.owner.label)}. Click to change it."
+                  aria-label="Default in the picker for ${esc(g.owner.label)}: ${esc(pickerLabel(g))}">${esc(pickerLabel(g))}</button>
+        </span>`;
     };
 
     // Same affordance as the launch picker's gear: this icon means "configure this backend".
@@ -1610,8 +1635,9 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>`;
 
-    // A CLI's row: the owner's face, a line per mode that is not installed, then the mode select (only with
-    // more than one mode), the toggle and the gear last. A planned built-in is passed as `{ owner, modes: [] }`.
+    // A CLI's row: the owner's face and a line per mode that is not installed; then, with more than one mode, the
+    // mode badge and the picker-default badge, the toggle and the gear last. A planned built-in is passed as
+    // `{ owner, modes: [] }`.
     const cliRow = (g) => {
       const b = g.owner;
       const ready = b.status === 'ready';
@@ -1634,9 +1660,7 @@
               `<div class="settings-description backend-unavailable">${multi ? `${esc(x.m.label)}: ` : ''}${esc(x.d.unavailableReason)}</div>`).join('')}
           </div>
           <div class="settings-field-control">
-            ${ready && multi
-              ? `<select class="settings-select backend-mode-select" data-group="${esc(b.id)}" aria-label="Mode of ${esc(b.label)}" ${on ? '' : 'disabled'}>${modeOptionsHtml(g)}</select>`
-              : ''}
+            ${ready && multi ? modeBadgeHtml(g, on) + pickerBadgeHtml(g) : ''}
             ${ready
               ? `<label class="settings-toggle"><input type="checkbox" class="backend-cli-toggle" data-group="${esc(b.id)}" aria-label="Enable ${esc(b.label)}" ${on ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`
               : '<span class="backend-planned-note">not built yet</span>'}
@@ -1894,27 +1918,169 @@
     rebuildSelect();
     snapshotList();
     select.addEventListener('change', () => { rebuildSelect(); snapshotList(); });
-    // A CLI's toggle or mode select writes `liveEnabled` for the group's ids, moves the default target along
+    // Repaints a CLI row's badges and toggle in place, so a badge that has the focus keeps it.
+    function paintGroupControls(g) {
+      const row = box.querySelector(`.backend-row[data-backend-row="${CSS.escape(g.owner.id)}"]`);
+      if (!row) return;
+      const on = groupOn(g);
+      const toggle = row.querySelector('.backend-cli-toggle');
+      if (toggle) toggle.checked = on;
+      const badge = row.querySelector('.backend-mode-badge');
+      if (badge) {
+        const shown = shownChoice(g);
+        badge.textContent = shown ? shown.label : '';
+        badge.setAttribute('aria-label', `Mode of ${g.owner.label}: ${badge.textContent}`);
+        badge.disabled = !on;
+      }
+      const anchor = row.querySelector('.backend-picker-anchor');
+      if (anchor) {
+        anchor.hidden = pickerModesOn(g).length < 2;
+        const pb = anchor.querySelector('.backend-picker-badge');
+        pb.textContent = pickerLabel(g);
+        pb.setAttribute('aria-label', `Default in the picker for ${g.owner.label}: ${pb.textContent}`);
+      }
+    }
+    // A CLI's toggle or mode choice writes `liveEnabled` for the group's ids, moves the default target along
     // when it pointed at a mode that is now off (D6), then repaints the row's controls and the target select.
     function applyGroupState(g, next) {
       Object.assign(liveEnabled, next);
       const moved = backendModes.targetAfterModeChange(select.value, g, next);
-      const row = box.querySelector(`.backend-row[data-backend-row="${CSS.escape(g.owner.id)}"]`);
-      const on = groupOn(g);
-      const toggle = row && row.querySelector('.backend-cli-toggle');
-      if (toggle) toggle.checked = on;
-      const modeSel = row && row.querySelector('.backend-mode-select');
-      if (modeSel) { modeSel.innerHTML = modeOptionsHtml(g); modeSel.disabled = !on; }
+      paintGroupControls(g);
       rebuildSelect(moved);
       snapshotList();
     }
+
+    // One popover at a time: `.conversation-bg-pop` with the choices in `.conversation-idle-choices`, the current one
+    // `aria-pressed`. A pick applies and closes; Escape, a click outside, a second click on the badge, a scroll or a
+    // resize closes and hands the focus back to the badge (the session line's #832 pattern); focus moving on to
+    // anything else closes it without taking the focus back. It lives on
+    // `document.body` with `position: fixed`, placed from the badge's rect: inside the row the settings list clipped it.
+    let openPop = null;   // { pop, badge, onDown, onMove, onFocusOut }
+    function closeRowPop(refocus) {
+      if (!openPop) return;
+      const { pop, badge, onDown, onMove, onFocusOut } = openPop;
+      openPop = null;
+      pop.remove();
+      badge.removeEventListener('focusout', onFocusOut);
+      badge.setAttribute('aria-expanded', 'false');
+      const doc = box.ownerDocument;
+      doc.removeEventListener('mousedown', onDown, true);
+      doc.removeEventListener('scroll', onMove, true);
+      if (doc.defaultView) doc.defaultView.removeEventListener('resize', onMove);
+      if (refocus && badge.isConnected) badge.focus();
+    }
+    // Below the badge and right-aligned to it; above it when below would leave the viewport; clamped horizontally.
+    function placeRowPop(pop, badge) {
+      const doc = box.ownerDocument;
+      const win = doc.defaultView || {};
+      const vw = doc.documentElement.clientWidth || win.innerWidth || 0;
+      const vh = doc.documentElement.clientHeight || win.innerHeight || 0;
+      const r = badge.getBoundingClientRect();
+      const w = pop.offsetWidth;
+      const h = pop.offsetHeight;
+      const GAP = 6;
+      const EDGE = 8;
+      let left = r.right - w;
+      if (vw) left = Math.max(EDGE, Math.min(left, vw - w - EDGE));
+      let top = r.bottom + GAP;
+      if (vh && top + h > vh - EDGE && r.top - GAP - h >= EDGE) top = r.top - GAP - h;
+      pop.style.left = left + 'px';
+      pop.style.top = top + 'px';
+    }
+    function openRowPop(badge, g, kind) {
+      closeRowPop(false);
+      const doc = box.ownerDocument;
+      const pop = doc.createElement('div');
+      pop.className = 'conversation-bg-pop backend-badge-pop';
+      pop.tabIndex = -1;
+      pop.setAttribute('role', 'dialog');
+      const head = doc.createElement('div');
+      head.className = 'conversation-bg-head';
+      const row = doc.createElement('div');
+      row.className = 'conversation-idle-choices';
+      const choice = (label, attr, value, pressed) => {
+        const c = doc.createElement('button');
+        c.type = 'button';
+        c.className = 'new-session-secondary-btn conversation-bg-btn';
+        c.dataset[attr] = value;
+        c.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+        c.textContent = label;
+        row.appendChild(c);
+      };
+      if (kind === 'mode') {
+        head.textContent = 'Mode';
+        pop.setAttribute('aria-label', `Mode of ${g.owner.label}`);
+        const shown = shownChoice(g);
+        for (const c of backendModes.modeChoices(g)) {
+          choice(c.label, 'choice', c.value, !!shown && !shown.readOnly && shown.value === c.value);
+        }
+      } else {
+        head.textContent = 'Default in the picker';
+        pop.setAttribute('aria-label', `Default in the picker for ${g.owner.label}`);
+        const current = backendModes.pickerModeOf(g, livePickerModes[g.owner.id], liveEnabled);
+        for (const m of pickerModesOn(g)) choice(m.label, 'pickerMode', m.id, m.id === current);
+      }
+      pop.append(head, row);
+      if (kind === 'mode' && shownChoice(g) && shownChoice(g).readOnly) {
+        const note = doc.createElement('div');
+        note.className = 'conversation-idle-info';
+        note.textContent = `Enabled now: ${shownChoice(g).label}. Pick a mode to change it.`;
+        pop.appendChild(note);
+      }
+      pop.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        closeRowPop(true);
+      });
+      pop.addEventListener('click', (e) => {
+        const c = e.target.closest('button');
+        if (!c) return;
+        if (c.dataset.choice !== undefined) applyGroupState(g, backendModes.enabledForChoice(g, c.dataset.choice));
+        else livePickerModes[g.owner.id] = c.dataset.pickerMode;
+        paintGroupControls(g);
+        closeRowPop(true);
+      });
+      const onDown = (e) => {
+        if (pop.contains(e.target) || e.target === badge) return;
+        closeRowPop(true);
+      };
+      // A scroll anywhere but inside the popover, and a resize, would leave it floating away from its badge.
+      const onMove = (e) => {
+        if (e && e.type === 'scroll' && e.target && e.target.nodeType === 1 && pop.contains(e.target)) return;
+        closeRowPop(true);
+      };
+      // Focus that moves on to something that is neither the popover nor its badge (Tab to the gear, then Enter)
+      // closes it, so no popover is left behind. A focusout with no new target (the window lost focus) keeps it.
+      const onFocusOut = (e) => {
+        const to = e.relatedTarget;
+        if (!to || pop.contains(to) || to === badge) return;
+        closeRowPop(false);
+      };
+      pop.addEventListener('focusout', onFocusOut);
+      badge.addEventListener('focusout', onFocusOut);
+      doc.addEventListener('mousedown', onDown, true);
+      doc.body.appendChild(pop);
+      placeRowPop(pop, badge);
+      badge.setAttribute('aria-expanded', 'true');
+      openPop = { pop, badge, onDown, onMove, onFocusOut };
+      doc.addEventListener('scroll', onMove, true);
+      if (doc.defaultView) doc.defaultView.addEventListener('resize', onMove);
+      (pop.querySelector('[aria-pressed="true"]') || pop.querySelector('button') || pop).focus();
+    }
+    box.addEventListener('click', (e) => {
+      const badge = e.target && e.target.closest && e.target.closest('.backend-mode-badge, .backend-picker-badge');
+      if (!badge || badge.disabled) return;
+      const g = groupByOwner.get(badge.dataset.group);
+      if (!g) return;
+      if (openPop && openPop.badge === badge) { closeRowPop(true); return; }
+      openRowPop(badge, g, badge.classList.contains('backend-mode-badge') ? 'mode' : 'picker');
+    });
     box.addEventListener('change', (e) => {
       const t = e.target;
       const g = t && t.dataset && groupByOwner.get(t.dataset.group);
       if (!g) return;
-      if (t.classList.contains('backend-mode-select')) {
-        applyGroupState(g, backendModes.enabledForChoice(g, t.value));
-      } else if (t.classList.contains('backend-cli-toggle')) {
+      if (t.classList.contains('backend-cli-toggle')) {
         if (t.checked) {
           applyGroupState(g, rememberedModes[g.owner.id] || ownerOnly(g));
         } else {
@@ -2030,6 +2196,9 @@
       // list is on screen, the snapshot when a gear page replaced it. '' when nothing can launch, which
       // is the truth and must not be turned back into a backend id.
       defaultLaunchTarget: (select && select.value) || liveLaunchTarget,
+      // Per CLI, the mode the New Session picker row starts with both modes on (#761 E6 d). The picker falls
+      // back to the terminal mode for an id that is not, or no longer, an enabled mode (`pickerModeOf`).
+      pickerModeByBackend: { ...livePickerModes },
       backendDefaults: readDefaults(root),
       backendEnv,
       handoffPromptByBackend: readPromptOverrides(root, 'summarise'),

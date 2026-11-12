@@ -1,9 +1,9 @@
 // --- CLI groups, mode choices and shared launch defaults (#761) ---
 //
 // The ONE answer to "which backends are the same CLI driven in different ways" (Claude and the GUI that
-// drives it over a pipe, Pi and its GUI), "what does the mode select offer", "which launch fields are
-// stored once under the owner", "what does a launch read" and "where does the default launch target go
-// when the mode changes". It is meant to be read by the launch-option readers in main and the renderer, the
+// drives it over a pipe, Pi and its GUI), "which mode choices does a CLI offer", "which launch fields are
+// stored once under the owner", "what does a launch read", "where does the default launch target go
+// when the mode changes" and "which mode does the New Session picker row start". It is meant to be read by the launch-option readers in main and the renderer, the
 // Backends panel, the welcome tour and the default-target fallback, so none of them derives a group of its
 // own (#761 wires them step by step; this file names no caller). `cliOwnerOf` in `src/backends/index.js` answers the same owner for every
 // descriptor; `test/backend-modes.test.js` compares the two.
@@ -77,8 +77,8 @@
   }
 
   /**
-   * The select's entries: each single mode, then one entry for all of them ("Both" for two modes, "All" from
-   * three). A group with a single mode has no select, so no entries.
+   * The mode choices: each single mode, then one entry for all of them ("Both" for two modes, "All" from
+   * three). A group with a single mode has no choice to offer, so no entries.
    *
    * @returns {{ value: string, label: string, ids: string[] }[]}
    */
@@ -91,7 +91,7 @@
 
   /**
    * The entry that matches the enabled set; a synthetic read-only one (`readOnly: true`, label such as
-   * "Terminal + GUI") for a subset the select cannot represent; `null` for none enabled.
+   * "Terminal + GUI") for a subset the choices cannot represent; `null` for none enabled.
    */
   function choiceFor(group, enabledMap) {
     const modes = group && group.modes ? group.modes : [];
@@ -235,7 +235,28 @@
     return twin ? twin.id : target;
   }
 
+  /**
+   * The mode the New Session picker row starts when more than one mode of the CLI is on (#761 E6 d): the
+   * stored preference while it is a mode of the group and enabled, else the terminal mode when enabled, else
+   * the first enabled mode. `''` when nothing of the group is enabled. One answer for the Backends list, the
+   * tour and the picker, so an unknown or switched-off preference falls back the same way everywhere.
+   *
+   * @param {object} group a `cliGroups` entry
+   * @param {string} [stored] `pickerModeByBackend[<owner id>]`
+   * @param {Object<string, boolean>} enabledMap
+   * @returns {string}
+   */
+  function pickerModeOf(group, stored, enabledMap) {
+    const modes = group && group.modes ? group.modes : [];
+    const on = m => !!(enabledMap && enabledMap[m.id] === true);
+    const pick = modes.find(m => m.id === stored && on(m))
+      || modes.find(m => m.kind === 'terminal' && on(m))
+      || modes.find(on);
+    return pick ? pick.id : '';
+  }
+
   return {
     cliGroups, modeChoices, choiceFor, enabledForChoice, sharedFieldIds, sharedIdsOfGroup, fieldSplit, launchLayer, targetAfterModeChange,
+    pickerModeOf,
   };
 });

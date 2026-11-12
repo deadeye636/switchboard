@@ -1751,6 +1751,8 @@ ${window.settingsInstructions.sectionHtml('project')}
           if (bs) {
             settings.backendEnabled = bs.backendEnabled;
             settings.defaultLaunchTarget = bs.defaultLaunchTarget;
+            // Per CLI, the mode the New Session picker row starts with both modes on (#761 E6 d).
+            settings.pickerModeByBackend = bs.pickerModeByBackend;
             settings.backendDefaults = bs.backendDefaults;
             // Per-backend environment variables. Only a template could carry a bundle before, so the
             // only way to give Codex a variable was to wrap it in a whole extra backend.

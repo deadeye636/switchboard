@@ -342,32 +342,44 @@ async function openTour({ store = {}, backends = registry(), defaultBackendId = 
     el.dispatchEvent(new window.Event('change', { bubbles: true }));
     await settle();
   };
-  return { window, doc, writes, rails, go, change };
+  // A segment of a CLI's mode switch, pressed by value; a button commits on click, as Enter / Space do.
+  const choose = async (value) => {
+    const btn = doc.querySelector(`.wt-row .wt-mode-switch [data-choice="${value}"]`);
+    assert.ok(btn, `a segment for ${value}`);
+    btn.click();
+    await settle();
+  };
+  const press = async (btn) => { btn.click(); await settle(); };
+  return { window, doc, writes, rails, go, change, choose, press };
 }
 
 const pairGroup = () => backendModes.cliGroups(Object.values(registry())).find((g) => g.owner.id === 'cli-a');
 
-test('the CLIs pane has one entry per CLI, and the mode select only for a CLI with a twin', async () => {
+test('the CLIs pane has one entry per CLI, and the mode switch only for a CLI with a twin', async () => {
   const t = await openTour();
   t.go('Your CLIs');
   const rows = [...t.doc.querySelectorAll('.wt-row')];
   assert.deepStrictEqual(rows.map((r) => r.querySelector('.wt-row-label').textContent), ['CLI A', 'CLI B'],
     'the GUI is a mode of CLI A, not a row of its own');
   const [pair, single] = rows;
-  const select = pair.querySelector('select.settings-select');
-  assert.ok(select, 'a CLI with a twin gets the mode select');
-  assert.deepStrictEqual([...select.options].map((o) => o.textContent), ['Terminal', 'GUI', 'Both']);
+  const sw = pair.querySelector('.viewer-mode-group.wt-mode-switch[role="group"]');
+  assert.ok(sw, 'a CLI with a twin gets the mode switch, in the Configure dialog\'s look');
+  assert.equal(pair.querySelector('select'), null, 'no dropdown is left');
+  const segs = [...sw.querySelectorAll('button[data-choice]')];
+  assert.deepStrictEqual(segs.map((b) => b.textContent), ['Terminal', 'GUI', 'Both']);
+  assert.ok(segs.every((b) => b.type === 'button' && b.classList.contains('fp-toolbar-btn') && b.classList.contains('viewer-mode-btn')));
+  assert.deepStrictEqual(segs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent), ['Terminal']);
   assert.ok(pair.querySelector('.settings-toggle input[type="checkbox"]'), 'and its toggle');
-  assert.equal(single.querySelector('select'), null, 'a CLI with no twin renders exactly its toggle');
+  assert.equal(single.querySelector('.wt-mode-switch'), null, 'a CLI with no twin renders exactly its toggle');
   assert.equal(single.querySelectorAll('.settings-toggle input[type="checkbox"]').length, 1);
   t.window.close();
 });
 
-test('the mode select writes what the Backends list writes for the same choice, and moves the target', async () => {
+test('the mode switch writes what the Backends list writes for the same choice, and moves the target', async () => {
   const t = await openTour({ store: { backendEnabled: { 'cli-a': true, 'cli-b': true }, defaultLaunchTarget: 'cli-a', other: 1 } });
   t.go('Your CLIs');
   const gui = pairGroup().modes.find((m) => m.kind === 'driver').id;
-  await t.change(t.doc.querySelector('.wt-row select'), gui);
+  await t.choose(gui);
   const write = t.writes.at(-1);
   assert.equal(write.route, 'set', 'backendEnabled goes through the whole-blob write, never a shallow merge');
   // The panel's mode change writes `enabledForChoice(group, value)`; the tour must write the same values.
@@ -384,7 +396,7 @@ test('the mode select writes what the Backends list writes for the same choice, 
 test('a default target outside the group stays where it is', async () => {
   const t = await openTour({ store: { backendEnabled: { 'cli-a': true, 'cli-b': true }, defaultLaunchTarget: 'cli-b' } });
   t.go('Your CLIs');
-  await t.change(t.doc.querySelector('.wt-row select'), 'cli-a-gui');
+  await t.choose('cli-a-gui');
   assert.equal(t.writes.at(-1).blob.defaultLaunchTarget, 'cli-b');
   t.window.close();
 });
@@ -395,19 +407,19 @@ test('with no target stored, the resolved default follows the mode, and is writt
   // Backends list moves it to the other mode of the same CLI.
   let t = await openTour({ store: { backendEnabled: { 'cli-a': true, 'cli-b': true } }, defaultBackendId: 'cli-a' });
   t.go('Your CLIs');
-  await t.change(t.doc.querySelector('.wt-row select'), 'cli-a-gui');
+  await t.choose('cli-a-gui');
   assert.equal(t.writes.at(-1).blob.defaultLaunchTarget, 'cli-a-gui');
   t.window.close();
 
   t = await openTour({ store: { backendEnabled: { 'cli-a': true } }, defaultBackendId: 'cli-a' });
   t.go('Your CLIs');
-  await t.change(t.doc.querySelector('.wt-row select'), 'cli-a|cli-a-gui');
+  await t.choose('cli-a|cli-a-gui');
   assert.ok(!('defaultLaunchTarget' in t.writes.at(-1).blob), 'a target that does not move is not written');
   t.window.close();
 
   t = await openTour({ store: { backendEnabled: { 'cli-a': true, 'cli-b': true } }, defaultBackendId: 'cli-b' });
   t.go('Your CLIs');
-  await t.change(t.doc.querySelector('.wt-row select'), 'cli-a-gui');
+  await t.choose('cli-a-gui');
   assert.ok(!('defaultLaunchTarget' in t.writes.at(-1).blob), 'a resolved target outside the group is left alone');
   t.window.close();
 });
@@ -418,11 +430,11 @@ test('the toggle of a CLI with a twin: off writes every id false, on brings the 
   const toggle = () => t.doc.querySelector('.wt-row .settings-toggle input');
   await t.change(toggle(), false);
   assert.deepStrictEqual(t.writes.at(-1).blob.backendEnabled, { 'cli-a': false, 'cli-a-gui': false });
-  assert.ok(t.doc.querySelector('.wt-row select').disabled, 'the select follows the toggle');
+  assert.ok([...t.doc.querySelectorAll('.wt-row [data-choice]')].every((b) => b.disabled), 'the switch follows the toggle');
   await t.change(toggle(), true);
   assert.deepStrictEqual(t.writes.at(-1).blob.backendEnabled, { 'cli-a': true, 'cli-a-gui': true },
     'the mode it had in this tour, not Terminal');
-  assert.equal(t.doc.querySelector('.wt-row select').value, 'cli-a|cli-a-gui');
+  assert.equal(t.doc.querySelector('.wt-row [data-choice][aria-pressed="true"]').dataset.choice, 'cli-a|cli-a-gui');
   t.window.close();
 });
 
@@ -432,6 +444,48 @@ test('switching on a CLI with no remembered mode enables its owner alone', async
   await t.change(t.doc.querySelector('.wt-row .settings-toggle input'), true);
   assert.deepStrictEqual(t.writes.at(-1).blob.backendEnabled, { 'cli-a': true, 'cli-a-gui': false });
   t.window.close();
+});
+
+test('every segment writes the same backendEnabled as enabledForChoice', async () => {
+  for (const c of backendModes.modeChoices(pairGroup())) {
+    const t = await openTour({ store: { backendEnabled: { 'cli-a': true } } });
+    t.go('Your CLIs');
+    await t.choose(c.value);
+    const write = t.writes.at(-1);
+    assert.equal(write.route, 'set');
+    assert.deepStrictEqual(Object.fromEntries(pairGroup().ids.map((id) => [id, write.blob.backendEnabled[id]])),
+      backendModes.enabledForChoice(pairGroup(), c.value), c.label);
+    t.window.close();
+  }
+});
+
+test('"Default in the picker" appears only with both modes on and writes pickerModeByBackend whole-blob', async () => {
+  let t = await openTour({ store: { backendEnabled: { 'cli-a': true, 'cli-a-gui': false } } });
+  t.go('Your CLIs');
+  assert.equal(t.doc.querySelector('.wt-picker-mode-switch'), null, 'one mode on: no picker default');
+  await t.choose('cli-a|cli-a-gui');
+  const segs = () => [...t.doc.querySelectorAll('.wt-picker-mode-switch [data-picker-mode]')];
+  assert.deepStrictEqual(segs().map((b) => b.textContent), ['Terminal', 'GUI']);
+  assert.ok(segs().every((b) => b.classList.contains('fp-toolbar-btn') && b.classList.contains('viewer-mode-btn')));
+  assert.equal(t.doc.querySelector('.wt-picker-mode-switch [aria-pressed="true"]').textContent, 'Terminal', 'the terminal mode until chosen');
+  await t.press(segs()[1]);
+  const write = t.writes.at(-1);
+  assert.equal(write.route, 'set', 'a nested key goes through the whole-blob write');
+  assert.deepStrictEqual(write.blob.pickerModeByBackend, { 'cli-a': 'cli-a-gui' }, 'the value the Backends list saves');
+  assert.deepStrictEqual(write.blob.backendEnabled, { 'cli-a': true, 'cli-a-gui': true }, 'and the rest of the blob survives');
+  assert.equal(t.doc.querySelector('.wt-picker-mode-switch [aria-pressed="true"]').textContent, 'GUI');
+  t.window.close();
+
+  t = await openTour({ store: { backendEnabled: { 'cli-a': true, 'cli-a-gui': true }, pickerModeByBackend: { 'cli-a': 'gone' } } });
+  t.go('Your CLIs');
+  assert.equal(t.doc.querySelector('.wt-picker-mode-switch [aria-pressed="true"]').textContent, 'Terminal',
+    'an unknown stored mode shows the terminal mode');
+  t.window.close();
+});
+
+test('settings-panel writes the picker default key the tour writes', () => {
+  assert.match(settingsSaveSource(), /\bpickerModeByBackend\b/);
+  assert.match(read(TOUR), /pickerModeByBackend/);
 });
 
 test('a CLI with no twin still writes its own backendEnabled flag', async () => {
@@ -462,7 +516,7 @@ test('the keep-warm pane is skipped unless an installed, enabled backend answers
   // Switching the GUI on inside the tour brings the pane in without reopening it.
   t = await openTour({ store: { backendEnabled: { 'cli-a': true, 'cli-a-gui': false } } });
   t.go('Your CLIs');
-  await t.change(t.doc.querySelector('.wt-row select'), 'cli-a|cli-a-gui');
+  await t.choose('cli-a|cli-a-gui');
   assert.ok(t.rails().includes('Keep warm'));
   assert.equal(railText(t.doc.querySelector('.wt-rail-item[aria-current="true"]')), 'Your CLIs',
     'the pane on screen stays the pane on screen');
