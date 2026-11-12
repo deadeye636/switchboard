@@ -648,8 +648,24 @@ spawned subagent (below). A guardian rollout is not a session and is never a lan
 - Codex user denial, guardian `deny`, and Codex/Pi hook blocks are **not measured**.
 - Pi `sections` was seen on Pi 1.1.0 only; older sessions list no instruction files (shown as the limitation `instructions-not-recorded`). The Pi reader shows the active branch only (abandoned steps still count against the caps), and a model missing from Pi's catalog has an unknown window.
 - A Codex sandbox block and every destructive-command match are heuristics and are labelled so.
-- Scrolling a very large snapshot measured 48-55 fps instead of 60 (click test of phase 1, a synthetic session of about 4 000
-  steps); the windowing bounds the cost per frame, not per step (#853).
+- Scroll cost (#853, closed on this measurement). Phase 1 measured 48-55 fps scrolling a synthetic session of about 4 000 steps; the
+  windowing bounds the cost per frame, not per step. Re-measured with `scripts/gen-flow-session.js` (4 400 and about 19 000 steps, one
+  lane), a scripted sweep of 60 px per animation frame and a 15 s `scripts/perf-trace.js` taken in the middle of it (the trace itself
+  costs frames):
+  - Untraced the sweep holds 58.4-60.0 fps. Traced, 52.5-57.9 fps over 6 runs on a busy machine and 56.9-59.0 over 6 on a quieter one.
+    The 48-55 figure is reproduced only with the trace on a busy machine.
+  - Scrolling alone (rows not redrawn) holds 60 fps and costs about 2.7 ms of main-thread pipeline a frame; redrawing the slice costs
+    about 11 ms, of which about 5.7 ms is `Layerize`, about 2 ms Paint, about 1 ms Commit, JS under 1 ms. The cost follows the number
+    of painted rows and what is in them, not JS: row children hidden 5.4 ms, rows hidden 5.0 ms.
+  - No measurable effect: writing a rail style only when it differs (the clipped rail changes every frame anyway), positioning each
+    row at its own `top` instead of moving the slice, hiding the rails. Worse: `contain: layout style paint` on `.flow-row`
+    (Layerize 5.7 to 6.7 ms).
+  - Weighed and not taken: `OVERSCAN` 10 to 4 cut the pipeline from 11.0 to 9.6 ms a frame (3 interleaved A/B pairs on the 19 000-step
+    session) but fps stayed inside the noise (58.7-59.0 to 58.5-59.3), and a 160 px overscan can show an empty strip for a frame on a
+    scrollbar drag or a fling. The owner kept 10.
+  - Levers left if it ever matters: `overflow: hidden` on `.flow-label` (the ellipsis) costs about 1 ms a frame in paint chunks; row
+    recycling; the GPU task load seen whenever the slice is redrawn. Not measured: a session with many overlapping lanes (many rails),
+    real wheel input.
 - The exports carry no highlight marks: the SVG and the PDF show a flag count per card, Mermaid none, and none of them shows the Events
   lifecycle marks (T24, T25 are the screen only).
 - No reader writes the `attention` axis. "Needs attention" reaches the Flow only through the Events overlay, drawn with the lifecycle
