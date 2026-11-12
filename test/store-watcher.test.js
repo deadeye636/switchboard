@@ -147,9 +147,18 @@ test('a db event names no file, so the match is asked for the full walk', async 
   }, posted);
 
   try {
-    fs.writeFileSync(dbFile, 'xx');
-
-    const done = await until(() => (asked.length ? true : null), 20000);
+    // Why this keeps writing instead of writing once (#856). `fs.watchFile` takes its BASELINE stat
+    // asynchronously, on the libuv thread pool, after `startBackendWatchers` has returned. Under the
+    // suite's load that stat can land after a single write made right here, so the baseline already is
+    // the new state and the poll never sees a change (3 of 30 runs failed that way, each waiting out the
+    // full 20 s). A file that keeps changing differs from whatever the baseline was, however late it is
+    // taken. The watcher itself is fine: a missed edge is picked up by the next one or the 30 s ticker.
+    let grown = 'x';
+    const done = await until(() => {
+      grown += 'x';
+      fs.writeFileSync(dbFile, grown);
+      return asked.length ? true : null;
+    }, 20000);
     assert.ok(done, 'the poll noticed the write');
     assert.equal(asked[0], undefined, 'no scope — walk the store, exactly as this did before #210');
   } finally {

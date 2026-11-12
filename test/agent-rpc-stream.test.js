@@ -336,8 +336,12 @@ test('a graceful stop closes stdin and lets the runtime finish writing before it
   assert.equal(JSON.parse(last).uuid, 'flushed', 'the line written on the way out reached the file');
 });
 
+// #856: the second stop ends the child through `taskkill`, a process spawn, and under the suite's load that
+// alone took 4.2-4.5 s (15 of 40 runs under a 20-way stress) - past the old 4 s bound against a 5 s wait,
+// so the test failed for the machine's speed, not for the stop waiting again. The wait is now far longer
+// than any spawn latency and the bound sits well inside it: a stop that waited again would need the whole 60 s.
 test('while a stop waits, nothing more is written, and a second stop does not wait again', async (t) => {
-  const h = streamHarness(t, { ignoreEof: true, rpc: { gracefulStopMs: 5000 } });
+  const h = streamHarness(t, { ignoreEof: true, rpc: { gracefulStopMs: 60000 } });
   const exited = new Promise((resolve) => h.proc.onExit(resolve));
   const started = Date.now();
   h.proc.kill();
@@ -345,7 +349,7 @@ test('while a stop waits, nothing more is written, and a second stop does not wa
     'a turn written into a closed stdin is not reported as sent');
   h.proc.kill();
   await exited;
-  assert.ok(Date.now() - started < 4000, 'the second stop took the tree at once instead of waiting out 5 s');
+  assert.ok(Date.now() - started < 45000, 'the second stop took the tree at once instead of waiting out 60 s');
 });
 
 test('a runtime that ignores the closed stdin is taken down once the wait is over', async (t) => {
