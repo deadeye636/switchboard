@@ -14,15 +14,18 @@
 
 const { resolveEnv } = require('../backends/env-refs');
 const { settingsOwnerPath } = require('../shared/worktree-path');
+const { launchLayer } = require('../shared/backend-modes');
 
 // A row with no explicit backendId predates the multi-LLM era and is Claude by definition.
 const LEGACY_SESSION_BACKEND = 'claude';
 
 /**
  * @param {(key: string) => any} getSetting   `getSetting('global')` and `getSetting('project:<owner>')`, or undefined.
+ * @param {{ liveWindowOf?: Function, listBackends?: () => object[] }} [opts] `listBackends` answers the FULL registry list (#761),
+ *   asked once and only when a launch layer is first read; without it a driver sees its own entry alone.
  * @returns {{ envFor, launchOptionsFor, windowOf, windowOfAsync }}
  */
-function createContextWindowResolver(getSetting, { liveWindowOf } = {}) {
+function createContextWindowResolver(getSetting, { liveWindowOf, listBackends } = {}) {
   // The user's per-backend variables, resolved like the spawn resolves them: a `$VAR` that names a set variable
   // becomes its value, one that does not is DROPPED, so the process's own variable shows through. Resolved against
   // this process's environment only; a reference to one of Switchboard's saved variables is not followed here.
@@ -40,6 +43,17 @@ function createContextWindowResolver(getSetting, { liveWindowOf } = {}) {
   const globalDefaults = (globalSettings && typeof globalSettings === 'object' && globalSettings.backendDefaults) || {};
   const projectDefaultsByOwner = new Map();
   const launchOptionsMemo = new Map();
+  // Every descriptor by id, FULL list: `launchLayer` builds the CLI group from it, and a driver loses the values
+  // stored under its owner when a switched-off owner is left out (#761). Asked once per pass, on first use.
+  let byIdMemo = null;
+  const byId = (backend) => {
+    if (!byIdMemo) {
+      byIdMemo = new Map();
+      try { for (const b of (typeof listBackends === 'function' ? listBackends() : []) || []) if (b && b.id) byIdMemo.set(b.id, b); } catch { /* the row's own descriptor alone */ }
+    }
+    if (backend && !byIdMemo.has(backend.id)) byIdMemo.set(backend.id, backend);
+    return byIdMemo;
+  };
   const launchOptionsFor = (row, backend, baseKey) => {
     const owner = row.projectPath ? settingsOwnerPath(row.projectPath) : '';
     const memoKey = owner + '|' + backend.id;
@@ -56,9 +70,12 @@ function createContextWindowResolver(getSetting, { liveWindowOf } = {}) {
       for (const [k, v] of Object.entries(opts)) if (v !== undefined && v !== null) out[k] = v;
       return out;
     };
+    // A profile launches as its base backend, which `baseKey` names; a driver's shared fields come from its owner.
+    const map = byId(backend);
+    const layerOf = backend.isProfile ? (map.get(baseKey) || { id: baseKey }) : backend;
     const options = {
-      ...layer(globalDefaults, baseKey),
-      ...layer(projectDefaults, baseKey),
+      ...launchLayer(globalDefaults, layerOf, map),
+      ...launchLayer(projectDefaults, layerOf, map),
       ...(backend.isProfile ? { ...layer(globalDefaults, backend.id), ...layer(projectDefaults, backend.id) } : {}),
       ...(backend.isProfile && backend.templateOptions && typeof backend.templateOptions === 'object' ? backend.templateOptions : {}),
     };

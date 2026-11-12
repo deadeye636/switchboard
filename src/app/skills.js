@@ -35,6 +35,7 @@ const backendResources = require('./backend-resources');
 const { readableError } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
 const { worktreeRootOf } = require('../shared/worktree-path');
+const backendModes = require('../shared/backend-modes');
 const resourceSources = require('./resource-sources');
 const skillDelivery = require('./skill-delivery');
 
@@ -660,17 +661,20 @@ async function getSkillDetail({ id, projectPath = null } = {}) {
   const row = collectSkillInventory({ projectPath }).find(r => skillId(r.filePath) === id);
   if (!row) return { ok: false, reason: 'That skill is no longer listed.' };
   let defaults = {};
+  let launchDefaults = null;
   try {
     const settings = ctx.effectiveSettings ? ctx.effectiveSettings(projectPath || null) : null;
     defaults = (settings && settings.backendDefaults) || {};
+    launchDefaults = (settings && settings.launchDefaults) || null;   // main layered each scope (#761)
   } catch { defaults = {}; }
   const labelOf = (backendId) => { const d = backendById(backendId); return d ? (d.label || d.id) : null; };
   // Ready AND switched on: a backend the user turned off launches nothing, so what it would make of the
   // skill answers no question anybody has. `status` is 'ready' for every installed built-in either way.
-  const ready = (() => {
-    try { return (ctx.backends.list() || []).filter(b => b && !b.isProfile && b.status === 'ready' && b.enabled !== false); }
-    catch { return []; }
-  })();
+  let all = [];
+  try { all = (ctx.backends.list() || []).filter(Boolean); } catch { all = []; }
+  const ready = all.filter(b => !b.isProfile && b.status === 'ready' && b.enabled !== false);
+  // The FULL list, not `ready`: a driver keeps the shared values stored under its owner when the owner is switched off (#761).
+  const byId = new Map(all.map(b => [b.id, { ...(backendById(b.id) || {}), ...b }]));
   // One `resolve` per target, not shared between targets on one source: the answer depends on the TARGET
   // (its trust question, what it declines), so a cache keyed without it would hand one target another's.
   const targets = [];
@@ -679,7 +683,7 @@ async function getSkillDetail({ id, projectPath = null } = {}) {
     if (!target) continue;
     const answer = await skillDelivery.deliveryFor({
       row, target, ownerOf: cliOwnerIdOf, labelOf, projectPath,
-      options: defaults[target.id] || {},
+      options: (launchDefaults && launchDefaults[target.id]) || backendModes.launchLayer(defaults, target, byId),
       resolve: resourceSources.resolve,
     });
     targets.push({ targetLabel: target.label || target.id, ...answer });

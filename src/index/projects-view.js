@@ -190,7 +190,7 @@ function buildProjectsFromCache(showArchived) {
   // the archive filter.
   // The window of each row's last turn, asked with the user's per-backend variables and the stored launch options
   // (#620). Built once per build; the layering is `src/index/context-window.js`, shared with the Flow tab.
-  const resolver = createContextWindowResolver(getSetting, { liveWindowOf: liveWindowOf });
+  const resolver = createContextWindowResolver(getSetting, { liveWindowOf: liveWindowOf, listBackends: () => backends.list() });
 
   // Which backends may launch right now (#670) — ready, enabled and not known to be missing — resolved once
   // per build and only when a row needs it (one with a transport or a stored view), because `list()` asks

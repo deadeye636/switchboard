@@ -29,6 +29,7 @@ const crypto = require('crypto');
 const pty = require('node-pty');
 const { resolveShell, isWindows, isWslShell, windowsToWslPath, ptyShellArgs, quoteArgvForShell } = require('./shell-profiles');
 const { settingsOwnerPath } = require('../../shared/worktree-path');
+const backendModes = require('../../shared/backend-modes');
 const { normalizeLauncher } = require('../../shared/custom-launchers');
 const { classifyAttentionSignal } = require('../../shared/attention-source');
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
@@ -285,9 +286,14 @@ function spawnOptionsFor(backend, projectPath, sessionOptions) {
   // answer `{}` for a user who switched the option off for the backend itself.
   const id = backend && (backend.baseId || backend.id);
   if (!id) return { ...(sessionOptions || {}) };
-  const g = ((ctx.getSetting('global') || {}).backendDefaults || {})[id] || {};
+  // Each scope goes through the layering on its own (#761): a driver reads the shared fields from its owner's
+  // entry. The map is the FULL registry list, so a value stored under a switched-off owner still reaches it.
+  const byId = new Map();
+  try { for (const b of (ctx.backends.list() || [])) if (b && b.id) byId.set(b.id, b); } catch { /* the launching descriptor alone */ }
+  if (!byId.has(backend.id)) byId.set(backend.id, backend);
+  const g = backendModes.launchLayer((ctx.getSetting('global') || {}).backendDefaults, backend, byId);
   const p = projectPath
-    ? (((ctx.getSetting('project:' + settingsOwnerPath(projectPath)) || {}).backendDefaults || {})[id] || {})
+    ? backendModes.launchLayer((ctx.getSetting('project:' + settingsOwnerPath(projectPath)) || {}).backendDefaults, backend, byId)
     : {};
   return { ...g, ...p, ...(sessionOptions || {}) };
 }

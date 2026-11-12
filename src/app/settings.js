@@ -41,6 +41,7 @@ const dialogDirs = require('./dialog-dirs');
 // A thrown fs error names the file it failed on, and this one is a path the user picked (#457).
 const { readableError } = require('./readable-error');
 const { settingsOwnerPath } = require('../shared/worktree-path');
+const { launchLayer } = require('../shared/backend-modes');
 
 let ctx = null;
 
@@ -502,7 +503,34 @@ function effectiveSettings(projectPath) {
   //
   // A project therefore stores only the options it actually overrides.
   effective.backendDefaults = mergeBackendDefaults(global.backendDefaults, project.backendDefaults);
+  // What a LAUNCH of each backend reads (#761): every scope layered on its own through `launchLayer` (a driver takes
+  // the fields its CLI group shares from the owner's entry), then merged per option. It cannot be derived from the
+  // merged `backendDefaults` above: a project value under the driver would lose to a global value under the owner.
+  // Lazy, because this function is called on many paths that never read it, and `backends.list()` probes
+  // availability. Enumerable, so it still crosses IPC; a registry that cannot answer leaves it undefined and the
+  // reader falls back to `backendDefaults`.
+  let launchMemo;
+  Object.defineProperty(effective, 'launchDefaults', {
+    enumerable: true, configurable: true,
+    get() {
+      if (launchMemo === undefined) launchMemo = launchDefaultsOf(global.backendDefaults, project.backendDefaults);
+      return launchMemo;
+    },
+  });
   return effective;
+}
+
+/** Per backend id of the FULL registry (templates included), what a launch reads from the two scopes. */
+function launchDefaultsOf(globalDefaults, projectDefaults) {
+  let list;
+  try { list = backends.list() || []; } catch { return undefined; }
+  const byId = new Map();
+  for (const b of list) if (b && b.id) byId.set(b.id, b);
+  const out = {};
+  for (const b of byId.values()) {
+    out[b.id] = { ...launchLayer(globalDefaults, b, byId), ...launchLayer(projectDefaults, b, byId) };
+  }
+  return out;
 }
 
 /** global ⊕ project, per backend, per option. The project wins where it has a value of its own. */

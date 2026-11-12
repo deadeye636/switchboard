@@ -470,6 +470,10 @@ function loadDialogs(effective, backends) {
     value: (id) => backends[id] || null,
     writable: true, configurable: true,
   });
+  // The full registry cache the launch layering reads (`window._backendsById`), and the module it loads from.
+  Object.defineProperty(window, '_backendsById', { value: backends, writable: true, configurable: true });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', 'shared', 'backend-modes.js'), 'utf8'),
+    dom.getInternalVMContext(), { filename: 'backend-modes.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'dialogs', 'dialogs.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'dialogs.js' });
   return window;
@@ -692,4 +696,53 @@ test('a stored setting survives a dialog the user did not touch', async () => {
   assert.equal(base.model, 'gpt-5.5');
   assert.equal(base.sandbox, 'read-only',
     'the dialog starts from THIS and lays overrides on top — it does not start from nothing');
+});
+
+// --- #761: a driver reads the shared fields from its owner's entry --------------------------------
+
+const MODEL_F = { id: 'model', type: 'text', default: '' };
+const PERM_F = { id: 'permissionMode', type: 'select', default: 'default', choices: ['default', 'plan'] };
+const OWNER_D = { id: 'cliA', label: 'A', status: 'ready', configFields: [MODEL_F, PERM_F] };
+const DRIVER_D = { id: 'cliA-gui', label: 'A GUI', status: 'ready', transcriptsOf: 'cliA', modeLabel: 'GUI',
+  configFields: [MODEL_F, { id: 'approvalGate', type: 'toggle', default: false }] };
+
+async function driverOptions(backendDefaults, extra = {}) {
+  const backends = { cliA: OWNER_D, 'cliA-gui': DRIVER_D, ...extra };
+  const window = loadDialogs({ backendDefaults }, backends);
+  return window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'cliA-gui');
+}
+
+test('#761 a driver gets a shared value stored only under its owner', async () => {
+  const o = await driverOptions({ cliA: { model: 'm1' } });
+  assert.equal(o.model, 'm1');
+});
+
+test('#761 a driver keeps a value stored only under itself (unmigrated)', async () => {
+  const o = await driverOptions({ 'cliA-gui': { model: 'mine' } });
+  assert.equal(o.model, 'mine');
+});
+
+test('#761 with both set, the owner wins for a shared field', async () => {
+  const o = await driverOptions({ cliA: { model: 'owner' }, 'cliA-gui': { model: 'mine' } });
+  assert.equal(o.model, 'owner');
+});
+
+test("#761 a driver's own field comes only from its own entry", async () => {
+  const o = await driverOptions({ cliA: { approvalGate: true, permissionMode: 'plan' }, 'cliA-gui': { approvalGate: false } });
+  assert.equal(o.approvalGate, false, 'the owner declares no such field to share');
+  assert.equal('permissionMode' in o, false, 'a field the driver does not declare is not shared');
+});
+
+test('#761 a switched-off owner still passes its value (the registry cache is the full list)', async () => {
+  const o = await driverOptions({ cliA: { model: 'm1' } }, { cliA: { ...OWNER_D, enabled: false } });
+  assert.equal(o.model, 'm1');
+});
+
+test('#761 a template on a driver base keeps the shared layer, then its own on top', async () => {
+  const tpl = { id: 'tpl', label: 'T', isProfile: true, baseId: 'cliA-gui', configFields: [], templateOptions: { approvalGate: true } };
+  const window = loadDialogs({ backendDefaults: { cliA: { model: 'm1' }, 'cliA-gui': { approvalGate: false } } },
+    { cliA: OWNER_D, 'cliA-gui': DRIVER_D, tpl });
+  const o = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'tpl');
+  assert.equal(o.model, 'm1');
+  assert.equal(o.approvalGate, true, 'the template record is the top layer');
 });

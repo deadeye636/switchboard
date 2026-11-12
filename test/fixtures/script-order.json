@@ -14,6 +14,7 @@
     "worktree-path.js",
     "convention-dir-name.js",
     "partial-args.js",
+    "backend-modes.js",
     "flow-snapshot.js",
     "flow-layout.js",
     "flow-text.js",

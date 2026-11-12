@@ -80,14 +80,24 @@ function schemaBackendOf(backend) {
 function storedDefaultsFor(effective, backend) {
   const all = (effective && effective.backendDefaults) || {};
   if (!backend) return {};
+  // Main layers each scope on its own (#761) and hands the result as `launchDefaults`. Re-layering the merged
+  // `backendDefaults` here cannot give the same answer: a project value under a driver would lose to a global
+  // value under its owner. The path below is the fallback for an answer that carries no `launchDefaults`.
+  const launch = effective && effective.launchDefaults;
+  // The FULL registry (not the launchable subset): a driver keeps the shared values stored under its owner
+  // even when that owner is switched off. The launching descriptor is added when the cache lacks it.
+  const byId = { ...(window._backendsById || {}) };
+  if (!byId[backend.id]) byId[backend.id] = backend;
+  const layered = (b) => (launch && launch[b.id]) || backendModes.launchLayer(all, b, byId);
   if (backend.isProfile) {
+    const base = byId[baseIdOf(backend)] || { id: baseIdOf(backend) };
     return {
-      ...(all[baseIdOf(backend)] || {}),   // the base backend's global ⊕ project defaults
+      ...layered(base),                    // the base backend's global ⊕ project defaults, shared layer included
       ...(all[backend.id] || {}),          // legacy: options once stored against the template's id
       ...(backend.templateOptions || {}),  // the template itself — the top layer
     };
   }
-  return { ...(all[backend.id] || {}) };
+  return { ...layered(backend) };
 }
 
 // The launch options for ONE backend: ONLY what somebody actually chose.
