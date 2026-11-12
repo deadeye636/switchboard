@@ -647,3 +647,14 @@ test('settings-panel saves pickerModeByBackend from readGlobal', () => {
   const src = stripComments(fs.readFileSync(path.join(SRC, 'renderer', 'panels', 'settings-panel.js'), 'utf8'));
   assert.match(src, /settings\.pickerModeByBackend\s*=\s*bs\.pickerModeByBackend/);
 });
+
+test('the CLI row carries each driver label as visually hidden text, so the settings search finds a mode', async () => {
+  const ctx = await setup([C, C_GUI, C_SRV, LONE]);
+  try {
+    const row = ctx.root.querySelector('.settings-field[data-backend-row="cli-c"]');
+    const hidden = row.querySelector('.visually-hidden');
+    assert.ok(hidden, 'the labels sit in a visually hidden element');
+    for (const d of [C_GUI, C_SRV]) assert.ok(row.textContent.includes(d.label), `${d.label} is in the row text`);
+    assert.equal(ctx.root.querySelector('.settings-field[data-backend-row="lone"] .visually-hidden'), null, 'a one-mode CLI adds nothing');
+  } finally { ctx.close(); }
+});

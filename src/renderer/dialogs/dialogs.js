@@ -933,6 +933,43 @@ async function showGeneratedConfigDialog(project, backend, modes = null) {
       <button class="new-session-start-btn">Start</button>
     </div>
   `;
+  // What the user took over, by field id, so it survives the Terminal | GUI switch: the other mode's fields with the
+  // same id take it, and a field only this mode has is kept for the way back. A ticked "Use the current setting" is
+  // no entry: the mode that follows shows its own stored value for it.
+  const typed = {};
+  // Field ids whose kept value the new mode could not take (a type or choice it lacks). They stay ticked there, and
+  // that tick is not the user's, so the way back must not forget the kept value.
+  const skipped = new Set();
+  function rememberTyped() {
+    fields.forEach((f, i) => {
+      const el = dialog.querySelector(`#gcd-${i}`);
+      const inheritCb = dialog.querySelector(`.gcd-inherit[data-for="gcd-${i}"]`);
+      if (!el || !inheritCb) return;
+      if (inheritCb.checked) {
+        if (!skipped.has(f.id)) delete typed[f.id];
+      } else {
+        skipped.delete(f.id);
+        typed[f.id] = { type: f.type, value: f.type === 'toggle' ? el.checked : el.value };
+      }
+    });
+  }
+  function restoreTyped() {
+    skipped.clear();
+    fields.forEach((f, i) => {
+      const kept = typed[f.id];
+      if (!kept) return;
+      const el = dialog.querySelector(`#gcd-${i}`);
+      const inheritCb = dialog.querySelector(`.gcd-inherit[data-for="gcd-${i}"]`);
+      if (!el || !inheritCb) return;
+      const accepts = kept.type === f.type
+        && (f.type !== 'select' || [...el.options].some(o => o.value === kept.value));
+      if (!accepts) { skipped.add(f.id); return; }
+      if (f.type === 'toggle') el.checked = !!kept.value;
+      else el.value = kept.value;
+      inheritCb.checked = false;
+      el.disabled = false;
+    });
+  }
   function render() {
     // With both modes on, the title names the CLI and the mode the switch shows ("New Claude Code GUI Session").
     const title = modes
@@ -948,10 +985,12 @@ async function showGeneratedConfigDialog(project, backend, modes = null) {
       btn.addEventListener('click', () => {
         const next = btn.dataset.mode === modes.gui.id ? modes.gui : modes.terminal;
         if (next.id === backend.id) return;
+        rememberTyped();
         backend = next;
         saved = storedDefaultsFor(effective, backend);
         fields = perSessionFields(backend);
         render();
+        restoreTyped();
         const pressed = [...dialog.querySelectorAll('.new-session-mode-switch [data-mode]')].find(b => b.dataset.mode === backend.id);
         if (pressed) pressed.focus();
       });
@@ -970,6 +1009,8 @@ async function showGeneratedConfigDialog(project, backend, modes = null) {
     if (!cb) return;
     const control = dialog.querySelector('#' + cb.dataset.for);
     if (!control) return;
+    const fieldAt = fields[Number(String(cb.dataset.for).replace('gcd-', ''))];
+    if (fieldAt) skipped.delete(fieldAt.id);
     control.disabled = cb.checked;
     if (!cb.checked) control.focus();
   });

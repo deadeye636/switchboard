@@ -222,3 +222,62 @@ test('the new code names no backend id', () => {
     assert.doesNotMatch(block, /['"`](claude|codex|pi|hermes|agy)(-native)?['"`]/);
   }
 });
+
+test('Configure keeps what was typed across the Terminal | GUI switch, including a GUI-only field', async () => {
+  const t = setup();
+  const dialog = await t.openConfigure('ow');
+  const sw = (id) => dialog.querySelector(`.new-session-mode-switch [data-mode="${id}"]`);
+  const ids = () => [...dialog.querySelectorAll('.settings-field')].map(f => f.querySelector('.settings-label').textContent);
+  const ctl = (label) => {
+    const f = [...dialog.querySelectorAll('.settings-field')].find(x => x.querySelector('.settings-label').textContent === label);
+    return { el: f.querySelector('.settings-field-control input, .settings-field-control select'), cb: f.querySelector('.gcd-inherit') };
+  };
+  const type = (label, v) => {
+    const c = ctl(label);
+    c.cb.checked = false; c.cb.dispatchEvent(new t.window.Event('change', { bubbles: true }));
+    if (c.el.type === 'checkbox') c.el.checked = v; else c.el.value = v;
+  };
+  type('Model', 'my-model');
+  sw('ow-gui').click();
+  assert.ok(ids().includes('Approval gate'));
+  assert.equal(ctl('Model').el.value, 'my-model', 'shared field kept on the GUI side');
+  assert.equal(ctl('Model').cb.checked, false);
+  assert.equal(ctl('Model').el.disabled, false);
+  assert.equal(ctl('Approval gate').cb.checked, true, 'an untouched field stays on the current setting');
+  type('Approval gate', true);
+  sw('ow').click();
+  assert.equal(ctl('Model').el.value, 'my-model', 'still there on the way back');
+  sw('ow-gui').click();
+  assert.equal(ctl('Approval gate').el.checked, true, 'a GUI-only value survives the round trip');
+  assert.equal(ctl('Approval gate').cb.checked, false);
+  dialog.querySelector('.new-session-start-btn').click();
+  await settle();
+  const last = t.launched.at(-1);
+  assert.equal(last.model, 'my-model');
+  assert.equal(last.gate, true);
+});
+
+test('a select value only one mode offers is not applied to the mode that lacks it, and survives the round trip', async () => {
+  const PERM = (choices) => ({ id: 'perm', label: 'Permission', type: 'select', choices, default: 'a' });
+  const t = setup({ backends: registry({
+    ow: { configFields: [MODEL, PERM(['a', 'b', 'skip'])] },
+    'ow-gui': { configFields: [MODEL, PERM(['a', 'b'])] },
+  }) });
+  const dialog = await t.openConfigure('ow');
+  const sw = (id) => dialog.querySelector(`.new-session-mode-switch [data-mode="${id}"]`);
+  const perm = () => {
+    const f = [...dialog.querySelectorAll('.settings-field')].find(x => x.querySelector('.settings-label').textContent === 'Permission');
+    return { el: f.querySelector('select'), cb: f.querySelector('.gcd-inherit') };
+  };
+  let p = perm();
+  p.cb.checked = false; p.cb.dispatchEvent(new t.window.Event('change', { bubbles: true }));
+  p.el.value = 'skip';
+  sw('ow-gui').click();
+  p = perm();
+  assert.equal(p.cb.checked, true, 'not applied where the choice does not exist');
+  assert.notEqual(p.el.value, '');
+  sw('ow').click();
+  p = perm();
+  assert.equal(p.el.value, 'skip', 'kept value restored on the way back');
+  assert.equal(p.cb.checked, false);
+});

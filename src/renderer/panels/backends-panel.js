@@ -1656,6 +1656,7 @@
               ${ready && b.available === false ? '<span class="backend-pill missing">not installed</span>' : ''}
             </div>
             <div class="settings-description">${esc(b.description || '')}</div>
+            ${multi ? `<span class="visually-hidden backend-mode-labels" aria-hidden="true">${g.drivers.map(d => esc(d.label || d.id)).join(', ')}</span>` : ''}
             ${missing.map(x =>
               `<div class="settings-description backend-unavailable">${multi ? `${esc(x.m.label)}: ` : ''}${esc(x.d.unavailableReason)}</div>`).join('')}
           </div>
