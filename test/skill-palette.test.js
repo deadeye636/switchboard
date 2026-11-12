@@ -55,6 +55,22 @@ test('an empty or whitespace template falls back to the default, then to the pat
   assert.equal(skillInsertText(skill({ name: '' }), '{name}'), '/skills/git-commit/SKILL.md');
 });
 
+test('a path or name is data: replacement patterns and placeholders in it are inserted as written (#859)', () => {
+  assert.equal(skillInsertText(skill({ filePath: "/s/$&/x$'.md" }), 'Read {path}'), "Read /s/$&/x$'.md");
+  assert.equal(skillInsertText(skill({ name: 'a$`b' }), '{name}: {path}'), 'a$`b: /skills/git-commit/SKILL.md');
+  assert.equal(skillInsertText(skill({ filePath: '/s/{name}.md', name: 'n' }), '{path}'), '/s/{name}.md',
+    'a placeholder inside a value is not substituted a second time');
+});
+
+test('a project override of the skill template and the skills directory is saved (#859)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const panel = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'panels', 'settings-panel.js'), 'utf8');
+  // The project page shows both with a "use global" box; the project save needs a reader for each, or it drops them.
+  assert.match(panel, /skillInsertTemplate: \(\) => \(settingsViewerBody\.querySelector\('#sv-skill-insert-template'\)/);
+  assert.match(panel, /skillsDir: \(\) => \(settingsViewerBody\.querySelector\('#sv-skills-dir'\)/);
+});
+
 test('the default names the file and says what to do with it', () => {
   assert.match(DEFAULT_SKILL_INSERT_TEMPLATE, /\{path\}/);
   assert.ok(DEFAULT_SKILL_INSERT_TEMPLATE.trim().split(/\s+/).length > 1, 'a bare path is not an instruction');

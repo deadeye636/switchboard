@@ -68,9 +68,10 @@
     if (!skill) return '';
     if (skill.invocation) return skill.invocation;
     const raw = (typeof template === 'string' && template.trim()) ? template : DEFAULT_SKILL_INSERT_TEMPLATE;
-    const text = raw
-      .replace(/\{path\}/g, skill.filePath || '')
-      .replace(/\{name\}/g, skill.name || '');
+    // One pass with a function (#859): a path or name holding `$&` or `{name}` is inserted as written, not read as a
+    // replacement pattern or substituted a second time.
+    const values = { path: skill.filePath || '', name: skill.name || '' };
+    const text = raw.replace(/\{(path|name)\}/g, (_, key) => values[key]);
     return text.trim() ? text : (skill.filePath || '');
   }
 

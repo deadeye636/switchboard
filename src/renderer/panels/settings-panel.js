@@ -1476,6 +1476,9 @@ ${window.settingsInstructions.sectionHtml('project')}
               planDirNames: () => readPlanDirNames(),
               handoffDir: () => (settingsViewerBody.querySelector('#sv-handoff-dir')?.value || '').trim() || '.handoffs',
               handoffDirNames: () => readHandoffDirNames(),
+              // #859: both were shown with a "use global" box and never read here, so a project override was dropped.
+              skillsDir: () => (settingsViewerBody.querySelector('#sv-skills-dir')?.value || '').trim(),
+              skillInsertTemplate: () => (settingsViewerBody.querySelector('#sv-skill-insert-template')?.value || '').trim(),
               taskInsertTemplate: () => (settingsViewerBody.querySelector('#sv-task-insert-template')?.value || '').trim(),
               handoffInsertTemplate: () => (settingsViewerBody.querySelector('#sv-handoff-insert-template')?.value || '').trim(),
               terminalShellProfile: () => settingsViewerBody.querySelector('#sv-terminal-shell-profile').value || 'inherit',
