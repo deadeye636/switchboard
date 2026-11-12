@@ -534,15 +534,16 @@ Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, â
 ### One row per CLI and launch defaults stored once
 
 A CLI and the mode that drives it over a pipe (Claude and Claude (GUI), Pi and Pi (GUI)) are two backends in the
-registry and one row, one page and one project pane on the screen (#761, [spec 26](specs/26-settings-screen.md)).
-`src/shared/backend-modes.js` is the one place that decides the grouping; the descriptor of the GUI mode says
-`transcriptsOf` (its CLI) and `modeLabel` (the word on the mode badge).
+registry. On screen they are one row, one page and one project pane (#761, [spec 26](specs/26-settings-screen.md)).
+The grouping is decided in `src/shared/backend-modes.js` and nowhere else. The GUI mode's descriptor names its CLI in
+`transcriptsOf` and the word on the mode badge in `modeLabel`.
 
 - **`backendEnabled` stays one flag per id.** The mode badge's choices write the flags of the whole group: Terminal sets the CLI
   on and the GUI mode off, GUI the other way round, Both sets both. The toggle beside it writes every flag of the
-  group `false`, and on again restores the mode the group had earlier in that window, else Terminal only. After a
-  reload that memory is gone, so off, save, reopen, on starts from Terminal. A combination the choices cannot offer
-  (three modes and up) is the badge's text, with no choice marked; opening the page rewrites nothing.
+  group `false`. Switching it on again restores the mode the group had earlier in that window, else Terminal only.
+  A reload forgets that, so off, save, reopen, on starts from Terminal. With three or more modes some combinations
+  have no choice of their own; the badge then shows the combination, no choice is marked, and opening the page
+  rewrites nothing.
 - **Default in the picker** (`pickerModeByBackend`). With more than one mode on, a second badge right of the mode badge
   ("Picker: Terminal") picks the mode the New Session row starts. The button on the right of the row then starts the other mode and is
   labelled with it, and the gear's Configure dialog opens on the chosen mode. The DEFAULT badge does not change.

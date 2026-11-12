@@ -115,16 +115,19 @@ screen has to be re-shot and re-checked for a stray project name every time the 
 ### D7b — the CLIs pane groups by CLI, like the Backends list (#761)
 
 The pane builds its controls from `backendModes.cliGroups` (`src/shared/backend-modes.js`), the module the Backends
-list asks, so the two never group differently and the tour still names no backend. A CLI with one mode gets the
-toggle it always had. A CLI with a GUI mode gets a segmented switch (Terminal | GUI | Both; the Backends list offers the same
-choices behind a badge with a popover) beside the toggle, disabled while the toggle is off; a combination it cannot offer presses no segment and is named beside
-it. With Both chosen, the row also shows "Default in the picker" (Terminal | GUI) under its name, which writes
-`pickerModeByBackend.<owner>` through the same whole-blob route, the value Settings saves. A choice writes
-`enabledForChoice` into `backendEnabled` through the same whole-blob route as before, and moves
-`defaultLaunchTarget` with `targetAfterModeChange` when the target was the mode that went off. With no target
-stored it starts from the target the app resolved, as the Backends list does. Toggling a CLI off and on again
-brings back the mode it had in this tour, else Terminal. A group with a mode that is not installed lists that
-mode's reason under its name.
+list asks. The two cannot group differently, and the tour still names no backend.
+
+A CLI with one mode gets the toggle it always had. A CLI with a GUI mode also gets a segmented switch, Terminal | GUI |
+Both, which is disabled while the toggle is off. The Backends list offers the same choices behind a badge with a
+popover. A combination the switch cannot offer presses no segment and is named beside it. With Both chosen, the row
+shows a second switch, "Default in the picker" (Terminal | GUI), under its name. It writes `pickerModeByBackend.<owner>`,
+the same value Settings saves.
+
+Every write goes through the whole-blob route. A mode choice writes `enabledForChoice` into `backendEnabled` and moves
+`defaultLaunchTarget` with `targetAfterModeChange` when the target was the mode that went off. With no target stored
+it starts from the target the app resolved, as the Backends list does. Toggling a CLI off and on again brings back
+the mode it had in this tour, else Terminal. If one of a CLI's modes is not installed, the row gives that mode's
+reason under its name.
 
 Switching a CLI on or off can change which panes exist, because the keep-warm pane needs an enabled backend with
 the capability. The tour therefore rebuilds its panes after a change in this pane (`rebuildPanes`). The pane on
@@ -152,10 +155,10 @@ permanently.
 
 ### D9b — two panes were added with #761
 
-**Session sidebar** (`sessionSidebarDefault`, open or closed) says what the per-session sidebar holds, how to open
-it and that order and hidden sections are set on the sidebar itself, and draws a session with the sidebar open or
-closed. The section names come from `src/renderer/lib/sidebar-groups.js` when the pane is drawn, not from a second
-list in the tour. **Keep warm** (`idleMaintenanceMode`: Off, Keep warm, Compact only, Warm then compact) says plainly
+**Session sidebar** (`sessionSidebarDefault`, open or closed) says what the per-session sidebar holds and how to
+open it, and that order and hidden sections are set on the sidebar itself. Its figure is a session with the sidebar
+open or closed. The section names are read from `src/renderer/lib/sidebar-groups.js` when the pane is drawn; the tour
+keeps no list of its own. **Keep warm** (`idleMaintenanceMode`: Off, Keep warm, Compact only, Warm then compact) says plainly
 that every refresh and every compaction is a real model turn and that a compaction cannot be undone, and draws a
 timeline from the last turn that changes with the mode. It is skipped without an enabled backend declaring
 `idleMaintenance`, the same capability rule as D6. The what and why of idle maintenance is
