@@ -285,6 +285,28 @@ test('getDefaultLaunchTarget: defaults to claude, honours a valid target, reject
   });
 });
 
+test('getDefaultLaunchTarget: a target whose mode is off follows the CLI to its other enabled mode (#761)', () => {
+  withRegistry({ defaultLaunchTarget: 'claude-native', backendEnabled: { 'claude-native': false } }, [], () => {
+    assert.strictEqual(backends.getDefaultLaunchTarget(), 'claude');
+  });
+  // the case the plain Claude fallback got wrong: Pi's own mode is on, Claude also on
+  withRegistry({ defaultLaunchTarget: 'pi-native', backendEnabled: { 'pi-native': false, pi: true, claude: true } }, [], () => {
+    assert.strictEqual(backends.getDefaultLaunchTarget(), 'pi');
+  });
+  // launchable stored target: unchanged
+  withRegistry({ defaultLaunchTarget: 'pi-native', backendEnabled: { 'pi-native': true, pi: true } }, [], () => {
+    assert.strictEqual(backends.getDefaultLaunchTarget(), 'pi-native');
+  });
+  // no twin, not launchable: the old fallback
+  withRegistry({ defaultLaunchTarget: 'hermes' }, [], () => {
+    assert.strictEqual(backends.getDefaultLaunchTarget(), 'claude');
+  });
+  // both modes of the CLI off, nothing else on: null as before
+  withRegistry({ defaultLaunchTarget: 'claude-native', backendEnabled: { claude: false, 'claude-native': false } }, [], () => {
+    assert.strictEqual(backends.getDefaultLaunchTarget(), null);
+  });
+});
+
 test('backendCoreEnv: terminal identity + optional MCP port', () => {
   const base = backends.backendCoreEnv();
   assert.strictEqual(base.TERM_PROGRAM, 'iTerm.app');

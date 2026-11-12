@@ -730,6 +730,20 @@ function getDefaultLaunchTarget() {
 
   const id = g.defaultLaunchTarget;
   if (typeof id === 'string' && id && launchable(id)) return id;
+
+  // The stored target belongs to a CLI whose mode was switched off (D6, D18): follow it to the
+  // CLI's other enabled mode before any fallback that knows nothing about the pairing.
+  if (typeof id === 'string' && id) {
+    const modes = require('../shared/backend-modes');
+    const group = modes.cliGroups(all).find(g => g.ids.includes(id));
+    if (group) {
+      const enabled = {};
+      for (const b of all) if (b.status === 'ready' && b.enabled) enabled[b.id] = true;
+      const twin = modes.targetAfterModeChange(id, group, enabled);
+      if (twin !== id && launchable(twin)) return twin;
+    }
+  }
+
   if (launchable('claude')) return 'claude';
 
   const first = all.find(b => b.status === 'ready' && b.enabled);
