@@ -134,8 +134,9 @@ test('the Configure switch is there only with both modes, and starts the mode it
   assert.deepEqual([...sw].map(b => b.textContent), ['Terminal', 'GUI']);
   assert.equal(sw[0].getAttribute('aria-pressed'), 'true');
   assert.equal(dialog.querySelectorAll('.gcd-inherit').length, 1, 'the owner\'s fields');
+  assert.match(dialog.querySelector('h3').textContent, /^New Owner Terminal Session/);
   sw[1].click();
-  assert.match(dialog.querySelector('h3').textContent, /Owner \(GUI\)/);
+  assert.match(dialog.querySelector('h3').textContent, /^New Owner GUI Session/);
   assert.equal(dialog.querySelectorAll('.gcd-inherit').length, 2, 'redrawn with the driver\'s fields');
   assert.equal(dialog.querySelector('.new-session-mode-switch [data-mode="ow-gui"]').getAttribute('aria-pressed'), 'true');
   dialog.querySelector('.new-session-start-btn').click();

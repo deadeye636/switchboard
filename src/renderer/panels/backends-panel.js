@@ -1610,8 +1610,8 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>`;
 
-    // A CLI's row: the owner's face, a line per mode that is not installed, then gear, mode select (only with
-    // more than one mode) and the toggle. A planned built-in is passed as `{ owner, modes: [] }`.
+    // A CLI's row: the owner's face, a line per mode that is not installed, then the mode select (only with
+    // more than one mode), the toggle and the gear last. A planned built-in is passed as `{ owner, modes: [] }`.
     const cliRow = (g) => {
       const b = g.owner;
       const ready = b.status === 'ready';
@@ -1634,13 +1634,13 @@
               `<div class="settings-description backend-unavailable">${multi ? `${esc(x.m.label)}: ` : ''}${esc(x.d.unavailableReason)}</div>`).join('')}
           </div>
           <div class="settings-field-control">
-            ${ready ? gearBtn(b) : ''}
             ${ready && multi
               ? `<select class="settings-select backend-mode-select" data-group="${esc(b.id)}" aria-label="Mode of ${esc(b.label)}" ${on ? '' : 'disabled'}>${modeOptionsHtml(g)}</select>`
               : ''}
             ${ready
               ? `<label class="settings-toggle"><input type="checkbox" class="backend-cli-toggle" data-group="${esc(b.id)}" aria-label="Enable ${esc(b.label)}" ${on ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`
               : '<span class="backend-planned-note">not built yet</span>'}
+            ${ready ? gearBtn(b) : ''}
           </div>
         </div>`;
     };

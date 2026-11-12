@@ -926,7 +926,11 @@ async function showGeneratedConfigDialog(project, backend, modes = null) {
     </div>
   `;
   function render() {
-    dialog.querySelector('.new-session-dialog-title').textContent = `New ${backend.label} Session — ${projectName}`;
+    // With both modes on, the title names the CLI and the mode the switch shows ("New Claude Code GUI Session").
+    const title = modes
+      ? `${modes.cliLabel} ${modes.gui && backend.id === modes.gui.id ? modes.guiLabel : modes.terminalLabel}`
+      : backend.label;
+    dialog.querySelector('.new-session-dialog-title').textContent = `New ${title} Session — ${projectName}`;
     dialog.querySelector('.new-session-dialog-body').innerHTML = modeHtml
       + (fieldsHtml() || '<div class="settings-description">This backend has no launch options.</div>');
     dialog.querySelectorAll('.new-session-mode-switch [data-mode]').forEach(btn => {

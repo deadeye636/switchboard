@@ -383,10 +383,10 @@ test('one row per CLI: a lone backend has a toggle and no select, a pair has Ter
     assert.ok(sel.classList.contains('settings-select'), 'the select reuses the settings class');
     assert.deepEqual([...sel.options].map(o => o.textContent), ['Terminal', 'GUI', 'Both']);
     assert.equal(sel.selectedOptions[0].textContent, 'Both');
-    // Control order: gear, select, toggle.
+    // Control order: select, toggle, gear last (owner's call after the first look).
     const control = rowOf(ctx.root, 'cli-a').querySelector('.settings-field-control');
     const kinds = [...control.querySelectorAll('.backend-gear, .backend-mode-select, .backend-cli-toggle')].map(el => el.className.split(' ').pop());
-    assert.deepEqual(kinds, ['backend-gear', 'backend-mode-select', 'backend-cli-toggle']);
+    assert.deepEqual(kinds, ['backend-mode-select', 'backend-cli-toggle', 'backend-gear']);
     assert.equal(ctx.root.querySelector('.backend-enable'), null, 'no per-id checkbox is left');
   } finally { ctx.close(); }
 });
