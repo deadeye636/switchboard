@@ -6,9 +6,11 @@
 //
 // The original rule was `ended_at IS NULL + recent messages -> BUSY`. It was wrong twice over, and a real
 // store said so: **`ended_at` was null on every session** of the 0.21 store measured, including ones finished
-// the day before — so the one branch that could return IDLE never fired. (Hermes 0.23 does write it when a
-// session is ended, and a set value is a real IDLE below; a session left open at its prompt still has none,
-// which is why the last row stays the signal.) What was left was "wrote something
+// the day before — so the one branch that could return IDLE never fired. (Hermes 0.23 writes it on a graceful
+// exit and a fork, but `-r` does not clear it and a second exit does not rewrite it, so it is read as "nothing
+// happened since", never as a flag. A session left open at its prompt still has none. On a 0.23 store the turn
+// ledger — `session_admissions` — decides first, see deriveState; the last row is the signal where that table
+// is absent.) What was left was "wrote something
 // recently → busy", and the agent's own ANSWER is something written recently. A session therefore sat at
 // "working" for the whole activity window after every reply, while plainly waiting at its prompt.
 //
@@ -89,7 +91,26 @@ const OUTPUT_LIVENESS_CEILING_MS = 5 * ACTIVITY_WINDOW_MS;   // 15 minutes
  */
 function deriveState(row, nowMs = Date.now(), opts = {}) {
   if (!row) return IDLE;
-  if (row.isEnded) return IDLE;                     // written by Hermes 0.23 when a session ends
+
+  const last = Number(row.lastActivityMs);
+
+  // `ended_at` (graceful exit, fork) is NOT cleared by `-r` and not rewritten when a resumed session exits
+  // again (measured), so by itself it proves nothing about a session that is running now. It only says
+  // "nothing has happened since" when the last activity is not newer than it.
+  if (row.isEnded && !(Number(row.endedMs) > 0 && last > Number(row.endedMs))) return IDLE;
+
+  // Hermes 0.23 states outright whether a turn runs (#864): an open admission in `session_admissions`
+  // (`started`, or `queued` behind one), from ~0.36 s after Enter to the turn's terminal row. That replaces
+  // the inference below — no admission means no turn, an interrupt placeholder or a half-written row
+  // included. An unexpired turn lease (the model call, expires_at = acquired + 300 s) is corroboration and
+  // keeps a turn busy past the quiet window on its own. An admission a crash left `started` has no
+  // timestamp, so it is bounded like any quiet turn: the activity window, then the terminal, then the ceiling.
+  if (row.hasLedger) {
+    if (Number(row.leaseExpiresMs) > nowMs) return BUSY;
+    if (!row.admission) return IDLE;
+    const touched = Math.max(Number.isFinite(last) ? last : 0, Number(row.leaseAcquiredMs) || 0);
+    return runningTurn(touched, nowMs, opts);
+  }
 
   const role = row.lastRole || null;
 
@@ -100,7 +121,11 @@ function deriveState(row, nowMs = Date.now(), opts = {}) {
 
   // A turn is running: an unanswered prompt, a tool result, or an assistant row whose reason says it is
   // not done (`tool_calls`) or says nothing we recognise.
-  const last = Number(row.lastActivityMs);
+  return runningTurn(last, nowMs, opts);
+}
+
+/** A turn that is believed to run, bounded by the activity window and the terminal (see the header). */
+function runningTurn(last, nowMs, opts) {
   if (!Number.isFinite(last) || last <= 0) return IDLE;
   if ((nowMs - last) < ACTIVITY_WINDOW_MS) return BUSY;
 

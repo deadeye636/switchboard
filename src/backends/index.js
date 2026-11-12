@@ -359,6 +359,10 @@ function profileToDescriptor(p) {
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,
     matchLiveSession: base ? base.matchLiveSession : undefined,
+    // A template on Hermes is Hermes: the same store, the same moves to a child row, and the same shared
+    // gateway its stop must not take down (#864). Both are plain declarations of the base.
+    ...(base && typeof base.followLiveSession === 'function' ? { followLiveSession: base.followLiveSession } : {}),
+    ...(base && base.sharedDescendants ? { sharedDescendants: base.sharedDescendants } : {}),
     // WHEN the record appears is a property of the STORE, and a template writes into its base's store —
     // so it answers what the base answers (#512, #527). Left off, a template's sessions were dated from
     // their spawn while the base's were dated from their first turn, which put the two back on different

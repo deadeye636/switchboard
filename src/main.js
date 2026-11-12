@@ -2308,6 +2308,9 @@ watchAdopt.init({
   // Adoption moves a session onto the id its backend chose; the record's busy latch has to move with it,
   // exactly as adopt.js's own liveBusy does, or the turn spanning the move never ends.
   rekeyTimelineSession: (fromId, toId) => timeline.rekeySession(fromId, toId),
+  // A tab whose conversation moved to a child row (a branch, a compression continuation) goes through the
+  // same re-key a CLI-announced move does (#864), which already carries the timeline, the view and the window.
+  rekeyLiveSession: (fromId, session, toId, origin, reason) => sessionTransitions.rekeyLiveSession(fromId, session, toId, origin, reason),
   // …and so does the view the user chose for the session (#670, `session_meta.opener`).
   copyOpener,
   // …and the link between a review session and its caller (spec 39), from both ends.

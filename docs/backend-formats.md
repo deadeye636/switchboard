@@ -563,6 +563,85 @@ The only backend whose history is **not** in files — the reason the discovery 
     connection never competes with a second one. The JSON-session "degraded mode" older notes describe (sessions
     written as JSON when the database cannot be opened) no longer applies in 0.23: an unavailable store only
     warns. A live session with no row therefore means the gateway or the database was unreachable when it started.
+- **Live sessions on 0.23 (#864, part 2) — measured on 0.23.1 with an isolated `HERMES_HOME` and real launches.**
+  `test/hermes-store-v33-live.test.js` and `test/live-follow.test.js` pin what the code does with each fact.
+  1. **Ids and the row.** A new id is `local-<64 hex>`. The `sessions` row is created when the CLI or TUI
+     *launches* (`message_count` 0), about 4 s after the spawn with a warm gateway daemon and 14-18 s cold.
+     The app's "no store record" notice waits 60 s, so that delay needs no special case.
+  2. **`created_source` is permanent, `source` is not.** Both start as `cli` or `tui`; `source` flips to `local`
+     after the first completed turn. Ingest and live pairing therefore name the terminal surfaces by
+     `created_source IN ('cli', 'tui')` when the column exists (TUI sessions are listed too), and keep the
+     `source` allow-list (`recovered`, `claude-code`, `codex-cli`) for rows that column says nothing about; a
+     store without the column keeps the old `source` rules. Never gate on `source = 'cli'`.
+  3. **Launch stubs.** A launched-but-unused or hard-killed session stays an open row (`ended_at` NULL) for ever;
+     Hermes may prune it later. Ingest leaves out a row with `message_count = 0` and no `session_admissions`
+     row (Hermes' own `launch_stub_filter_sql`: a first prompt is durable in the ledger before its transcript
+     row lands). Delegated children (`model_config._delegate_from`) are held out whatever surface they inherited.
+     Consequence, click-tested: a Hermes tab that never had a turn is not restored after a restart, because its
+     row is such a stub and the index never holds it. That matches a CLI whose record is written only at the
+     first message; a tab with one turn behind it is restored and resumed as usual.
+  4. **`ended_at` is not a liveness signal after a resume.** A graceful exit sets it (`end_reason = cli_close`),
+     a fork sets it (`branched`); `-r` does not clear it and a second exit does not rewrite it. `deriveState`
+     therefore reads it only as "nothing happened since": the row is idle when its last activity is not newer
+     than `ended_at`.
+  5. **Busy is the turn ledger.** `session_admissions` (`target_session_id`, `status` queued / started / unknown /
+     terminal, `outcome` completed / failed) has a `started` row from ~0.36 s after Enter until it turns
+     `terminal`; `session_turn_leases` (`conversation_id`, `acquired_at`, `expires_at` = acquired + 300 s) exists
+     only during the model call. When the table exists: an unexpired lease is busy; any `queued` or `started`
+     row of the session is an active turn, as in Hermes' own idle-exit check (`gateway/run_idle_exit.py`;
+     the queue is FIFO) — so the newest row alone is wrong, a queued prompt cancelled above a running turn
+     becomes `terminal`/`cancelled` on top of it. The one thing taken off that rule: an open row BELOW the
+     newest `terminal` row of a turn that STARTED (a started turn keeps its `generation`, a cancelled queued one
+     never had one) cannot be running, since turns run one at a time; a daemon restart turns such rows into
+     `unknown` anyway. An open row is a running turn bounded by the usual activity window, terminal
+     liveness and ceiling (the table has no timestamp, so a crash that left one `started` heals that way);
+     no open admission is idle, the hidden interrupt placeholder included. `unknown` (owner lost, e.g. after a
+     crash) is read as not running — that status was not measured live. Without the table the message-row
+     inference of the earlier schemas applies unchanged; there the hidden EMPTY assistant row Hermes appends
+     after a user interruption (`display_kind = hidden`) ends the turn the way `failed_turn` does.
+  6. **Branch and rewind.** `/branch` writes a child row ~0.6 s later with a new id, `parent_session_id` and a
+     full copy of the messages; the parent gets `end_reason = branched` and the CLI adopts the child. The
+     child's `cwd` may differ from the parent's in CASE only (a Windows directory spelled with another
+     capitalisation), so the pairing compares
+     directories through the app's `pathKey`, never lowercased in place. A rewind (`/undo`) keeps the id, sets
+     the old rows `active = 0` and increments `sessions.rewind_count`.
+  7. **Following.** A tab tracks its row and follows it to a child: a branch child (`end_reason = branched`,
+     born after the tab opened — an older branch is somebody else's) is re-keyed with the Events reason `fork`;
+     a compression continuation (parent `end_reason = compression`; Hermes' `get_compression_tip` — read from
+     source, **not measured live**) is followed to the tip of the chain with the reason `adopted`, which is also
+     what a `-r` on a compressed parent needs. The compression step is Hermes' `_CHAIN_STEP_SQL`: a child with no
+     `_branched_from`, `_delegate_from` or `_reset_from` marker and not source `tool`; one that itself ended by
+     compression first, then an open one, then the freshest. The branch step is `_BRANCH_CHILD_SQL` (marker, or
+     started at or after the parent ended as `branched`). **Known gap, `/new`** (CLI): it ends the row as
+     `new_session` and opens a parentless one, and the gateway store writes that row with `record_cwd=False`
+     (`cli_init_mixin.py`, `gateway_session_store.py`, `_row_cwd` -> NULL), so it names neither the old row nor a
+     directory. Pairing by time would risk taking a session the user started in another terminal, so a tab stays
+     on the ended row after `/new` (follow-up issue; source-read, not measured live). The old row stays listed
+     with its lineage. Live pairing offers a new tab only
+     open rows without a parent, so a child is never handed to a different tab; the one exception is a `/branch`
+     made before the tab's first pairing, where the child is offered when its `branched` parent was born inside
+     the tab's window and no tab holds the parent.
+  8. **One gateway per `HERMES_HOME`.** The first CLI starts the gateway daemon as a descendant of its
+     launcher (`hermes.exe` → launcher python → `python -m hermes_cli.main gateway run`); every later client
+     attaches to it; it exits ~600 s after the last client; its heartbeat rows are never deleted. A tree kill
+     (`taskkill /T`) of one CLI stops it for ALL clients — the others respawn it on their next turn at up to
+     ~18 s. A pty close or a graceful `/exit` leaves it running. Switchboard's Stop is a pty close; the quit's
+     escalation for a process that outlived it ends only that process for a backend declaring
+     `sharedDescendants` and spawned in argv mode (see `.claude/rules/backends.md`). **Measured (0.23.1, isolated
+     home, argv mode, `taskkill /PID <launcher> /F` without `/T`):** the tree is `hermes.exe` (the pty's pid) →
+     the venv's `python.exe` → the CLI's own `python.exe` → a short-lived `python -I -c` stub → `python -m
+     hermes_cli.main gateway run` → `conhost`. Ending the launcher alone also ended the two python processes of
+     the CLI within a second (the console went with it; the pty reported exit code 1) and left exactly the
+     stub-and-daemon chain running (the daemon starts with `detached` and `breakaway` set, per its
+     `gateway-exit-diag.log`). Nothing of the CLI was orphaned. Through a shell `pty.pid` is the shell, so the
+     declaration is not honoured there and the tree kill stays.
+  9. **`-r` on a `recovered` row with messages works** (no refusal reproduced).
+  10. **A fresh `HERMES_HOME` builds its own dependency environment once, ~5.5 minutes**, even with a pre-copied
+      `installs/` (611 MB), and asks a first-run telemetry question. The 10-15 s start-up hint is the normal
+      start, not this one; `docs/demo-env.md` says what to expect in an isolated home.
+  11. **`--checkpoints`** is a top-level flag in 0.23 and part of `_CHAT_PASSTHROUGH`, but it stays OFF the launch
+      options: no real launch with it has been run yet, and a session that dies at spawn is what #548 was.
+      `scripts/check-hermes-help.js` keeps it as audited-excluded.
 - **Contention with a live CLI is fine, measured** (#535, after 0.20.4's SessionDB fixes): 301 writes and
   301 discovery+parse reads interleaved on one WAL database produced no exception, no empty answer, no
   short answer and no null parse. The failure mode to watch for is a silent EMPTY result — `openDb`
@@ -586,13 +665,14 @@ The only backend whose history is **not** in files — the reason the discovery 
 - **State — corrects the plan (#165):** `ended_at` looked like the signal and is **not**. On a real store it
   was **null on every session** of the 0.21 store this was measured on, including ones finished the day
   before. **Hermes 0.23 does write it** (`SessionDB.end_session`: `cli_close`, `new_session`, `agent_close`, cron,
-  ACP and gateway paths; `reopen_session` clears it again), so a set `ended_at` is now a real IDLE, and the
-  reader still treats it as one. But a session left open at its prompt keeps it null, so it cannot be the only
-  signal: a rule of "not ended + wrote recently → busy" reads the agent's own ANSWER as activity, and the session
+  ACP and gateway paths; `reopen_session` clears it again). **Measured on 0.23.1, `-r` does NOT clear it** and a
+  second exit does not rewrite it, so it says "nothing happened since" and no more (item 4 above). A session
+  left open at its prompt keeps it null, so it cannot be the only signal: a rule of "not ended + wrote recently → busy" reads the agent's own ANSWER as activity, and the session
   sits at "working" for the whole activity window after every reply.
 
   The signal is the **last message row**: `messages.finish_reason` is `stop` on every assistant row and
-  null on every user row.
+  null on every user row. (On a 0.23 store the turn ledger decides first — item 5 above; this table is the
+  fallback for a store without `session_admissions`.)
 
   | last row | state |
   |---|---|

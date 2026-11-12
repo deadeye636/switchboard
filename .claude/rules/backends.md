@@ -83,8 +83,21 @@ busy/idle and the last-activity stamp drop soft-deleted rows and the `model_swit
 (no turn follows them), keeping the other kinds because a hidden prompt, a notification, a result card or an
 `auto_continue` starts a turn; a `failed_turn` notice has no `finish_reason` and `lastMessage` reports it as a finished
 turn. The first prompt has its own query (the search body is capped at 500 rows and includes archived history). A new Hermes query over `messages` goes through `rowFilters`; `ended_at` is written by 0.23 but
-stays null on a session left open, so the last live row is still the busy/idle signal. `docs/backend-formats.md`
-has the columns.
+stays null on a session left open and is NOT cleared by `-r`, so it reads as "nothing happened since" and never as
+live. `docs/backend-formats.md` has the columns and the measured facts.
+
+**Live sessions on 0.23 (#864 part 2).** Ingest and pairing name the terminal surfaces by `created_source IN
+('cli', 'tui')` when the column exists — never by `source`, which flips to `local` after the first turn — and leave out
+empty launch stubs (no messages, no admission) and delegated children. Pairing offers only open, parentless rows
+and compares directories through `pathKey`. Busy/idle is the turn ledger (`session_admissions`, the lease as
+corroboration; any queued or started row is an active turn, minus what a later STARTED turn's end supersedes) when the
+table exists and the message-row inference otherwise.
+`followLiveSession` re-keys a tab onto the child of a branch (`fork`) or a compression continuation (`adopted`; the
+compression step copies Hermes' own `_CHAIN_STEP_SQL`); the old row stays listed. A CLI `/new` is NOT followed (the new
+row names neither the old row nor a directory — a known gap, spec 09). A `/branch` made
+before the first pairing tick pairs the tab with the child (its parent was born in the tab's window). The daemon every
+client of a home shares is protected by the `sharedDescendants` declaration: in argv mode (where `pty.pid` is the CLI's
+launcher) the quit's escalation ends that process, not its tree; through a shell the tree kill stays. Reasoning: spec 09 and the Hermes section of `docs/backend-formats.md`.
 
 ## A directory is listed; `expandResource` reads it (#440)
 

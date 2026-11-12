@@ -488,6 +488,9 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
   // Set inside the backend branch below (where the descriptor is in scope) and consumed after the
   // session object exists — a backend may warn that it takes a while to become usable.
   let startupHint = null;
+  // Did the PTY start the CLI's own executable (argv mode), so that `pty.pid` is the CLI's launcher? Set where
+  // the spawn mode is decided; it is what lets a backend's `sharedDescendants` be honoured (see below).
+  let spawnedInArgvMode = false;
   // Was this meant to be a resume of an id the backend has never heard of (#290)? Set in the backend
   // branch, consumed twice out here: the session records that it is NOT a resume after all, and the
   // user is told in one line why their history is missing. Hoisted for the same reason startupHint is —
@@ -1268,6 +1271,7 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
       }
 
       const useArgvSpawn = !!argvExe && !preLaunchCmd;
+      spawnedInArgvMode = useArgvSpawn;
       if (launch.spawnMode === 'argv' && !argvExe) {
         ctx.log.info(`[spawn] backend=${backend.id} wanted argv mode but '${launch.command}' is not a directly-executable binary here — using the shell path`);
       } else if (launch.spawnMode === 'argv' && preLaunchCmd) {
@@ -1521,6 +1525,13 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
     _spawnedBy: spawnParent,
     // #568: driven over a pipe rather than a PTY. Recorded so nothing downstream has to ask the descriptor.
     transport: (launchBackend && launchBackend.transport) || null,
+    // #864: the CLI starts a helper that every client of its home shares, so the quit's escalation ends this
+    // process and not its tree (`app/session-shutdown.js`). The backend's declaration, honoured ONLY when the
+    // PTY's process is the CLI's own launcher (argv mode): through a shell, `pty.pid` is the shell, and ending
+    // it alone would leave the CLI itself running. Measured for Hermes in argv mode: ending the launcher alone
+    // also ended its python children within a second (the console closed with it) and left only the detached
+    // daemon chain.
+    sharedDescendants: spawnedInArgvMode && !!(launchBackend && launchBackend.sharedDescendants),
     // #670: which backend this session was launched with, so a reattach can refuse a request for the other
     // view instead of showing the old one.
     launchBackendId: (launchBackend && launchBackend.id) || null,

@@ -72,7 +72,12 @@ own configuration) are deliberately left behind, for the same reason `~/.claude.
 
 **And it starts SLOWLY in a cold home** — minutes, not the ten to fifteen seconds the terminal's own
 startup hint promises: a fresh home downloads model caches and runs plugin discovery before the TUI
-appears at all. See `docs/ai/driving-the-app.md`; a check taken too early reads exactly like a session
+appears at all. Hermes 0.23 measured **~5.5 minutes, once per home**, even with a pre-copied `installs/`
+folder (611 MB) — it builds its own dependency environment — and it then asks a first-run telemetry
+question the first session has to answer. Nothing here copies those dependency folders: the wait is the
+price of an isolated home, and the 10-15 second hint describes a home that has already run. Hermes 0.23 also
+starts one gateway daemon per home, which idles out about 10 minutes after its last client, so a demo home
+leaves a process behind for that long. See `docs/ai/driving-the-app.md`; a check taken too early reads exactly like a session
 that will never come up, and that mistake has been made here twice.
 
 **Everything that writes into Claude's home follows the override too** — it is not only the transcripts.

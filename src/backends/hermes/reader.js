@@ -170,19 +170,84 @@ function importOrigin(source) {
   return IMPORT_ORIGINS.get(String(source || '')) || null;
 }
 
-function sourceFilter(includeAll) {
+// --- which session rows are ours, by what the store has (#864) ---
+//
+// Hermes 0.23 (schema 33) keeps TWO source columns. `created_source` is the surface that made the row and is
+// permanent ('cli' or 'tui' for a terminal); `source` starts equal and flips to 'local' after the first
+// completed turn (measured). Gating on `source = 'cli'` therefore loses every session the moment its first
+// turn ends. So when the column exists the terminal surfaces are named by `created_source`, and the old
+// `source` allow-list stays for the rows that column says nothing about (an import, a recovered stub, a
+// store older than 0.23).
+const TERMINAL_SURFACES = ['cli', 'tui'];
+
+function tableColumns(db, table) {
+  const cols = new Set();
+  try {
+    for (const r of db.all(`PRAGMA table_info(${table})`)) cols.add(String(r.name));
+  } catch { /* unreadable -> treated as "no such column" */ }
+  return cols;
+}
+
+function hasTable(db, name) {
+  try { return !!db.get("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?", name); } catch { return false; }
+}
+
+const quoted = (list) => list.map(s => `'${s}'`).join(', ');
+
+// A delegated child is held out by Hermes' own marker, whatever surface it inherited (#553).
+function delegateExclusion(cols) {
+  return cols.has('model_config')
+    ? " AND json_extract((CASE WHEN json_valid(s.model_config) THEN s.model_config ELSE json_object() END), '$._delegate_from') IS NULL"
+    : '';
+}
+
+/**
+ * The WHERE for ingest. `includeAll` lifts every filter. Otherwise a row is ingested when a terminal surface
+ * created it (`created_source`, 0.23) or its `source` is on the allow-list. On a 0.23 store an EMPTY LAUNCH
+ * STUB is left out as well: a row nobody has written to and no turn was admitted for (Hermes' own
+ * `launch_stub_filter_sql`: the CLI was opened and closed, or died before the first turn). Those rows stay
+ * open for ever (measured) and listing them would fill the sidebar with sessions that hold nothing.
+ */
+function ingestWhere(db, includeAll) {
   if (includeAll) return '';
-  return ` WHERE s.source IN (${INGEST_SOURCES.map(s => `'${s}'`).join(', ')})`;
+  const cols = tableColumns(db, 'sessions');
+  const bySource = `s.source IN (${quoted(INGEST_SOURCES)})`;
+  const modern = cols.has('created_source');
+  const pick = modern ? `(s.created_source IN (${quoted(TERMINAL_SURFACES)}) OR ${bySource})` : bySource;
+  const stub = modern
+    ? ` AND (s.message_count > 0${hasTable(db, 'session_admissions')
+      ? ' OR EXISTS (SELECT 1 FROM session_admissions a WHERE a.target_session_id = s.id)' : ''})`
+    : '';
+  return ` WHERE ${pick}${stub}${delegateExclusion(cols)}`;
 }
 
 // Live PAIRING asks a narrower question than ingest: which row did the session we JUST spawned write?
-// Only the CLI writes one of those. A `recovered` stub is a rebuild of a session that already ended, and
-// an imported transcript was written by another tool on another day — neither can be the row a launch
-// just created, so both stay out of the candidate pool they were never in, and widening the ingest list
-// above does not quietly widen this one (#551, #552). Resuming an imported session is unaffected:
-// `liveRefFor` already holds the id and asks `sessionExists`, which filters on nothing.
-function liveCandidateFilter(includeAll) {
-  return includeAll ? '' : " WHERE s.source = 'cli'";
+// Only a terminal surface writes one of those. A `recovered` stub is a rebuild of a session that already
+// ended, and an imported transcript was written by another tool on another day — neither can be the row a
+// launch just created, so both stay out of the candidate pool they were never in (#551, #552). Resuming an
+// imported session is unaffected: `liveRefFor` already holds the id and asks `sessionExists`.
+//
+// A row that already ENDED is not the one a launch just made, and a row with a parent is a branch, a
+// rewind fork or a compression continuation of a session that existed before — the tab that tracks the
+// parent follows it (`followTarget`), and it must not be offered to another tab that is unpaired in the
+// same directory.
+//
+// One exception, with `sinceMs`: a `/branch` made before the tab's FIRST pairing tick leaves only the child
+// to pair with (the parent ended as `branched`), so a child whose parent was itself born inside the tab's
+// window and ended that way is offered. A parent born before the window is somebody else's conversation.
+function liveCandidateFilter(db, includeAll, { sinceMs = null } = {}) {
+  if (includeAll) return '';
+  const cols = tableColumns(db, 'sessions');
+  // A 0.21 store never wrote `ended_at` and its pairing has always been source + directory + time, so the
+  // two narrowing terms apply to the 0.23 schema only.
+  if (!cols.has('created_source')) return " WHERE s.source = 'cli'";
+  const sec = Number.isFinite(sinceMs) ? Number(sinceMs) / 1000 : null;
+  const parentless = sec == null
+    ? 's.parent_session_id IS NULL'
+    : '(s.parent_session_id IS NULL OR EXISTS (SELECT 1 FROM sessions p WHERE p.id = s.parent_session_id'
+      + ` AND p.end_reason = 'branched' AND p.started_at >= ${sec}))`;
+  return ` WHERE s.created_source IN (${quoted(TERMINAL_SURFACES)}) AND s.ended_at IS NULL`
+    + ` AND ${parentless}${delegateExclusion(cols)}`;
 }
 
 /**
@@ -194,7 +259,7 @@ function discoverSessions({ includeAll = false } = {}) {
   if (!db) return [];
   try {
     const rows = db.all(
-      `SELECT s.id AS id, ${MARKER_SQL} AS marker FROM sessions s${LAST_MESSAGE_JOIN}${sourceFilter(includeAll)}`
+      `SELECT s.id AS id, ${MARKER_SQL} AS marker FROM sessions s${LAST_MESSAGE_JOIN}${ingestWhere(db, includeAll)}`
     );
     const ref = dbPath();
     return rows.map(r => ({
@@ -486,6 +551,7 @@ function parseSession(handle) {
       // unanswered user prompt means a turn is running; an assistant row with a `finish_reason` means it
       // is answered. Same facts the live path reads, so a cached row and a live one cannot disagree.
       isEnded: s.ended_at != null,
+      endedMs: s.ended_at != null ? Number(s.ended_at) * 1000 : 0,
       lastActivityMs: lastMessageMs || (s.started_at ? Number(s.started_at) * 1000 : 0),
       lastRole: lastRow ? lastRow.role : null,
       lastFinishReason: lastRow ? lastRow.finishReason : null,
@@ -517,21 +583,164 @@ function lastMessage(db, sessionId) {
   try {
     const f = rowFilters(db);
     const m = db.get(
-      'SELECT role, finish_reason AS finishReason, timestamp' + (f.hasDisplayKind ? ', display_kind AS displayKind' : '')
+      'SELECT role, finish_reason AS finishReason, timestamp, (content IS NULL OR content = \'\') AS emptyContent'
+      + (f.hasDisplayKind ? ', display_kind AS displayKind' : '')
       + ' FROM messages WHERE session_id = ?' + f.turn + ' ORDER BY id DESC LIMIT 1',
       sessionId
     );
     if (!m) return null;
+    // Two assistant rows END a turn without a finish_reason, which state.js reads as "still generating":
+    // the `failed_turn` notice, and the hidden EMPTY placeholder Hermes appends after a user interruption
+    // (`hidden_interrupt_placeholder_row`: role assistant, no content, display_kind hidden). Each says so.
+    let finishReason = m.finishReason || null;
+    if (m.displayKind === 'failed_turn') finishReason = 'failed_turn';
+    else if (!finishReason && m.role === 'assistant' && m.displayKind === 'hidden' && m.emptyContent) finishReason = 'interrupted';
     return {
       role: m.role || null,
-      // Hermes writes a `failed_turn` notice with NO finish_reason, which state.js reads as "still generating".
-      // The notice IS the end of that turn, so it says so.
-      finishReason: m.displayKind === 'failed_turn' ? 'failed_turn' : (m.finishReason || null),
+      finishReason,
       timestampMs: m.timestamp ? Number(m.timestamp) * 1000 : 0,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * What Hermes 0.23's own turn ledger says about a session, or `{ hasLedger: false }` on a store without it.
+ *
+ * `session_admissions` (one row per admitted turn, `target_session_id`, `status` queued / started / unknown /
+ * terminal, `outcome`) is the runtime's own statement that a turn runs: measured `started` from ~0.36 s after
+ * Enter until `terminal`. It has no timestamp, so a row a crash left `started` cannot be told from a running
+ * one by itself — state.js bounds it by the last activity. `session_turn_leases` (`conversation_id`,
+ * `acquired_at`, `expires_at` = acquired + 300 s) exists only during the model call; an unexpired lease
+ * corroborates the admission, and `expires_at` is its own staleness bound. A lease is keyed by the
+ * conversation, which is the session id until a compression rotates it, so a miss proves nothing.
+ *
+ * `unknown` (the runtime lost the owner of a turn, e.g. after a crash) is not counted as running: nothing is
+ * writing. That status was not measured live; it is read from the source.
+ */
+function readTurnLedger(db, sessionId) {
+  if (!hasTable(db, 'session_admissions')) return { hasLedger: false };
+  const out = { hasLedger: true, admission: null, leaseExpiresMs: 0, leaseAcquiredMs: 0 };
+  try {
+    // Hermes counts ANY `queued` or `started` row as an active turn (`gateway/run_idle_exit.py` `_ledger_busy`;
+    // the queue is FIFO, `hermes_state_runtime.py`), so the newest row alone is wrong: a queued prompt the user
+    // cancels becomes `terminal`/`cancelled` ABOVE the `started` turn that is still running.
+    // The one thing taken off Hermes' rule is the turn a crash left behind: an older `started` (or `queued`) row
+    // BELOW a later `terminal` row of a turn that STARTED (a started turn keeps its `generation`; a cancelled
+    // queued one never had one) can no longer be running, since turns run one at a time. A restarted daemon turns
+    // those into `unknown` anyway; this covers the gap before it does. The activity window bounds the rest.
+    const hasGeneration = tableColumns(db, 'session_admissions').has('generation');
+    const floor = hasGeneration
+      ? "AND seq > COALESCE((SELECT MAX(seq) FROM session_admissions WHERE target_session_id = ? AND status = 'terminal' AND generation IS NOT NULL), 0)"
+      : '';
+    const open = db.all(
+      "SELECT status FROM session_admissions WHERE target_session_id = ? AND status IN ('queued', 'started') " + floor,
+      ...(hasGeneration ? [sessionId, sessionId] : [sessionId])
+    );
+    if (open.some(r => r.status === 'started')) out.admission = 'started';
+    else if (open.length) out.admission = 'queued';
+  } catch { return { hasLedger: false }; }
+  if (hasTable(db, 'session_turn_leases')) {
+    try {
+      const l = db.get('SELECT acquired_at AS acquiredAt, expires_at AS expiresAt FROM session_turn_leases WHERE conversation_id = ?', sessionId);
+      if (l) {
+        out.leaseExpiresMs = Number(l.expiresAt) * 1000 || 0;
+        out.leaseAcquiredMs = Number(l.acquiredAt) * 1000 || 0;
+      }
+    } catch { /* corroboration only */ }
+  }
+  return out;
+}
+
+/**
+ * Where a tab tracking `sessionId` goes next, or null (#864).
+ *
+ * Hermes moves a conversation to a NEW row in two ways, and in both the old row stays in the store (listed,
+ * with lineage) while the process carries on in the child:
+ *   - a branch / fork (`/branch`, a fork from a rewind): the parent ends with `end_reason = 'branched'`, the
+ *     child has `parent_session_id` and a copy of the messages (measured, child at +0.6 s). -> 'fork'
+ *   - a compression continuation: the parent ends with `end_reason = 'compression'` and the child continues
+ *     the conversation (`get_compression_tip`, hermes_state_compression.py; not measured live). -> 'adopted'
+ *
+ * The compression step is Hermes' own `_CHAIN_STEP_SQL` (hermes_state_compression.py), clause for clause: the
+ * child carries no `_branched_from`, `_delegate_from` or `_reset_from` marker and is not source 'tool' (the
+ * pre-marker reset heuristic needs a parent ended by a RESET reason, which a parent ended by `compression` never
+ * is, so it has no clause here); among several, one that itself ended by compression comes first (the chain goes
+ * on), then a still-open one, then the most recently active, then the newest start, then the id. The branch
+ * step is Hermes' `_BRANCH_CHILD_SQL`: a `_branched_from` marker, or a child started at or after the moment
+ * the parent ended as `branched`.
+ * A rewind (/undo) keeps the id and is not a move at all. The walk follows a chain of continuations to its
+ * tip (bounded), so a resume of a compressed parent lands where Hermes' own `-r` lands.
+ *
+ * `{ sessionId, ref, reason }`; `reason` is the first step's.
+ */
+function followTargetUncached(sessionId, { sinceMs = null } = {}) {
+  if (!sessionId) return null;
+  const db = openDb();
+  if (!db) return null;
+  try {
+    const cols = tableColumns(db, 'sessions');
+    const hasReason = cols.has('end_reason') && cols.has('parent_session_id');
+    if (!hasReason) return null;
+    const hasConfig = cols.has('model_config');
+    // A marker lookup that cannot throw on a column holding something that is not JSON (`_sql_json_extract`).
+    const markerValue = (name) => `json_extract((CASE WHEN json_valid(c.model_config) THEN c.model_config ELSE json_object() END), '$.${name}')`;
+    const marker = (name) => (hasConfig ? `${markerValue(name)} IS NOT NULL` : '0');
+    const noMarker = (name) => (hasConfig ? ` AND ${markerValue(name)} IS NULL` : '');
+    const notTool = " AND COALESCE(c.source, '') <> 'tool'";
+    // `_sql_session_last_active`: the freshest of the heartbeat and the newest message (the heartbeat is
+    // rate-limited and can lag a newer message), else the start. Hermes also skips cells outside a sane epoch
+    // window; a garbage cell is not a case this read has seen, so that guard is not copied.
+    const recency = 'COALESCE((SELECT MAX(v) FROM (SELECT ' + (cols.has('last_activity_at') ? 'c.last_activity_at' : 'NULL')
+      + ' AS v UNION ALL SELECT (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = c.id)) WHERE v IS NOT NULL), c.started_at)';
+    const select = 'SELECT c.id AS id, c.started_at AS startedAt FROM sessions c WHERE c.parent_session_id = ?';
+    const compressionStep = select + noMarker('_branched_from') + noMarker('_delegate_from') + noMarker('_reset_from') + notTool
+      + " ORDER BY CASE WHEN c.end_reason = 'compression' THEN 0 WHEN c.ended_at IS NULL THEN 1 ELSE 2 END,"
+      + ` ${recency} DESC, c.started_at DESC, c.id DESC LIMIT 1`;
+    const branchStep = select + noMarker('_delegate_from') + notTool
+      + ` AND (${marker('_branched_from')} OR c.started_at >= (SELECT p.ended_at FROM sessions p WHERE p.id = c.parent_session_id AND p.end_reason = 'branched'))`
+      + ` ORDER BY CASE WHEN c.ended_at IS NULL THEN 0 ELSE 1 END, ${recency} DESC, c.started_at DESC, c.id DESC LIMIT 1`;
+    let current = String(sessionId);
+    let first = null;
+    const seen = new Set([current]);
+    for (let step = 0; step < 16; step++) {
+      const parent = db.get('SELECT end_reason AS endReason FROM sessions WHERE id = ?', current);
+      const why = parent && parent.endReason === 'branched' ? 'fork'
+        : parent && parent.endReason === 'compression' ? 'adopted' : null;
+      if (!why) break;
+      const child = db.get(why === 'fork' ? branchStep : compressionStep, current);
+      if (!child || seen.has(String(child.id))) break;
+      // A branch made while this tab ran is its move; one made before is somebody else's, and a tab that
+      // merely resumed the parent must not be pulled onto it (Hermes' own `-r` follows only compression).
+      if (why === 'fork' && sinceMs != null && !(Number(child.startedAt) * 1000 >= sinceMs)) break;
+      current = String(child.id);
+      seen.add(current);
+      if (!first) first = why;
+      // A branch is one move; only a compression chain is walked on to its tip.
+      if (why === 'fork') break;
+    }
+    return first ? { sessionId: current, ref: current, reason: first } : null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+// The follow question is asked on every watcher flush for every live session, like busy/idle, so it gets the
+// same gate (#282): re-open the database only when state.db (or its -wal) moved since the last answer.
+const _followCache = new Map();   // `${id}|${sinceMs}` -> { sig, result }
+function followTarget(sessionId, opts = {}) {
+  if (!sessionId) return null;
+  const key = `${sessionId}|${opts.sinceMs == null ? '' : opts.sinceMs}`;
+  const sig = dbSignature(dbPath());
+  const hit = _followCache.get(key);
+  if (hit && hit.sig === sig) return hit.result;
+  const result = followTargetUncached(sessionId, opts);
+  _followCache.set(key, { sig, result });
+  if (_followCache.size > LIVE_STATE_CACHE_MAX) _followCache.delete(_followCache.keys().next().value);
+  return result;
 }
 
 /**
@@ -555,8 +764,13 @@ function readLiveState(sessionId) {
     );
     if (!s) return null;
     const last = lastMessage(db, sessionId);
+    const turn = readTurnLedger(db, sessionId);
     return {
       isEnded: s.endedAt != null,
+      // `ended_at` is written by a graceful exit and by a fork, and is NOT cleared by `-r` (measured), so on its
+      // own it says nothing about a session that is running now. state.js compares it with the last activity.
+      endedMs: s.endedAt != null ? Number(s.endedAt) * 1000 : 0,
+      ...turn,
       // No messages -> no activity. NOT the session's start time: a session nobody has spoken to yet has
       // not been active, and reading it as such is what made a freshly launched Hermes look busy.
       lastActivityMs: s.lastTs ? Number(s.lastTs) * 1000 : 0,
@@ -595,20 +809,24 @@ function readLiveStateGated(sessionId) {
 }
 
 /** Test seam: drop the gate's memo so a store mutated in place is re-read. */
-function _clearLiveStateCache() { _liveStateCache.clear(); }
+function _clearLiveStateCache() { _liveStateCache.clear(); _followCache.clear(); }
 
 // #283: the live-pairing candidates — just the three columns matchLiveSession needs (id, start, cwd),
 // one row per session from the small `sessions` table. The old path ran discoverSessions() (a GROUP BY
 // over the whole `messages` table for a marker the matching never uses) and then a FULL parseSession per
 // unclaimed candidate (500-message text pull, metrics GROUP BY, user-message count) — all on the main
 // thread, on every unpaired flush, to answer a three-column question. This is that question.
-function listLiveCandidates({ includeAll = false } = {}) {
+function listLiveCandidates({ includeAll = false, sinceMs = null } = {}) {
   const db = openDb();
   if (!db) return [];
   try {
-    const rows = db.all(`SELECT s.id AS id, s.started_at AS startedAt, s.cwd AS cwd FROM sessions s${liveCandidateFilter(includeAll)}`);
+    const rows = db.all(
+      'SELECT s.id AS id, s.started_at AS startedAt, s.cwd AS cwd, s.parent_session_id AS parentId FROM sessions s'
+      + liveCandidateFilter(db, includeAll, { sinceMs })
+    );
     return rows.map(r => ({
       sessionId: String(r.id),
+      parentId: r.parentId ? String(r.parentId) : null,
       // Hermes stores times as REAL unix epoch seconds; matchLiveSession compares in ms.
       startedMs: r.startedAt != null ? Number(r.startedAt) * 1000 : NaN,
       cwd: r.cwd || null,
@@ -699,7 +917,7 @@ module.exports = {
   PARSER_SCHEMA_VERSION,
   hermesHome, setHome, dbPath, dbExists,
   discoverSessions, parseSession, watchTargets, readMessages, readLiveState, readLiveStateGated,
-  listLiveCandidates, sessionExists,
+  listLiveCandidates, sessionExists, followTarget,
   _clearLiveStateCache,
   openDb,
 };

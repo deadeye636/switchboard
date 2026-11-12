@@ -21,6 +21,8 @@ const resources = require('./resources');
 const { findOnPath } = require('../file-store');
 const { deriveState } = require('./state');
 const { changelogSource } = require('./changelog');
+// The app's path identity (#563) — the same import direction `claude/plugins.js` and `codex/plugins.js` take.
+const { pathKey } = require('../../app/path-containment');
 
 // Hermes' own launch options — taken from its real `--help` (#160), not from its docs.
 //
@@ -66,7 +68,8 @@ const configFields = [
 // Hermes 0.23 lists `--checkpoints` among its TOP-LEVEL options (and in `_CHAT_PASSTHROUGH`, so the TUI gets
 // it), which removes that obstacle. It stays off the list until a real launch with it has been run — a session
 // that dies at spawn is what #548 was — and `scripts/check-hermes-help.js` holds it as audited-excluded with
-// that reason. Re-offer: see #864.
+// that reason. #864 part 2 did not run that launch (it would write a session row into the user's own store),
+// so it is still off: re-offer it after one real `hermes --checkpoints` start in a scratch directory.
 
 // NOT an option, and the reason is worth keeping (#537). `--reasoning` looks like the obvious launch
 // control this backend was missing, and it is parsed — but in the modern TUI it is then DROPPED:
@@ -147,12 +150,17 @@ function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
   let bestStart = Infinity;
   // #283: three-column candidates from `sessions`, not a discoverSessions() marker GROUP BY + a full
   // parseSession per candidate. Same correlation (earliest start, matching cwd), a fraction of the read.
-  for (const c of reader.listLiveCandidates()) {
+  for (const c of reader.listLiveCandidates({ sinceMs })) {
     if (claimedSet.has(c.sessionId)) continue;
+    // A branch child whose parent a tab already holds is that tab's move to make (`followLiveSession`), not a
+    // new session for this one.
+    if (c.parentId && claimedSet.has(c.parentId)) continue;
     if (!Number.isFinite(c.startedMs)) continue;
     if (sinceMs != null && c.startedMs < sinceMs) continue;
-    // A cwd-less session, or one in a different cwd, is not the one we just launched in this project.
-    if (cwd && (!c.cwd || path.resolve(c.cwd) !== path.resolve(cwd))) continue;
+    // A cwd-less session, or one in a different cwd, is not the one we just launched in this project. The
+    // compare is the app's own path identity (`pathKey`, memoised): Hermes spells the cwd the way the shell
+    // did, so a branch child may come back with a directory differing from its parent's in case only (measured).
+    if (cwd && (!c.cwd || pathKey(c.cwd) !== pathKey(cwd))) continue;
     // `bornMs` — see file-store.js: the core needs it to tell two unpaired sessions apart (#527).
     if (c.startedMs < bestStart) { best = { sessionId: c.sessionId, ref: c.sessionId, bornMs: c.startedMs }; bestStart = c.startedMs; }
   }
@@ -175,6 +183,22 @@ function liveRefFor(sessionId) {
   // #283: confirm the row exists with one indexed lookup — resume already holds the id, so the old full
   // parseSession (500-message pull, metrics GROUP BY) here bought nothing but ran on every flush.
   return reader.sessionExists(sessionId) ? String(sessionId) : null;
+}
+
+/**
+ * The FOLLOW half of the identity seam (#864). A session the tab already tracks can move to a new row: a
+ * branch or a fork from a rewind, or a compression continuation. The old row stays in the store; the process
+ * carries on in the child. Answers `{ sessionId, ref, reason }` (`reason`: 'fork' or 'adopted', the two words
+ * the re-key's Events record has) or null. `sinceMs` is the tab's own start, so a branch somebody made before
+ * this tab opened is not its move.
+ */
+function followLiveSession(ref, { sinceMs = null } = {}) {
+  // NOT followed, on purpose: a CLI `/new`. It ends the row as `new_session` and opens a PARENTLESS one, and
+  // nothing in the new row names the old one: the gateway store writes it with `record_cwd=False`
+  // (hermes_cli/cli_init_mixin.py, gateway_session_store.py, `_row_cwd` -> NULL), so there is no directory to
+  // match, and a guess by time would pull the tab onto a session the user started in another terminal. A tab
+  // stays on the ended row after `/new` (a known gap, spec 09).
+  return reader.followTarget(ref, { sinceMs });
 }
 
 /**
@@ -312,7 +336,18 @@ module.exports = {
   transcriptAccess: 'export',
   // Hermes loads a heavy Python stack before its TUI paints — measured at ~12s on a warm machine
   // (T-5.0). Said out loud, because a silent black tab for 12 seconds reads as a crash.
-  startupHint: 'Starting Hermes — its TUI takes about 10-15 seconds to appear.',
+  //
+  // On a HERMES_HOME that has never run, the first launch also builds its own dependency environment, which
+  // measured ~5.5 minutes once (and asks a first-run telemetry question). That is a fresh or isolated home,
+  // not a normal start; the hint is one static line, so it says both (#864, docs/demo-env.md).
+  startupHint: 'Starting Hermes — its TUI takes about 10-15 seconds to appear (minutes on its very first start in a new home).',
+  // Hermes 0.23 runs ONE gateway daemon per HERMES_HOME. The first CLI starts it as its own descendant and
+  // every later CLI, the TUI, editors and bots attach to it (measured: it idles out ~600 s after the last
+  // client). A `taskkill /T` of one CLI's tree therefore stopped it for everyone, and the others paid up to ~18 s
+  // to respawn it. So the quit's escalation ends only the CLI's own process (in argv mode, where the pty's
+  // process is its launcher; ending it also ended its python children, measured); a plain pty close leaves the
+  // daemon alone (measured), which is what the user's Stop does (#864).
+  sharedDescendants: true,
   // ...and until it HAS appeared it cannot take input. A handoff packet pasted into a Python process
   // that has not built its input loop yet is simply lost, so the seeding path waits this long before it
   // even starts looking for the terminal to settle (#148). Our own startup hint counts as output, so
@@ -414,10 +449,11 @@ description:
   deriveState,
   matchLiveSession,
   liveRefFor,
+  followLiveSession,
   liveState,
-  // The default, kept rather than measured (#512): nothing here has watched WHEN the session row is
-  // written, only that it is there by the time a turn runs. Honest gap — the pre-#512 behaviour, which
-  // has not been observed to misfire for hermes.
+  // MEASURED on 0.23.1 (#864): the row is created when the CLI or TUI launches (message_count 0), ~4 s after
+  // the spawn with a warm gateway daemon and 14-18 s cold. 'spawn' is therefore right, and the 60 s grace of
+  // the missing-record notice covers the cold start.
   recordAppearsAt: 'spawn',
   PARSER_SCHEMA_VERSION: reader.PARSER_SCHEMA_VERSION,
 

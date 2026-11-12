@@ -236,6 +236,51 @@ function claimLiveRecord(sessionId, session, backend, candidatePaths) {
 }
 
 /**
+ * FOLLOW a tracked session to the row its conversation moved to (#864).
+ *
+ * Some CLIs move a running conversation onto a NEW record while the process carries on: Hermes' `/branch`
+ * (and a fork from a rewind) opens a child row and adopts it, and a compression rotates onto a continuation.
+ * The old record stays in the store, listed with its lineage, so nothing is lost by following — but a tab
+ * left on the parent would read the parent's busy/idle for ever (a parent that ended) and a resume from the
+ * sidebar would reopen the wrong row. The backend answers with `followLiveSession(ref, { sinceMs })`
+ * -> `{ sessionId, ref, reason }` (`reason`: 'fork' for a branch, 'adopted' for a continuation); this applies
+ * it through the shared re-key, which moves the map key, the overlay, the view, the window and the timeline.
+ *
+ * Declined, quietly, when another live session already holds the child or another tab is paired to its record:
+ * two live rows must never collapse onto one key.
+ * Returns the ref to read state from.
+ */
+function followLiveMove(sessionId, session, backend, ref) {
+  if (typeof backend.followLiveSession !== 'function' || typeof ctx.rekeyLiveSession !== 'function') return ref;
+  const liveId = session.realSessionId || sessionId;
+  let next = null;
+  try {
+    next = backend.followLiveSession(ref, { sinceMs: (session._openedAt || 0) - CLAIM_GRACE_MS });
+  } catch (err) {
+    ctx.log.warn(`[${backend.id}] follow failed: ${err?.message || err}`);
+    return ref;
+  }
+  if (!next || !next.sessionId || next.sessionId === liveId) return ref;
+  if (ctx.activeSessions.has(next.sessionId)) return ref;
+  for (const held of liveStoreRef.values()) if (held === next.ref) return ref;
+
+  const fromKey = ctx.activeSessions.has(liveId) ? liveId : sessionId;
+  ctx.log.info(`[${backend.id}] session ${liveId} → ${next.sessionId} (${next.reason || 'moved'}: following the conversation to its new record)`);
+  try {
+    ctx.rekeyLiveSession(fromKey, session, next.sessionId, 'store', next.reason || null);
+  } catch (err) {
+    ctx.log.warn(`[${backend.id}] re-key to ${next.sessionId} failed: ${err?.message || err}`);
+    return ref;
+  }
+  liveStoreRef.delete(fromKey); liveStoreRef.delete(liveId); liveStoreRef.delete(sessionId);
+  liveStoreRef.set(next.sessionId, next.ref);
+  const wasBusy = liveBusy.get(liveId);
+  liveBusy.delete(liveId); liveBusy.delete(fromKey);
+  if (wasBusy !== undefined) liveBusy.set(next.sessionId, wasBusy);
+  return next.ref;
+}
+
+/**
  * @param {Map<string, Set<string>|null>} [changedPaths]  which files of which backend just changed, from
  *   the store watcher's own event (#210). Omitted — the 30 s ticker, and the tests — means "ask the
  *   whole store", which is what this did unconditionally before.
@@ -260,7 +305,8 @@ function updateBackendLiveStates(changedPaths) {
       continue;   // Claude & Axis-A: they report state through OSC and own their session id already.
     }
 
-    const ref = claimLiveRecord(sessionId, session, backend, candidatesFor(changedPaths, backend));
+    let ref = claimLiveRecord(sessionId, session, backend, candidatesFor(changedPaths, backend));
+    if (ref) ref = followLiveMove(sessionId, session, backend, ref);
     // claimLiveRecord may ADOPT the backend's own id here — re-keying session.realSessionId (Codex/Pi/agy
     // name their own sessions). Read the live id AFTER it, not before: on the adoption tick a busy/idle
     // edge computed from the pre-adoption id is sent to an id the renderer has just re-keyed away, so the

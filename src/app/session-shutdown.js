@@ -47,11 +47,15 @@ function defaultIsAlive(pid) {
  *
  * execFile, never a shell string: the pid is interpolated, and this runs at quit when nothing is
  * watching the output (rule 10 in CLAUDE.md).
+ *
+ * `tree: false` ends the one process and leaves its descendants. It is for a CLI that declares
+ * `sharedDescendants` (see `killSession`): a helper it started belongs to every client of the machine, and
+ * `/T` would take it down with the one tab being stopped.
  */
-function defaultKillTree(pid, done) {
+function defaultKillTree(pid, done, { tree = true } = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return done();
   if (process.platform === 'win32') {
-    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], () => done());
+    execFile('taskkill', tree ? ['/PID', String(pid), '/T', '/F'] : ['/PID', String(pid), '/F'], () => done());
     return;
   }
   try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
@@ -62,11 +66,22 @@ function defaultKillTree(pid, done) {
 // call sites are in different modules and the second one runs after the session list is gone.
 const pendingPids = new Set();
 
+// The pids among them whose CLI declares `sharedDescendants` (#864): a helper process it started, such as a
+// gateway daemon, is shared with every other client of the same home. The escalation ends THAT pid and not its
+// tree. A user's Stop never gets here — it is `pty.kill()` alone, which leaves such a helper running (measured).
+const soloPids = new Set();
+
 /**
  * Ask one session's process to stop, and remember it.
  *
  * Returns whether a kill was actually attempted — a session already marked exited is not killed twice,
  * and its pid is not waited on.
+ *
+ * `session.sharedDescendants` is stamped by the spawn path from the descriptor's declaration of the same
+ * name, so this module names no backend. Why a declaration and not a polite `/exit` typed into the terminal
+ * first: the composer may hold a half-written prompt, and typing a command after it would submit that text to
+ * the model. Why not "kill the tree except the helper": it needs a process listing at quit time, which can
+ * itself hang. Ending only the CLI's own process cannot.
  */
 function killSession(session) {
   if (!session || session.exited || !session.pty) return false;
@@ -77,7 +92,10 @@ function killSession(session) {
     // Already gone, or a handle that outlived its process. Either way it is not ours to wait for.
     return false;
   }
-  if (Number.isInteger(pid) && pid > 0) pendingPids.add(pid);
+  if (Number.isInteger(pid) && pid > 0) {
+    pendingPids.add(pid);
+    if (session.sharedDescendants) soloPids.add(pid);
+  }
   return true;
 }
 
@@ -145,7 +163,7 @@ function awaitAllStopped({
       if (settled) return;
       settled = true;
       const leftover = escalated.filter((pid) => isAlive(pid));
-      for (const pid of waited) pendingPids.delete(pid);
+      for (const pid of waited) { pendingPids.delete(pid); soloPids.delete(pid); }
       report(log, { waited, escalated, leftover, how });
       resolve({ waited, escalated, leftover, how });
     };
@@ -159,7 +177,7 @@ function awaitAllStopped({
           if (settled) return;
           outstanding -= 1;
           if (outstanding === 0) finish(stubborn, 'escalated');
-        });
+        }, { tree: !soloPids.has(pid) });
       }
     };
 
@@ -236,4 +254,5 @@ module.exports = {
   // For the suite: the defaults are what production runs, so they are worth exercising directly.
   _defaultIsAlive: defaultIsAlive,
   _pendingPids: pendingPids,
+  _soloPids: soloPids,
 };

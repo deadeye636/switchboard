@@ -342,3 +342,44 @@ test('#607: a pid that is not a pid does nothing at all', async () => {
     assert.deepEqual(result, { stopped: false, alreadyGone: false, survived: false });
   }
 });
+
+// #864: a CLI that started a helper shared with every client of its home must not lose it to the escalation.
+test('#864: a stubborn session that declares sharedDescendants is ended alone, one that does not loses its tree', async () => {
+  reset();
+  const solo = Object.assign(fakeSession(7001), { sharedDescendants: true });
+  const plain = fakeSession(7002);
+  shutdown.killSession(solo);
+  shutdown.killSession(plain);
+  assert.equal(shutdown._soloPids.has(7001), true);
+  assert.equal(shutdown._soloPids.has(7002), false);
+  const timer = manualTimer();
+  const asked = [];
+  let alive = true;
+  const p = shutdown.awaitAllStopped({
+    timeoutMs: 300,
+    isAlive: () => alive,
+    setTimer: timer.setTimer,
+    killTree: (pid, done, opts) => { asked.push([pid, opts && opts.tree]); done(); alive = false; },
+  });
+  timer.tick(10);
+  await p;
+  assert.deepEqual(asked.sort((a, b) => a[0] - b[0]), [[7001, false], [7002, true]]);
+  assert.equal(shutdown._soloPids.size, 0, 'the bookkeeping does not outlive the wait');
+});
+
+// A source check, because node-pty is required at module load and there is no seam to a real spawn
+// (guards-and-scripts.md): what it pins is that the declaration still reaches the session record.
+test('#864: the spawn path copies the descriptor\'s sharedDescendants onto the session, and Hermes declares it', () => {
+  const spawnSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8');
+  assert.match(spawnSrc, /sharedDescendants:\s*spawnedInArgvMode && !!\(launchBackend && launchBackend\.sharedDescendants\)/);
+  assert.match(spawnSrc, /spawnedInArgvMode = useArgvSpawn;/, 'only a spawn whose pty pid is the CLI\'s own launcher keeps its tree');
+  assert.equal(require('../src/backends/hermes').sharedDescendants, true);
+});
+
+test('#864: the user\'s Stop is a pty close alone and asks for no tree kill', () => {
+  const { stopSession } = require('../src/app/terminal/stop-session');
+  const session = Object.assign(fakeSession(7003), { sharedDescendants: true });
+  const timeline = { recordLifecycle() {} };
+  assert.deepEqual(stopSession(session, 'sid', { timeline, reason: 'x' }), { ok: true });
+  assert.equal(session.calls.killed, 1);
+});

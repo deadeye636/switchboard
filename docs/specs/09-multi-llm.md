@@ -230,6 +230,24 @@ never had.
   session's record predates the spawn, so `matchLiveSession` can never match it — and the stale claim
   would then adopt the *next new session's* record, collapsing two tabs onto one identity.
 - `liveState(ref, ctx)` — `'busy' | 'idle' | null`. `null` means *no evidence*; never guess idle.
+- `followLiveSession(ref, { sinceMs })` — OPTIONAL (#864). Where a tracked session's conversation moved to:
+  `{ sessionId, ref, reason } | null`, `reason` `'fork'` (a branch, a fork from a rewind) or `'adopted'` (a
+  compression continuation). `watch/adopt.js` asks it after the claim and applies it through
+  `session-transitions.js`' shared re-key (the Events record is told the reason); the old record stays in the
+  store with its lineage. It declines when another live session holds the child, and `sinceMs` (the tab's own
+  start) keeps a branch made before the tab opened from pulling it away. **Known gap: a CLI `/new`.** It
+  ends the row as `new_session` and opens a PARENTLESS one; the gateway store writes that row with
+  `record_cwd=False` (`hermes_cli/cli_init_mixin.py`, `gateway_session_store.py`, `_row_cwd` -> NULL), so nothing
+  in it names the old row or a directory. A match by time would pull the tab onto a session the user started in
+  another terminal, so none is made: a tab stays on the ended row after `/new` (follow-up issue). The compression step is Hermes' own `_CHAIN_STEP_SQL` (no `_branched_from`, `_delegate_from`
+  or `_reset_from` child; a child that itself ended by compression first, then an open one, then the freshest);
+  the branch step is `_BRANCH_CHILD_SQL`. Hermes only; a template forwards it.
+- `sharedDescendants: true` — OPTIONAL declaration (#864). The CLI starts a helper process that every client of
+  its home shares (Hermes' gateway daemon). The quit's escalation (`app/session-shutdown.js`) then ends the CLI's
+  process alone instead of its tree — only for a session spawned in argv mode, where `pty.pid` IS the CLI's
+  launcher (measured: ending it also ends the CLI's python children and spares the detached daemon); through a
+  shell `pty.pid` is the shell and the tree kill stays. A user's Stop is a plain pty close either way. Why not a typed `/exit`:
+  the composer may hold a half-written prompt that the command would submit.
 
 **A directory and a window are not an identity** (#527). `matchLiveSession` knows where a session runs and
 roughly when it started, and nothing in a record says which process wrote it. With two unpaired sessions
@@ -276,7 +294,7 @@ walking a store. It walks one now.
 |---|---|---|
 | Claude | **states** it in the terminal (OSC title: spinner = busy, `✳` = idle) | — |
 | Codex | **states** it in its transcript (`task_started`, and one of the turn-END events its backend folder lists) | two, and both bit: a busy turn out-writes a fixed tail window long before it completes → the window must **grow**; and a turn interrupted with Esc ends on `turn_aborted` with no `task_complete` ever following → a reader that knows only the two obvious events holds the session at "Working" until some LATER turn finishes (#511) |
-| Hermes | the **last message row**: a trailing user prompt = a turn is running; an assistant row whose `finish_reason` is not a tool one = it is answered | `ended_at` was null on every session of the 0.21 stores measured; Hermes 0.23 writes it when a session is ended (`end_session`), so a set value is a real idle. A session left open at its prompt keeps it null, so a rule built on it alone says "working" for three minutes after every reply (#165). From schema 33 the last row is read among the live rows only: a rewound / undone row (`active = 0`) is no longer "last" (#864) |
+| Hermes | on a 0.23 store, the **turn ledger**: an open `session_admissions` row (`started`, or `queued`) = a turn is running, corroborated by an unexpired `session_turn_leases` row; otherwise the **last message row**: a trailing user prompt = a turn is running; an assistant row whose `finish_reason` is not a tool one = it is answered | `ended_at` was null on every session of the 0.21 stores measured; Hermes 0.23 writes it on a graceful exit or a fork but does NOT clear it on `-r` (measured), so it only means "nothing happened since" (#864). A session left open at its prompt keeps it null, so a rule built on it alone says "working" for three minutes after every reply (#165). An admission has no timestamp, so one a crash left `started` is bounded by the activity window and the terminal-liveness ceiling. From schema 33 the last row is read among the live rows only: a rewound / undone row (`active = 0`) is no longer "last", and the hidden empty assistant row after an interruption ends a turn like `failed_turn` (#864) |
 | Pi | launched sessions post neutral extension events; indexed sessions still fall back to transcript-tail inference (a trailing user/tool result, or assistant `toolUse`, = a turn is running) | tree-shaped JSONL means the visible branch is the leaf's parent path, and one message is one JSONL line, so a large answer can fill the whole tail window |
 | agy | the last SQLite step's combined type/status: running status 8 on a turn-bearing row, or a completed user/tool step whose answer is still owed, means busy; a completed model step means idle | in 1.2.14 status 8 can last less than the watcher debounce and tool rows remain status 3, so status alone misses tool-heavy turns (#735); lifecycle and failed/cancelled tool rows must remain idle |
 
@@ -299,10 +317,11 @@ needs ~12 s just to paint) is marked as one the backend cannot see.
 the file appears with the first turn rather than with the process. A Codex session launched and left sitting
 at its prompt therefore had nothing to pair with, and picked up the muted dot a minute later while it was
 alive and usable. **agy is the same** — its conversation database appears with the first prompt, not at
-launch. Both answer `'first-turn'`, and such a session, asked nothing, is never reported at all. Hermes and
-Pi keep the default `'spawn'`, which is the behaviour that shipped — and it is a DEFAULT, not a
-measurement: nothing has watched when either writes its record, and their descriptors say so rather than
-claiming otherwise. That direction is the same one this whole area argues for: no notice beats a wrong one.
+launch. Both answer `'first-turn'`, and such a session, asked nothing, is never reported at all. Hermes
+keeps `'spawn'` and **that is now measured** (0.23.1, #864): its row is created when the CLI or TUI launches,
+~4 s after the spawn with a warm gateway daemon and 14-18 s cold, so the 60 s grace covers it. Pi keeps the
+default `'spawn'`, which is the behaviour that shipped — and it is a DEFAULT, not a measurement: nothing has
+watched when it writes its record, and its descriptor says so rather than claiming otherwise. That direction is the same one this whole area argues for: no notice beats a wrong one.
 
 The turn is read from the INPUT side, never from output — a TUI repaints at rest, and rule 4 below is
 exactly about not reading a turn out of activity. Three things that costs:

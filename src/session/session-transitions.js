@@ -687,4 +687,8 @@ module.exports = {
   startSubagentSweep, stopSubagentSweep, hasOpenSubagents,
   // #303: the hook ingest hands the terminal's own report straight through to this.
   adoptSessionId,
+  // #864: a backend said the process moved to a child row of the session a tab tracks (a branch, a fork from a
+  // rewind, a compression continuation). The same re-key a CLI-announced move goes through, with the reason the
+  // Events record is told. `watch/adopt.js` calls it through ctx and decides nothing about the backend.
+  rekeyLiveSession: applyRekey,
 };
