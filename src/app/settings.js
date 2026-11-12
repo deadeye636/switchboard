@@ -41,7 +41,7 @@ const dialogDirs = require('./dialog-dirs');
 // A thrown fs error names the file it failed on, and this one is a path the user picked (#457).
 const { readableError } = require('./readable-error');
 const { settingsOwnerPath } = require('../shared/worktree-path');
-const { launchLayer } = require('../shared/backend-modes');
+const { launchLayer, cliGroups, sharedIdsOfGroup } = require('../shared/backend-modes');
 
 let ctx = null;
 
@@ -363,6 +363,129 @@ function migrateRetiredChoices() {
   }
 }
 
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * One-time move of launch defaults a CLI's modes now store once (#761, D4/D5). A CLI group is an owner plus the
+ * drivers that name it (`cliGroups` over the FULL registry, the same rule the settings page and a launch use);
+ * the ids stored once are `sharedIdsOfGroup(group)`, never listed here. Per scope, per driver, per shared id:
+ *   - the owner has no value (absent or null) and the driver has one: it moves to the owner. `''` and `false` are
+ *     values and move;
+ *   - the owner has an equal value: the driver's copy is dropped;
+ *   - the owner has a different value: the owner wins (O1) and the driver's value is kept under
+ *     `backendDefaultsReplaced.<driverId>.<field>` in the same blob, so nothing is dropped silently. The FIRST
+ *     value set aside stays: a later conflicting one never overwrites it (it is dropped, and the note says so).
+ * A field only one mode has is never touched, nor is an id the registry does not know, a template, or a blob
+ * that is not an object. A driver entry left empty is removed. Idempotent: a second pass changes nothing.
+ *
+ * Pure: returns { value, changed[], detail[] }, `value` is the original object when nothing moved. `changed`
+ * notes name the driver, the field and the outcome and NO values (a shared field can hold a path or prompt
+ * text, and the callers log them at info); `detail` carries the same with the values, for `debug`.
+ * `knownGroups` lets a caller that walks many blobs ask the registry once.
+ */
+function moveSharedLaunchDefaults(blob, knownGroups) {
+  const changed = [];
+  const detail = [];
+  const stored = isPlainObject(blob) ? blob.backendDefaults : null;
+  // Cheap exit before the registry is asked: this runs on every settings write, and most blobs hold no defaults.
+  if (!isPlainObject(stored) || !Object.keys(stored).length) return { value: blob, changed, detail };
+
+  let groups = knownGroups;
+  if (!groups) {
+    try { groups = cliGroups(backends.list() || []); } catch { return { value: blob, changed, detail }; }
+  }
+
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const isValue = v => v !== undefined && v !== null;
+  const next = { ...stored };
+  let replaced = null;
+
+  for (const group of groups) {
+    const shared = sharedIdsOfGroup(group);
+    if (!shared.size) continue;
+    const ownerId = group.owner.id;
+    if (next[ownerId] != null && !isPlainObject(next[ownerId])) continue;
+    for (const driver of group.drivers) {
+      const entry = next[driver.id];
+      if (!isPlainObject(entry)) continue;
+      let driverOpts = null;
+      let ownerOpts = null;
+      for (const field of shared) {
+        if (!has(entry, field) || !isValue(entry[field])) continue;
+        driverOpts = driverOpts || { ...entry };
+        ownerOpts = ownerOpts || { ...(next[ownerId] || {}) };
+        const dv = entry[field];
+        delete driverOpts[field];
+        if (!isValue(ownerOpts[field])) {
+          ownerOpts[field] = dv;
+          changed.push(`${driver.id}.${field}: moved to ${ownerId}`);
+          detail.push(`${driver.id}.${field}: moved to ${ownerId}: ${JSON.stringify(dv)}`);
+        } else if (JSON.stringify(ownerOpts[field]) !== JSON.stringify(dv)) {
+          replaced = replaced || { ...(isPlainObject(blob.backendDefaultsReplaced) ? blob.backendDefaultsReplaced : {}) };
+          const aside = isPlainObject(replaced[driver.id]) ? replaced[driver.id] : {};
+          if (isValue(aside[field])) {
+            // The FIRST value set aside stays: a later conflicting one must not overwrite what was kept earlier.
+            changed.push(`${driver.id}.${field}: ${ownerId} kept, driver value dropped (an earlier one is already set aside)`);
+            detail.push(`${driver.id}.${field}: ${ownerId} ${JSON.stringify(ownerOpts[field])}, dropped ${JSON.stringify(dv)}, set aside earlier ${JSON.stringify(aside[field])}`);
+          } else {
+            replaced[driver.id] = { ...aside, [field]: dv };
+            changed.push(`${driver.id}.${field}: ${ownerId} kept, driver value set aside in backendDefaultsReplaced`);
+            detail.push(`${driver.id}.${field}: ${ownerId} ${JSON.stringify(ownerOpts[field])}, set aside ${JSON.stringify(dv)}`);
+          }
+        }
+        // An equal value needs no note: the copy is simply redundant.
+      }
+      if (!driverOpts) continue;
+      next[ownerId] = ownerOpts;
+      if (Object.keys(driverOpts).length) next[driver.id] = driverOpts;
+      else delete next[driver.id];
+    }
+  }
+
+  // An equal-value drop leaves no note, but it is still a change to write.
+  if (JSON.stringify(next) === JSON.stringify(stored) && !replaced) return { value: blob, changed, detail };
+  const value = { ...blob, backendDefaults: next };
+  if (replaced) value.backendDefaultsReplaced = replaced;
+  return { value, changed, detail };
+}
+
+/** One info line per note, no values (a shared field can hold a path or prompt text); the values go to debug. */
+function logSharedMove(label, result) {
+  for (const note of result.changed) ctx.log.info(`[settings] shared launch default ${label} ${note}`);
+  if (typeof ctx.log.debug === 'function') for (const d of result.detail) ctx.log.debug(`[settings] shared launch default ${label} ${d}`);
+}
+
+/**
+ * The move above over `global` and every `project:` blob, once at startup beside `migrateRetiredChoices`
+ * (`app/lifecycle.js`, before any window reads settings). One try per scope, writes only a blob that changed,
+ * one `info` line per value moved or kept aside.
+ */
+function migrateSharedLaunchDefaults() {
+  const scopes = [];
+  try { scopes.push({ key: 'global', value: ctx.db.getSetting('global') }); }
+  catch (err) { ctx.log.warn('[settings] could not read the global blob:', err?.message || err); }
+  try { scopes.push(...ctx.db.listSettings('project:')); }
+  catch (err) { ctx.log.warn('[settings] could not list the project blobs:', err?.message || err); }
+
+  // The registry is asked once for all scopes, and only when some scope holds launch defaults at all.
+  let groups = null;
+  for (const scope of scopes) {
+    try {
+      const stored = isPlainObject(scope.value) ? scope.value.backendDefaults : null;
+      if (!isPlainObject(stored) || !Object.keys(stored).length) continue;
+      groups = groups || cliGroups(backends.list() || []);
+      const result = moveSharedLaunchDefaults(scope.value, groups);
+      if (result.value === scope.value) continue;
+      ctx.db.setSetting(scope.key, result.value);
+      logSharedMove(scope.key, result);
+    } catch (err) {
+      ctx.log.warn(`[settings] could not move shared launch defaults in ${scope.key}:`, err?.message || err);
+    }
+  }
+}
+
 /**
  * The one way a settings blob reaches the disk. Every writer goes through here — the settings
  * form, and the settings IMPORT (#145). An importer that called setSetting() directly would be a
@@ -379,7 +502,7 @@ function migrateRetiredChoices() {
  * from the renderer, and it used to write straight through. A guard that sits on only one of two doors is
  * decorative. It never throws — a settings save must not fail on this.
  */
-function scrubBlobForDisk(value) {
+function scrubBlobForDisk(value, { moveShared = true } = {}) {
   try {
     const stripped = stripLauncherSecrets(value);
     if (stripped.removed.length) {
@@ -399,6 +522,13 @@ function scrubBlobForDisk(value) {
     if (retired.changed.length) {
       ctx.log.warn(`[backends] rewrote launch option(s) the CLI no longer accepts: ${retired.changed.join(', ')}`);
       value = retired.value;
+    }
+    // …and the shared-launch-default move (#761, R6): an import or a form loaded before the startup move can
+    // write a value back under a driver's id that its CLI group now stores once under the owner.
+    const moved = moveShared ? moveSharedLaunchDefaults(value) : { value };
+    if (moved.value !== value) {
+      logSharedMove('(write)', moved);
+      value = moved.value;
     }
   } catch { /* never block a settings save on this */ }
   return value;
@@ -580,7 +710,10 @@ function registerIpc(ipc) {
     // reconcile on the `global` key, and this handler fires on every sidebar drag and tab reorder. A
     // partial that changes `backendEnabled` would need that re-arm — no caller does, and one that starts
     // to belongs on set-setting.
-    const next = scrubBlobForDisk({ ...base, ...(partial || {}) });
+    // A partial that leaves `backendDefaults` alone skips the shared-launch-default move (#761): the stored
+    // blob already went through it, and this handler fires on every drag frame.
+    const touchesDefaults = !!(partial && Object.prototype.hasOwnProperty.call(partial, 'backendDefaults'));
+    const next = scrubBlobForDisk({ ...base, ...(partial || {}) }, { moveShared: touchesDefaults });
     ctx.db.setSetting(key, next);
     // Skipping persistSettingsBlob skipped the project-list push with it (#434). Gate on the CHANGE and
     // not on the key: `displayName` is the one field of a project blob the list renders
@@ -685,6 +818,8 @@ module.exports = {
   effectiveSettings,
   migrateClaudeLaunchDefaults,
   migrateRetiredChoices,
+  migrateSharedLaunchDefaults,
+  moveSharedLaunchDefaults,
   SETTING_DEFAULTS,
   GLOBAL_ONLY_DEFAULTS,
   // The trust boundary and the cascade. Exported so the tests can REQUIRE them — they used to be

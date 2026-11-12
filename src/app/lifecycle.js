@@ -107,6 +107,10 @@ function start(ctx) {
     try { ctx.migrateRetiredChoices(); } catch (err) {
       ctx.log.warn('[settings] retired launch-choice migration failed:', err?.message || err);
     }
+    // One-time (#761): a launch default the modes of one CLI now store once moves under the owner.
+    try { ctx.migrateSharedLaunchDefaults(); } catch (err) {
+      ctx.log.warn('[settings] shared launch-defaults migration failed:', err?.message || err);
+    }
     // Set Content Security Policy
     ctx.session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({

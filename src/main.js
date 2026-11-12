@@ -1470,7 +1470,7 @@ handoffs.init({
   getMainWindow: () => mainWindow,
 });
 handoffs.registerIpc(ipcMain);
-const { effectiveSettings, migrateClaudeLaunchDefaults, migrateRetiredChoices, SETTING_DEFAULTS } = settings;
+const { effectiveSettings, migrateClaudeLaunchDefaults, migrateRetiredChoices, migrateSharedLaunchDefaults, SETTING_DEFAULTS } = settings;
 
 // Where a project keeps handoffs and plans, for the two features that have to NAME one rather than read
 // it: the handoff prompt an agent is sent, and an insert template's {handoffDir}/{planDir}. One module so
@@ -2603,6 +2603,7 @@ const lifecycleCtx = {
   },
   migrateClaudeLaunchDefaults,
   migrateRetiredChoices,
+  migrateSharedLaunchDefaults,
   buildMenu,
   createWindow,
   createTray: () => notifications.createTray(),
