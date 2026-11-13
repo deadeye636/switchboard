@@ -42,7 +42,7 @@ user looking for the switch has explained a problem and left it standing.
 
 **Every pane with a `figureOf` draws what the setting does, and redraws as the controls change** — the split zones against an
 equal-cell grid, the sidebar with its fold, the session sidebar open or closed, the × on a tab against a
-still-running agent, the review panel against a prompt in the terminal, the directories a plan and a handoff are
+still-running agent, the directories a plan and a handoff are
 written to, and the keep-warm timeline. A figure that follows a control is a `figureOf` on the pane; the
 attention pane's figure is fixed.
 
@@ -56,9 +56,9 @@ ask what they write.
 
 ### D2 — a control appears only where the pane's point IS that decision
 
-Not "every setting mentioned". The palette pane (F1) names a setting and deliberately carries no
-control: rebinding needs the key capture in `settings-shortcuts.js`, which `index.html` does not load, so
-a control there would be a button that cannot capture a key.
+Not "every setting mentioned". The palette (F1) names a setting and deliberately carries no control:
+rebinding needs the key capture in `settings-shortcuts.js`, which `index.html` does not load, so a control
+there would be a button that cannot capture a key. Since #871 it is one line of the welcome pane, not a pane.
 
 ### D3 — the tour writes its own labels, and the guard matches KEYS
 
@@ -80,8 +80,10 @@ does not use it for any of these settings: it builds one full object and calls `
 |---|---|---|
 | Your CLIs | read the blob, patch `backendEnabled` (and `defaultLaunchTarget` when the mode moves it) or `pickerModeByBackend.<owner>` (the "Default in the picker" switch), `set-setting` | replaced the whole map, dropping every other backend's state, and skipped the re-arm — a backend switched on would not be watched until relaunch |
 | Attention | the flag **plus** `configureAttentionHook` | stored an intent nothing acts on; the hook is a file in the CLI's own home |
-| Keep warm, Splitting, Sidebar, Session sidebar, Closing, Documents | `merge-setting` — flat keys (`idleMaintenanceMode`, `sessionSidebarDefault` among them) | fine |
-| Edits (the review panel) | read-modify-write of `backendDefaults`, `set-setting` | wiped every other backend's defaults and every other option of this one |
+| Attention (the two notification switches), Usage | read-modify-write of one field of `notifications` / `usageTray` (type `nested`), `set-setting` | replaced the whole object, dropping the other notification switches or the tray's mode, backend and style |
+| Keep warm, Splitting, Sidebar, Session sidebar, Issues, Closing, Documents | `merge-setting` — flat keys (`idleMaintenanceMode`, `sessionSidebarDefault`, `forgeIssuesEnabled` among them) | fine |
+
+The Edits pane (the review panel, a read-modify-write of `backendDefaults`) went with #871 W9, and its route with it.
 
 ### D5 — the window that writes is the one window the broadcast skips
 
@@ -93,10 +95,10 @@ setting IS written.
 
 ### D6 — it names no backend
 
-The attention and edits panes are about a CLI's own options, and the tour is in `src/renderer/**`, where a backend id may
-not appear (CLAUDE.md reflex 5). So the tour names a **capability** id — `attentionHooks`, `mcpEmulation`
-— and asks the registry which backend declares it. A pane whose capability nothing installed declares is
-skipped rather than rendered empty.
+The attention pane is about a CLI's own option, and the tour is in `src/renderer/**`, where a backend id may
+not appear (CLAUDE.md reflex 5). So the tour names a **capability** id — `attentionHooks` (and, until #871
+dropped the Edits pane, `mcpEmulation`) — and asks the registry which backend declares it. A pane whose
+capability nothing installed declares is skipped rather than rendered empty.
 
 Two limits, so this is not read as more than it is. The **write** is not generic: `attentionHooks` needs
 `configureAttentionHook`, keyed on that id in the settings screen too, so the tour keys on it as well — a
@@ -171,6 +173,22 @@ that every refresh and every compaction is a real model turn and that a compacti
 timeline from the last turn that changes with the mode. It is skipped without an enabled backend declaring
 `idleMaintenance`, the same capability rule as D6. The what and why of idle maintenance is
 [spec 45](45-idle-maintenance.md).
+
+### D9c — the review of the panes (#871)
+
+Owner decisions of 2026-11-12 on #871 (W1–W13), applied with the test "does the pane explain something a fresh
+installation hides, or a default that surprises?":
+
+- **Kept:** Welcome, Your CLIs, Attention, Keep warm, Splitting, Sidebar, Session sidebar, Closing, Documents.
+- **Attention** gained the two notification switches, `notifications.notifyOnReady` and `notifications.sound`
+  (both off by default), because they answer the same subject: being told when a session needs you.
+- **Session sidebar** says what the useful sections answer: Repository (branch, changed and unpushed), Context (how
+  full the window is and what fills it), Processes (CPU and memory). Once #870 is built it names the Changes group too.
+- **Edits** was dropped: on by default, the review panel explains itself the first time it opens, and it applies to
+  terminal Claude only. **Palette** was merged into the welcome pane as one line.
+- **New:** **Issues** (`forgeIssuesEnabled`, off by default, with a line on `gh` / `glab` and their login) and
+  **Usage** (the status-bar segment explained, `usageTray.enabled`, off by default), both after Session sidebar.
+- **Keep warm** was checked against spec 45 and the per-session Idle button and still matches.
 
 ### D10 — four ways out
 

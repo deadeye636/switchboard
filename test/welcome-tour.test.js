@@ -58,7 +58,7 @@ test('every flat setting the tour writes is also written by the settings screen'
   assert.deepStrictEqual(missing, [], `written by the tour, not by the settings screen: ${missing.join(', ')}`);
 });
 
-test('the two capability ids the tour names are DECLARED by a backend', () => {
+test('the capability id the tour names is DECLARED by a backend', () => {
   // Not `flat` keys, so the check above cannot see them. They also do not appear in settings-panel.js by
   // name — that screen renders whatever a descriptor declares and names no id either — so the home to
   // check is the descriptor. An id nothing declares is a pane that can never render.
@@ -71,7 +71,7 @@ test('the two capability ids the tour names are DECLARED by a backend', () => {
     .map((f) => stripComments(fs.readFileSync(f, 'utf8')))
     .join('\n');
 
-  for (const id of ['attentionHooks', 'mcpEmulation']) {
+  for (const id of ['attentionHooks']) {
     assert.match(tour, new RegExp(`'${id}'`), `the tour should still name the ${id} capability`);
     assert.match(declared, new RegExp(`id:\\s*'${id}'`), `${id} is named by the tour and declared by no backend`);
   }
@@ -97,9 +97,9 @@ test('the tour writes the nested settings through set-setting, never through a s
   const tour = read(TOUR);
 
   // `merge-setting` is a shallow spread (src/app/settings.js). Merging `backendEnabled` would replace the
-  // whole map and drop every other backend's state; merging `backendDefaults` would drop every other
-  // backend's options. Both have to be a read-modify-write on the whole blob.
-  for (const key of ['backendEnabled', 'backendDefaults']) {
+  // whole map and drop every other backend's state; merging `notifications` or `usageTray` would drop the
+  // sibling fields of that object (#871). All of them have to be a read-modify-write on the whole blob.
+  for (const key of ['backendEnabled', 'notifications', 'usageTray']) {
     assert.ok(
       !new RegExp(`mergeSetting\\([^)]*${key}`).test(tour),
       `${key} must not go through mergeSetting — a shallow merge drops the rest of the map`,
@@ -120,11 +120,10 @@ test('the tour names no backend: it asks the registry which one declares a capab
   const tour = read(TOUR);
   // The capability ids it may name…
   assert.match(tour, /'attentionHooks'/);
-  assert.match(tour, /'mcpEmulation'/);
+  assert.ok(!/'mcpEmulation'/.test(tour), 'the review pane went with #871 W9');
   // …and the resolution that keeps a backend id out of this file. `test/backend-integrations.test.js`
   // holds the general form of this; this asserts the mechanism exists rather than that no id appears.
   assert.match(tour, /backendDeclaringIntegration/);
-  assert.match(tour, /backendDeclaringOption/);
 });
 
 test('welcomeDismissed rides export/import and is not stripped', () => {
@@ -605,5 +604,35 @@ test('the session sidebar pane names the sections from lib/sidebar-groups.js and
   await t.change(select, 'open');
   assert.deepStrictEqual(t.writes.at(-1), { route: 'merge', patch: { sessionSidebarDefault: 'open' } });
   assert.ok(drawn().includes(SESSION_SIDEBAR_GROUP_NAMES[0].label), 'open: the sidebar is drawn with its sections');
+  t.window.close();
+});
+
+// #871: the panes as the owner decided them (W1-W13), and the nested switches written whole-blob.
+test('the panes follow #871: Edits and Palette gone, Issues and Usage after the session sidebar', async () => {
+  const t = await openTour({ store: { backendEnabled: { 'cli-a-gui': true } } });
+  const rails = t.rails();
+  assert.ok(!rails.includes('Edits') && !rails.includes('Palette'), rails.join(', '));
+  assert.equal(rails.indexOf('Issues'), rails.indexOf('Session sidebar') + 1);
+  assert.equal(rails.indexOf('Usage'), rails.indexOf('Issues') + 1);
+  t.go('Welcome');
+  assert.match(t.doc.querySelector('.wt-prose').textContent, /F1/, 'the palette is a line of the welcome pane');
+  t.window.close();
+});
+
+test('the notification and tray switches write one field of their object, the rest kept', async () => {
+  const t = await openTour({ store: { notifications: { enabled: true, sound: false }, usageTray: { enabled: false, mode: 'rotate' } } });
+  t.go('Attention');
+  const toggle = (label) => [...t.doc.querySelectorAll('.wt-row')].find((r) => r.textContent.includes(label)).querySelector('input');
+  await t.change(toggle('Alert sound'), true);
+  assert.equal(t.writes.at(-1).route, 'set');
+  assert.deepStrictEqual(t.writes.at(-1).blob.notifications, { enabled: true, sound: true });
+  await t.change(toggle('Notify when a session is ready'), true);
+  assert.deepStrictEqual(t.writes.at(-1).blob.notifications, { enabled: true, sound: true, notifyOnReady: true });
+  t.go('Usage');
+  await t.change(t.doc.querySelector('.wt-row input'), true);
+  assert.deepStrictEqual(t.writes.at(-1).blob.usageTray, { enabled: true, mode: 'rotate' });
+  t.go('Issues');
+  await t.change(t.doc.querySelector('.wt-row input'), true);
+  assert.deepStrictEqual(t.writes.at(-1), { route: 'merge', patch: { forgeIssuesEnabled: true } });
   t.window.close();
 });

@@ -14,7 +14,7 @@
 //   holds the other half — every key written here is also written by settings-panel.js.
 //
 //   THERE IS NO SINGLE DOOR. `merge-setting` is a SHALLOW spread (src/app/settings.js:386) and it does
-//   not re-arm the backends. So a nested value (`backendDefaults.<id>.<opt>`, `shortcuts.<id>`) and
+//   not re-arm the backends. So a nested value (`notifications.<field>`, `usageTray.enabled`) and
 //   anything needing the re-arm (`backendEnabled`) go through a read-modify-write on `set-setting`, the
 //   way settings-panel.js does it. A shallow merge of `backendEnabled` drops every other backend's state.
 //   A CLI's mode switch (#761) writes every id of the CLI in that same one write, and moves a stored
@@ -23,13 +23,13 @@
 //   writes `pickerModeByBackend.<owner>` the same whole-blob way.
 //
 //   IT NAMES NO BACKEND. The attention pane's toggle is resolved by asking the registry which backend
-//   DECLARES an integration field with that id, the review pane's by asking which one declares that config
-//   option, and the keep-warm pane's by asking which installed, enabled one answers the `idleMaintenance`
-//   capability (the projection of the descriptor hook of that name). Each pane disappears when no backend
-//   declares its own. The ids named here (`attentionHooks`, `mcpEmulation`, `idleMaintenance`) are
-//   capability ids, not backend ids — reflex 5. The CLIs pane groups through `backendModes.cliGroups`.
+//   DECLARES an integration field with that id, and the keep-warm pane's by asking which installed, enabled
+//   one answers the `idleMaintenance` capability (the projection of the descriptor hook of that name). Each
+//   pane disappears when no backend declares its own. The ids named here (`attentionHooks`,
+//   `idleMaintenance`) are capability ids, not backend ids — reflex 5. The CLIs pane groups through
+//   `backendModes.cliGroups`. (The review pane and its `backendOption` route went with #871 W9.)
 //
-// The figures are drawn here rather than shipped as images, because five of them answer to the pane's
+// The figures are drawn here rather than shipped as images, because most of them answer to the pane's
 // own controls: pick Grid and the picture shows Grid, type a directory name and the tree shows it. A
 // picture that has to follow a number cannot be a PNG. The plan called for pane 2's to be a real
 // screenshot, since it is about WHERE a control is rather than what it does; it is drawn too, and
@@ -204,48 +204,6 @@
       </svg>`;
   }
 
-  function figEdits(inside) {
-    if (inside) {
-      return `<svg viewBox="0 0 640 210" role="img" aria-label="The change opens in a review panel inside Switchboard">
-          <rect x="60" y="20" width="520" height="170" rx="8" fill="#1a1a24" stroke="rgba(255,255,255,0.10)"/>
-          <text x="76" y="42" font-family="sans-serif" font-size="10" fill="#7a7a90" letter-spacing="1.2">SWITCHBOARD</text>
-          <rect x="76" y="54" width="240" height="120" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)"/>
-          <g fill="rgba(255,255,255,0.07)">
-            <rect x="90" y="72" width="180" height="7" rx="2"/><rect x="90" y="88" width="140" height="7" rx="2"/>
-            <rect x="90" y="104" width="204" height="7" rx="2"/><rect x="90" y="120" width="120" height="7" rx="2"/>
-          </g>
-          <text x="90" y="164" font-family="sans-serif" font-size="10" fill="#5a5a70">terminal</text>
-          <rect x="328" y="54" width="236" height="120" rx="6" fill="rgba(128,136,255,0.07)" stroke="rgba(128,136,255,0.30)"/>
-          <text x="342" y="74" font-family="sans-serif" font-size="10" fill="#8088ff" letter-spacing="1">REVIEW</text>
-          <g transform="translate(342,86)">
-            <rect x="0" y="0" width="118" height="7" rx="2" fill="rgba(224,108,117,0.25)"/>
-            <rect x="0" y="14" width="96" height="7" rx="2" fill="rgba(62,207,90,0.25)"/>
-            <rect x="0" y="28" width="110" height="7" rx="2" fill="rgba(62,207,90,0.25)"/>
-          </g>
-          <rect x="342" y="140" width="66" height="18" rx="5" fill="rgba(62,207,90,0.14)" stroke="rgba(62,207,90,0.35)"/>
-          <text x="375" y="153" font-family="sans-serif" font-size="10" fill="#3ecf5a" text-anchor="middle">Accept</text>
-          <rect x="416" y="140" width="66" height="18" rx="5" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.14)"/>
-          <text x="449" y="153" font-family="sans-serif" font-size="10" fill="#9090a8" text-anchor="middle">Reject</text>
-        </svg>`;
-    }
-    // Off, no bridge starts and no --ide is passed, so the CLI asks the way it does with no editor
-    // attached: as text, in the terminal. It does NOT go to the user's own editor — that was wrong in
-    // an earlier draft of this pane and is the kind of thing a picture makes permanent.
-    return `<svg viewBox="0 0 640 210" role="img" aria-label="With the review panel off, the CLI asks in the terminal as text">
-        <rect x="60" y="20" width="520" height="170" rx="8" fill="#1a1a24" stroke="rgba(255,255,255,0.10)"/>
-        <text x="76" y="42" font-family="sans-serif" font-size="10" fill="#7a7a90" letter-spacing="1.2">SWITCHBOARD</text>
-        <rect x="76" y="54" width="488" height="120" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)"/>
-        <g font-family="ui-monospace, Consolas, monospace" font-size="11">
-          <text x="92" y="76" fill="#7a7a90">Edit src/example.js</text>
-          <text x="92" y="94" fill="#e06c75">- const enabled = value;</text>
-          <text x="92" y="110" fill="#3ecf5a">+ const enabled = value === true;</text>
-          <text x="92" y="134" fill="#c8c8d8">Do you want to make this edit?</text>
-          <text x="92" y="152" fill="#8088ff">&gt; 1. Yes&#160;&#160;&#160;2. No, tell me what to do differently</text>
-        </g>
-        <text x="564" y="188" font-family="sans-serif" font-size="9.5" fill="#5a5a70" text-anchor="end">the terminal, nothing else</text>
-      </svg>`;
-  }
-
   // The session sidebar's section names, from lib/sidebar-groups.js — the list the sidebar and the settings
   // screen read. Never a copy here: a section added there is drawn and named here on the same day.
   function sidebarSectionLabels() {
@@ -373,7 +331,7 @@
   // ── The panes ──────────────────────────────────────────────────────────────────────────────────
   //
   // `setting` says how a control is written, and there is one shape per shape in the code (see the
-  // header). `backendOption` and `integration` name a CAPABILITY id and are resolved through the registry,
+  // header). `integration` names a CAPABILITY id and is resolved through the registry,
   // so no backend is named here; `backendEnabled` and `backendMode` are built from the registry at open time.
   // A pane's `capability` names a capability row an installed, enabled backend has to answer for the pane
   // to be shown. A `body` may be a function, read when the pane is drawn.
@@ -387,7 +345,9 @@
         and keeps them running side by side. Nothing here starts a session on its own.</p>
         <p>The short panes that follow cover what a fresh installation does not explain by itself. Each
         one that names a setting lets you change it, right here. Settings → Maintenance brings the tour
-        back at any time.</p>`,
+        back at any time.</p>
+        <p><b>F1</b> opens the command palette: jump to a session or project, start a launcher, write a plan
+        or a handoff. It is not Ctrl+K, because a terminal needs that key; Settings → Hotkeys rebinds it.</p>`,
     },
     {
       rail: 'Your CLIs',
@@ -407,8 +367,24 @@
       body: `<p>Switchboard can mark a session as waiting the moment the CLI asks for something. That runs
         off the CLI's own hooks, and <b>the hooks are off until you turn them on</b>.</p>
         <p>Without them the inbox falls back to reading the terminal title, which misses a permission
-        prompt. The switch is one level in: the gear beside the backend's row, then Integrations.</p>`,
-      controls: [{ kind: 'toggle', label: 'Hooks for attention', setting: { type: 'integration', field: 'attentionHooks' } }],
+        prompt. The switch is one level in: the gear beside the backend's row, then Integrations.</p>
+        <p>Two more switches, both off by default, live in Settings → Usage &amp; notifications: a
+        notification when a session is ready, and a sound with it.</p>`,
+      controls: [
+        { kind: 'toggle', label: 'Hooks for attention', setting: { type: 'integration', field: 'attentionHooks' } },
+        {
+          kind: 'toggle',
+          label: 'Notify when a session is ready',
+          desc: 'A system notification when a session finishes its turn, not only when it asks for something.',
+          setting: { type: 'nested', key: 'notifications', field: 'notifyOnReady', fallback: false },
+        },
+        {
+          kind: 'toggle',
+          label: 'Alert sound',
+          desc: 'A short sound with an attention or ready notice.',
+          setting: { type: 'nested', key: 'notifications', field: 'sound', fallback: false },
+        },
+      ],
       figure: { svg: FIG_GEAR, cap: 'The gear on a backend row opens more than launch defaults — Integrations lives behind it.' },
     },
     {
@@ -492,6 +468,10 @@
           ? `: ${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
           : '';
         return `<p>Next to every session sits a sidebar with what belongs to it${list}.</p>
+        <p><b>Repository</b> names the branch and what is changed or not yet pushed. <b>Context</b> shows how
+        full the model's window is and what fills it, so you see a handoff coming. <b>Processes</b> shows what
+        the session runs and what it costs the machine in CPU and memory. A section reads only while it is
+        open, so a closed one costs nothing.</p>
         <p>The sidebar button on the session opens and closes it, and each session keeps its own choice.
         Drag a section by its grip to change the order, and right-click a section's heading to choose which
         ones are shown. Both apply to every session.</p>`;
@@ -509,6 +489,37 @@
           ? 'Open — a new session shows its sidebar on the right from the start.'
           : 'Closed — a new session starts without it; the button on the session opens it.',
       }),
+    },
+    {
+      rail: 'Issues',
+      title: 'Your GitHub or GitLab issues, beside the tasks',
+      where: 'Settings → Projects & sidebar · a project\'s settings',
+      body: `<p>Tasks &amp; notes, in the session sidebar and in the project's Tasks view, can list the project's
+        issues from GitHub or GitLab, read-only. <b>It is off until you switch it on.</b></p>
+        <p>The issues are read through the <code>gh</code> or <code>glab</code> command-line tool, logged in on
+        this machine (<code>gh auth login</code>, <code>glab auth login</code>). Switchboard stores no token. A
+        project can switch it on or off for itself and choose the provider when its host does not say.</p>`,
+      controls: [{
+        kind: 'toggle',
+        label: 'Show GitHub or GitLab issues',
+        desc: 'Needs gh or glab, installed and logged in.',
+        setting: { type: 'flat', key: 'forgeIssuesEnabled', fallback: false },
+      }],
+    },
+    {
+      rail: 'Usage',
+      title: 'How much of your plan is left',
+      where: 'The status bar · Settings → Usage & notifications',
+      body: `<p>The status bar at the bottom shows, per CLI that reports it, how much of its usage window is
+        used and when it resets. Hover a segment for the detail; a CLI that reports nothing says so.</p>
+        <p>The same figure can sit in the system tray as an icon, so it stays in view while Switchboard is in
+        the background. <b>The tray icon is off by default.</b> Which CLI it shows, and whether it rotates
+        between them, is in Settings → Usage &amp; notifications.</p>`,
+      controls: [{
+        kind: 'toggle',
+        label: 'Usage icon in the system tray',
+        setting: { type: 'nested', key: 'usageTray', field: 'enabled', fallback: false },
+      }],
     },
     {
       rail: 'Closing',
@@ -546,27 +557,6 @@
       }),
     },
     {
-      rail: 'Edits',
-      title: 'Proposed edits land in a review panel',
-      where: 'Settings → Backends → the gear on the backend',
-      body: `<p>Switchboard can register itself as the CLI's editor, so a proposed change opens as a diff
-        with accept and reject instead of as a question in the terminal.</p>
-        <p>This is on by default. Switched off, the CLI falls back to asking in the terminal, the way it
-        does when no editor is attached. The change applies to the next session you launch.</p>`,
-      controls: [{
-        kind: 'toggle',
-        label: 'Review proposed edits inside Switchboard',
-        desc: 'Off leaves the accept/reject prompt in the terminal. Applies at the next launch.',
-        setting: { type: 'backendOption', option: 'mcpEmulation' },
-      }],
-      figureOf: (v) => ({
-        svg: figEdits(v[0]),
-        cap: v[0]
-          ? 'On — the change opens as a review panel of its own, with accept and reject.'
-          : 'Off — the same question, asked as text in the terminal.',
-      }),
-    },
-    {
       rail: 'Documents',
       title: 'Plans and handoffs are files in your repo',
       where: 'Settings → Documents',
@@ -585,15 +575,6 @@
         svg: figDirs(v[0], v[1]),
         cap: 'Where the next plan and the next handoff will be written, as you type the names.',
       }),
-    },
-    {
-      rail: 'Palette',
-      title: 'F1 opens the command palette',
-      where: 'Settings → Hotkeys',
-      body: `<p>One key to jump to a session or project, start a launcher, write a plan or write a handoff.
-        It is <b>F1</b>, not Ctrl+K — Ctrl+K is kill-line in every shell, and a terminal has to keep it.</p>
-        <p>Rebindable, like every shortcut in the app.</p>`,
-      ctlNote: 'Rebinding stays in Settings → Hotkeys, where the key capture lives.',
     },
   ];
 
@@ -626,11 +607,6 @@
     return backendsList().find((b) =>
       b.integrations && Array.isArray(b.integrations.fields)
       && b.integrations.fields.some((f) => f && f.id === fieldId)) || null;
-  }
-
-  function backendDeclaringOption(optionId) {
-    return backendsList().find((b) =>
-      Array.isArray(b.configFields) && b.configFields.some((f) => f && f.id === optionId)) || null;
   }
 
   // Is this backend switched on in this blob? The stored flag, else what the registry answered.
@@ -677,12 +653,10 @@
     if (setting.type === 'integration') {
       return settings[setting.field] === true;
     }
-    if (setting.type === 'backendOption') {
-      const backend = backendDeclaringOption(setting.option);
-      if (!backend) return null;
-      const declared = (backend.configFields || []).find((f) => f.id === setting.option);
-      const stored = ((settings.backendDefaults || {})[backend.id] || {})[setting.option];
-      return stored === undefined ? !!(declared && declared.default) : stored !== false;
+    if (setting.type === 'nested') {
+      const obj = settings[setting.key];
+      const v = obj && typeof obj === 'object' ? obj[setting.field] : undefined;
+      return v === undefined ? setting.fallback : v;
     }
     return null;
   }
@@ -690,7 +664,7 @@
   /**
    * Write one control's value.
    *
-   * Four routes, because the code has four. A flat key is a `merge-setting`. Everything nested, and
+   * One route per shape. A flat key is a `merge-setting`. Everything nested, and
    * everything that needs the backend re-arm, is a read-modify-write on `set-setting` — the same thing
    * settings-panel.js does, and the reason is in this file's header.
    */
@@ -739,15 +713,13 @@
       const target = fresh.defaultLaunchTarget || window._defaultBackendId || '';
       const moved = target ? backendModes.targetAfterModeChange(target, group, next) : target;
       if (moved !== target) fresh.defaultLaunchTarget = moved;
+    } else if (setting.type === 'nested') {
+      // One field of an object key (#871: `notifications.*`, `usageTray.enabled`), the rest of the object kept.
+      const obj = fresh[setting.key] && typeof fresh[setting.key] === 'object' ? fresh[setting.key] : {};
+      fresh[setting.key] = Object.assign({}, obj, { [setting.field]: value });
     } else if (setting.type === 'pickerMode') {
       // "Default in the picker" (#761 E6 d): the mode id under the CLI's owner, the value the Backends list saves.
       fresh.pickerModeByBackend = Object.assign({}, fresh.pickerModeByBackend, { [setting.group.owner.id]: value });
-    } else if (setting.type === 'backendOption') {
-      const backend = backendDeclaringOption(setting.option);
-      if (!backend) return null;
-      const defaults = Object.assign({}, fresh.backendDefaults);
-      defaults[backend.id] = Object.assign({}, defaults[backend.id], { [setting.option]: value });
-      fresh.backendDefaults = defaults;
     }
 
     await window.api.setSetting('global', fresh);
@@ -1158,8 +1130,6 @@
       if (pane.capability && !backendDeclaringCapability(pane.capability)) continue;
       const needsIntegration = (pane.controls || []).find((c) => c.setting && c.setting.type === 'integration');
       if (needsIntegration && !backendDeclaringIntegration(needsIntegration.setting.field)) continue;
-      const needsOption = (pane.controls || []).find((c) => c.setting && c.setting.type === 'backendOption');
-      if (needsOption && !backendDeclaringOption(needsOption.setting.option)) continue;
       out.push(pane);
     }
     return out;
