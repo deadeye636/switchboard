@@ -3529,9 +3529,27 @@ html body .terminal-container.conversation-container:not(.visible) {
 .conversation-idle-info { color: #a0a0b8; font-size: 12px; }
 .conversation-idle-link { margin-top: 8px; }
 .conversation-idle-pop { right: auto; left: 12px; }
-.conversation-model-pop { right: auto; left: 12px; }
-.conversation-model-row { grid-template-columns: 10px 1fr; cursor: pointer; }
-.conversation-model-wait { margin: 8px 0; color: #7a7a90; }
+.conversation-model-pop { right: auto; left: 12px; width: min(300px, calc(100% - 24px)); padding: 8px 6px; }
+.conversation-model-wait { margin: 8px; color: #7a7a90; }
+/* The model menu (#872): rows in the CLI picker's shape, a submenu beside it for effort and the older models. */
+.conversation-model-head { margin: 4px 8px 4px; }
+.conversation-model-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 6px 8px; border-radius: 6px; cursor: pointer; color: #d0d0e0;
+}
+.conversation-model-item:hover, .conversation-model-item.sel, .conversation-model-item.open { background: rgba(255,255,255,0.07); }
+.conversation-model-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.conversation-model-badge { font-size: 10px; }
+.conversation-model-meta { display: inline-flex; align-items: center; gap: 8px; color: #7a7a90; font-size: 12px; flex-shrink: 0; }
+.conversation-model-check { color: #7c8cff; font-size: 13px; }
+.conversation-model-chevron { font-size: 14px; line-height: 1; }
+/* The switch only shows the state; the row is the control, so a click on the switch is a click on the row. */
+.conversation-model-item .settings-toggle { pointer-events: none; }
+.conversation-model-pop .popover-separator { margin: 6px 4px; }
+.conversation-bg-pop.conversation-model-sub {
+  right: auto; bottom: auto; width: max-content; min-width: 140px; max-width: 260px; max-height: 70%;
+  padding: 6px; z-index: 6;
+}
 
 /* A background task that ended (#691), drawn as what it is rather than the markup the CLI gave the model. */
 .task-notice {

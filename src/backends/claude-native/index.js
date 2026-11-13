@@ -279,6 +279,11 @@ module.exports = {
     modelsCommand: protocol.modelsCommand,
     modelsFromResponse: protocol.modelsFromResponse,
     setModelCommand: protocol.setModelCommand,
+    // …and the effort and fast mode of the running session (#872): read and set as flag settings, which the CLI holds
+    // for this process only. Which levels a model takes, and whether it takes fast mode, come with its row above.
+    tuningCommand: protocol.tuningCommand,
+    tuningFromResponse: protocol.tuningFromResponse,
+    setTuningCommand: protocol.setTuningCommand,
     // The mode before the first turn names it (#730): the launch option when `buildLaunch` sent it, else the
     // settings' default, asked over the pipe.
     launchMode,

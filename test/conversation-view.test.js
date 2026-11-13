@@ -1885,7 +1885,10 @@ test('the model in the status line opens a picker, switches the model and draws 
   await h.settle(); await h.settle();
   assert.equal(pop().hidden, false);
   assert.match(pop().textContent, /drops the prompt cache/);
-  assert.deepEqual([...pop().querySelectorAll('.conversation-model-row')].map(r => r.textContent), ['Model Afirst', 'Model Bsecond']);
+  assert.deepEqual([...pop().querySelectorAll('.conversation-model-row')].map(r => r.textContent), ['Model A✓', 'Model B2'],
+    'the model in force carries the check, the others their number key (#872)');
+  assert.match(pop().textContent, /Model · this session/);
+  assert.equal(pop().querySelector('.conversation-model-parent'), null, 'no Effort and no More models without them');
   assert.equal(pop().querySelector('.conversation-model-row.sel').dataset.index, '0', 'starts on the model in force');
   const press = (key) => pop().dispatchEvent(new h.w.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   press('ArrowDown');
@@ -1904,6 +1907,86 @@ test('the model in the status line opens a picker, switches the model and draws 
   press('Escape');
   assert.equal(pop().hidden, true);
   assert.equal(asked.length, 1);
+});
+
+// #872: the picker in the CLI's shape — a default badge, number keys, an Effort submenu, a More models submenu and a
+// fast-mode switch, each only where the session answered it.
+test('the model menu offers effort, the older models and fast mode, and sets them through the session', async () => {
+  const levels = [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }, { value: 'xhigh', label: 'Extra high' }];
+  const rows = [
+    { value: 'opus', label: 'Opus', description: '', current: true, isDefault: true, more: false, effortLevels: levels, fastMode: true },
+    { value: 'sonnet', label: 'Sonnet', description: '', current: false, more: false, effortLevels: levels, fastMode: false },
+    { value: 'claude-old-1', label: 'Old One', description: '', current: false, more: true, effortLevels: [], fastMode: false },
+  ];
+  const h = setup({ attachAnswer: () => Promise.resolve({ ok: true, entries: [], seq: 0, busy: false, queue: { steering: [], followUp: [] },
+    asks: [], context: { percent: 5, tokens: 5, window: 200000, model: 'Opus' }, canSwitchModel: true }) });
+  let tuning = { effort: 'high', fast: false };
+  const tuned = [];
+  const switched = [];
+  h.w.api.agent.models = () => Promise.resolve({ ok: true, models: rows, tuning });
+  h.w.api.agent.setTuning = (id, patch) => { tuned.push(patch); tuning = { ...tuning, ...patch }; return Promise.resolve({ ok: true, tuning }); };
+  h.w.api.agent.setModel = (id, value) => { switched.push(value); return Promise.resolve({ ok: true, context: null, mode: null }); };
+  await h.entry.conversation.attach();
+  const pop = () => h.entry.element.querySelector('.conversation-model-pop');
+  const sub = () => h.entry.element.querySelector('.conversation-model-sub');
+  const press = (key) => pop().dispatchEvent(new h.w.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  h.entry.element.querySelector('.conversation-model').click();
+  await h.settle(); await h.settle();
+  assert.ok(pop().querySelector('.conversation-model-badge'), 'the default model carries its badge');
+  const parents = [...pop().querySelectorAll('.conversation-model-parent')].map(r => r.textContent);
+  assert.deepEqual(parents, ['EffortHigh›', 'More models›']);
+  assert.match(pop().textContent, /Enable fast mode/);
+  assert.equal(sub().hidden, true);
+
+  // Effort: → opens the submenu on the level in force, ↓ Enter sets the next one.
+  press('ArrowDown'); press('ArrowDown');
+  press('ArrowRight');
+  assert.equal(sub().hidden, false);
+  assert.equal(sub().querySelector('.sel').textContent, 'High✓');
+  press('ArrowDown');
+  press('Enter');
+  await h.settle(); await h.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(tuned)), [{ effort: 'xhigh' }]);
+  assert.equal(sub().hidden, true, 'the submenu closes, the menu stays');
+  assert.equal(pop().hidden, false);
+  assert.match(pop().querySelector('.conversation-model-parent').textContent, /Extra high/);
+
+  // Fast mode: the row toggles it.
+  [...pop().querySelectorAll('.conversation-model-item')].find(r => /fast mode/.test(r.textContent)).click();
+  await h.settle(); await h.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(tuned.at(-1))), { fast: true });
+  assert.equal(pop().querySelector('.settings-toggle input').checked, true);
+
+  // Escape closes an open submenu first, then the menu stays until the next Escape.
+  pop().querySelectorAll('.conversation-model-parent')[0].click();
+  assert.equal(sub().hidden, false);
+  press('Escape');
+  assert.equal(sub().hidden, true, 'the first Escape closes the submenu');
+  assert.equal(pop().hidden, false, 'and leaves the menu');
+  // A press inside the submenu does not close the menu.
+  pop().querySelectorAll('.conversation-model-parent')[1].click();
+  sub().querySelector('.conversation-model-item').dispatchEvent(new h.w.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  assert.equal(pop().hidden, false);
+  press('ArrowLeft');
+
+  // More models: ← closes a submenu; Enter in it switches the model.
+  pop().querySelectorAll('.conversation-model-parent')[1].click();
+  assert.equal(sub().hidden, false);
+  assert.deepEqual([...sub().querySelectorAll('.conversation-model-item')].map(r => r.textContent), ['Old One']);
+  press('ArrowLeft');
+  assert.equal(sub().hidden, true);
+  pop().querySelectorAll('.conversation-model-parent')[1].click();
+  press('Enter');
+  await h.settle(); await h.settle();
+  assert.deepEqual(switched, ['claude-old-1']);
+  assert.equal(pop().hidden, true);
+
+  // A number key picks a top row.
+  h.entry.element.querySelector('.conversation-model').click();
+  await h.settle(); await h.settle();
+  press('2');
+  await h.settle(); await h.settle();
+  assert.deepEqual(switched, ['claude-old-1', 'sonnet']);
 });
 
 // #836 — a running shell line is visible and stoppable on its own: the entry's head, the strip above the

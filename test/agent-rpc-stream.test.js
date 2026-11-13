@@ -918,6 +918,44 @@ test('a model is listed, switched, and the fill is asked again; a value the runt
   assert.equal((await agentRpc.listModels('launch-id')).models.find((m) => m.value === 'b').current, true);
 });
 
+// #872: effort and fast mode of the running session — read with the list, set only as the model in force offers them,
+// and read back from the runtime after a change. A backend that declares no tuning answers none.
+test('effort and fast mode are listed, checked against the model in force, set and read back', async (t) => {
+  const asked = [];
+  const running = { model: 'a', tuning: { effort: 'high', fast: false } };
+  const rpc = modelRpc(asked, running);
+  const levels = [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }];
+  const baseRows = rpc.modelsFromResponse;
+  rpc.modelsFromResponse = (res, o) => baseRows(res, o).map((m) => ({ ...m, effortLevels: m.value === 'a' ? levels : [], fastMode: m.value === 'b' }));
+  const sent = [];
+  rpc.tuningCommand = (id) => ({ type: 'ctl', request_id: id, what: 'tuning', data: { tuning: { ...running.tuning } } });
+  rpc.tuningFromResponse = (res) => res.data.tuning;
+  rpc.setTuningCommand = (id, patch) => { sent.push(patch); Object.assign(running.tuning, patch); return { type: 'ctl', request_id: id, what: 'tuned' }; };
+  const h = streamHarness(t, { rpc });
+  t.after(() => stopped(h));
+  await until(() => ops(h).some((o) => o.op === 'context'));
+  const listed = await agentRpc.listModels('launch-id');
+  assert.deepEqual(listed.tuning, { effort: 'high', fast: false });
+  assert.equal((await agentRpc.setTuning('launch-id', { effort: 'max' })).ok, false, 'a level the model does not list is refused');
+  assert.deepEqual(sent, []);
+  assert.equal((await agentRpc.setTuning('launch-id', { fast: true })).ok, false, 'fast mode on a model without it is refused');
+  assert.deepEqual(sent, []);
+  const res = await agentRpc.setTuning('launch-id', { effort: 'low', fast: false });
+  assert.equal(res.ok, true, 'switching fast mode off is always allowed');
+  assert.deepEqual(sent, [{ effort: 'low', fast: false }]);
+  assert.deepEqual(res.tuning, { effort: 'low', fast: false }, 'the answer is read back from the runtime');
+  assert.equal((await agentRpc.setTuning('launch-id', {})).ok, false, 'nothing to change sends nothing');
+  assert.equal(sent.length, 1);
+});
+
+test('a backend without tuning lists models with no tuning and refuses a change', async (t) => {
+  const h = streamHarness(t, { rpc: modelRpc([]) });
+  t.after(() => stopped(h));
+  await until(() => ops(h).some((o) => o.op === 'context'));
+  assert.equal((await agentRpc.listModels('launch-id')).tuning, null);
+  assert.equal((await agentRpc.setTuning('launch-id', { effort: 'low' })).ok, false);
+});
+
 test('a model switched another way is the one marked, not the one picked earlier', async (t) => {
   const asked = [];
   const running = {};

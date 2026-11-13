@@ -1413,3 +1413,34 @@ test('the model picker: the list is the CLI\'s own, the switch is set_model, the
   assert.deepEqual(protocol.modelsFromResponse({ success: false, error: 'x' }), []);
   assert.deepEqual(protocol.modelsFromResponse(null), []);
 });
+
+// #872, measured on 2.1.323: aliases are the top rows and ids "More models"; `default` folds into the alias it
+// resolves to; each row carries its effort levels and whether it takes fast mode.
+test('the model rows: default folded into its alias, ids under more, effort levels and fast mode passed on', () => {
+  const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
+  const response = { success: true, data: { models: [
+    { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default (recommended)', supportsEffort: true, supportedEffortLevels: levels, supportsFastMode: true },
+    { value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5', supportsEffort: true, supportedEffortLevels: levels, supportsFastMode: true },
+    { value: 'haiku', resolvedModel: 'claude-haiku-5-5', displayName: 'Haiku 5.5', supportsEffort: true, supportedEffortLevels: ['low', 'odd'] },
+    { value: 'claude-haiku-4-5-20251001', resolvedModel: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5' },
+  ] } };
+  const rows = protocol.modelsFromResponse(response, { context: { modelId: 'claude-opus-5-5' } });
+  assert.deepEqual(rows.map(r => [r.value, r.more, r.isDefault, r.current, r.fastMode]), [
+    ['opus', false, true, true, true], ['haiku', false, false, false, false], ['claude-haiku-4-5-20251001', true, false, false, false]]);
+  assert.deepEqual(rows[0].effortLevels.map(l => l.label), ['Low', 'Medium', 'High', 'Extra high', 'Max']);
+  assert.deepEqual(rows[1].effortLevels, [{ value: 'low', label: 'Low' }, { value: 'odd', label: 'Odd' }], 'an unknown level keeps its own word');
+  assert.deepEqual(rows[2].effortLevels, [], 'no effort without supportsEffort');
+  const chose = protocol.modelsFromResponse(response, { chosen: 'default' });
+  assert.equal(chose.find(r => r.current).value, 'opus', 'a session that chose default shows its alias as current');
+});
+
+test('effort and fast mode: read through get_settings, set as flag settings', () => {
+  assert.deepEqual(protocol.tuningCommand('t1'), { type: 'control_request', request_id: 't1', request: { subtype: 'get_settings' } });
+  assert.deepEqual(protocol.setTuningCommand('t2', { effort: 'low' }),
+    { type: 'control_request', request_id: 't2', request: { subtype: 'apply_flag_settings', settings: { effortLevel: 'low' } } });
+  assert.deepEqual(protocol.setTuningCommand('t3', { fast: false }).request.settings, { fastMode: false });
+  assert.deepEqual(protocol.tuningFromResponse({ success: true, data: { effective: { effortLevel: 'high', fastMode: true } } }), { effort: 'high', fast: true });
+  assert.deepEqual(protocol.tuningFromResponse({ success: true, data: { effective: {} } }), { effort: null, fast: false });
+  assert.equal(protocol.tuningFromResponse({ success: false }), null);
+  assert.equal(protocol.tuningFromResponse(null), null);
+});

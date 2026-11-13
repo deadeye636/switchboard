@@ -2129,7 +2129,58 @@ async function listModels(sessionId, { reuse = false } = {}) {
   try { models = state.rpc.modelsFromResponse(res, { context: state.context, chosen: state.modelValue }); } catch { models = []; }
   if (!models.length) return { ok: false, error: 'The session lists no models.' };
   state.modelListing = { at: Date.now(), models };
-  return { ok: true, models };
+  const tuning = canTune(state) ? await readTuning(state) : null;
+  return { ok: true, models, tuning };
+}
+
+// --- effort and fast mode (#872) ---
+
+// Whether the running session's effort and fast mode can be read and set: the half declares the read, its answer and
+// the write, all three or none. A backend that declares none offers neither row, and the picker shows models only.
+function canTune(state) {
+  const rpc = state.rpc;
+  return typeof rpc.tuningCommand === 'function' && typeof rpc.tuningFromResponse === 'function'
+    && typeof rpc.setTuningCommand === 'function';
+}
+// `{ effort, fast }` as the runtime reports them now, or null when it does not answer.
+async function readTuning(state) {
+  const res = await state.request(state.rpc.tuningCommand);
+  if (!res || res.success === false) return null;
+  try { return state.rpc.tuningFromResponse(res) || null; } catch { return null; }
+}
+// Set the effort and/or fast mode of the running session. Only what the model in force offers is sent: an effort level
+// its row lists, fast mode where its row says it takes it (switching fast mode OFF is always allowed). The answer is
+// read back from the runtime, so the view draws what the session holds, not what was asked. Refused while an idle
+// maintenance turn runs, as a model switch is.
+async function setTuning(sessionId, patch) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (!canTune(state)) return { ok: false, error: 'This session cannot change its effort or fast mode.' };
+  if (state.maintenance) return { ok: false, error: 'The session is busy with its own housekeeping; try again in a moment.' };
+  const p = patch && typeof patch === 'object' ? patch : {};
+  const send = {};
+  const listed = await listModels(sessionId, { reuse: true });
+  if (!listed.ok) return listed;
+  const model = listed.models.find((m) => m.current) || null;
+  if (p.effort != null) {
+    const level = String(p.effort);
+    const levels = model && Array.isArray(model.effortLevels) ? model.effortLevels : [];
+    if (!levels.some((l) => l.value === level)) return { ok: false, error: 'The model in use does not offer that effort.' };
+    send.effort = level;
+  }
+  if (typeof p.fast === 'boolean') {
+    if (p.fast && !(model && model.fastMode)) return { ok: false, error: 'The model in use has no fast mode.' };
+    send.fast = p.fast;
+  }
+  if (!Object.keys(send).length) return { ok: false, error: 'Nothing to change.' };
+  const res = await state.request((rid) => state.rpc.setTuningCommand(rid, send));
+  if (!res || res.success === false) {
+    ctx.log.info(`[agent-rpc] tuning refused: ${(res && res.error) || 'no answer'}`);
+    const error = res && typeof res.error === 'string' && res.error && !NO_ANSWER.has(res.error) ? res.error : 'The setting did not change.';
+    return { ok: false, error };
+  }
+  const tuning = await readTuning(state);
+  return { ok: true, tuning };
 }
 
 // A reason the core itself words for a request that got no real answer is not a sentence for the user.
@@ -2322,6 +2373,7 @@ function registerIpc(ipc) {
   ipc.handle('agent-cycle-mode', (_event, sessionId) => cycleMode(sessionId));
   ipc.handle('agent-models', (_event, sessionId) => listModels(sessionId));
   ipc.handle('agent-set-model', (_event, sessionId, value) => setModel(sessionId, value));
+  ipc.handle('agent-set-tuning', (_event, sessionId, patch) => setTuning(sessionId, patch));
   ipc.handle('agent-task-output', (_event, sessionId, taskId) => taskOutput(sessionId, taskId));
   ipc.handle('agent-attach', (_event, sessionId) => attach(sessionId));
   ipc.handle('agent-send', (_event, sessionId, payload) => sendTurn(sessionId, payload));
@@ -2355,7 +2407,7 @@ module.exports = {
   },
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, noteDraft, abortTurn, stopShellLine, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
-  stopTask, taskOutput, cycleMode, listModels, setModel, liveWindowOf, heldAction, listServers, serverAction,
+  stopTask, taskOutput, cycleMode, listModels, setModel, setTuning, liveWindowOf, heldAction, listServers, serverAction,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
   // What of a maintenance turn is folded, live and read back (spec 45), pure.
   maintenanceEntry, stampWithRecords,

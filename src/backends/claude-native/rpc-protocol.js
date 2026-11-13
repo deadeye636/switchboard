@@ -1088,25 +1088,75 @@ const setModeCommand = (id, mode) => control(id, { subtype: 'set_permission_mode
 // A switch costs the prompt cache: each model has its own, so the next request is read uncached.
 const modelsCommand = (id) => control(id, { subtype: 'initialize' });
 const setModelCommand = (id, model) => control(id, { subtype: 'set_model', model: String(model) });
-// The picker's rows, `{ value, label, description, current }`. `current` is the model the session runs on: the
-// value just chosen in this session if there is one, else every entry that resolves to the model of the last
-// `get_context_usage` (`default` and `opus` both resolve to the same id, and both are the truth).
+// The words of Claude's effort levels (#872), as its own picker writes them. A level this table does not know is
+// shown as the CLI spelled it, capitalised.
+const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+const effortLabel = (level) => EFFORT_LABELS[level] || (String(level).charAt(0).toUpperCase() + String(level).slice(1));
+
+// The picker's rows, `{ value, label, description, current, more, isDefault, effortLevels, fastMode }`. `current` is
+// the model the session runs on: the value just chosen in this session if there is one, else every entry that resolves
+// to the model of the last `get_context_usage`.
+// #872, measured on 2.1.323: the list opens with the aliases (`default`, `opus`, `fable`, `sonnet`, `haiku`) and goes
+// on with explicit ids (`claude-opus-4-8`, …); an alias carries no digit, an id does. The aliases are the picker's top
+// rows and the ids its "More models" (`more: true`). `default` ("Default (recommended)") resolves to the same model as
+// one of the aliases: that alias carries `isDefault` and the `default` row is left out, as Claude's own picker does —
+// a session that chose `default` shows that alias as current. Each entry says whether it takes an effort
+// (`supportsEffort`, `supportedEffortLevels`) and fast mode (`supportsFastMode`); both are passed on as
+// `effortLevels: [{ value, label }]` and `fastMode`.
 function modelsFromResponse(response, { context, chosen } = {}) {
   const list = response && response.success !== false && response.data && response.data.models;
   if (!Array.isArray(list)) return [];
   const running = String((context && context.modelId) || '').replace(/\[[^\]]*\]$/, '');
+  const entries = list.filter((m) => m && typeof m.value === 'string' && m.value);
+  const resolvedOf = (m) => (typeof m.resolvedModel === 'string' ? m.resolvedModel : '');
+  const isAlias = (m) => !/\d/.test(m.value);
+  const fallback = entries.find((m) => m.value === 'default');
+  const defaultTwin = fallback && resolvedOf(fallback)
+    ? entries.find((m) => m !== fallback && isAlias(m) && resolvedOf(m) === resolvedOf(fallback))
+    : null;
+  const pick = chosen === 'default' && defaultTwin ? defaultTwin.value : chosen;
   const out = [];
-  for (const m of list) {
-    if (!m || typeof m.value !== 'string' || !m.value) continue;
-    const resolved = typeof m.resolvedModel === 'string' ? m.resolvedModel : '';
+  for (const m of entries) {
+    if (m === fallback && defaultTwin) continue;
+    const resolved = resolvedOf(m);
+    const levels = m.supportsEffort === true && Array.isArray(m.supportedEffortLevels)
+      ? m.supportedEffortLevels.filter((l) => typeof l === 'string' && l).map((l) => ({ value: l, label: effortLabel(l) }))
+      : [];
     out.push({
       value: m.value,
       label: typeof m.displayName === 'string' && m.displayName ? m.displayName : m.value,
       description: oneLineDescription(m.description),
-      current: chosen != null ? m.value === chosen : !!running && resolved === running,
+      current: pick != null ? m.value === pick : !!running && resolved === running,
+      more: !isAlias(m),
+      isDefault: m === defaultTwin,
+      effortLevels: levels,
+      fastMode: m.supportsFastMode === true,
     });
   }
   return out;
+}
+
+// Effort and fast mode of the running session (#872), measured on 2.1.323 without a model turn:
+//   - `{ subtype: 'get_settings' }` answers `effective.effortLevel` (`low` … `max`, absent when nothing set one) and
+//     `effective.fastMode` (`true`, absent otherwise).
+//   - `{ subtype: 'apply_flag_settings', settings: { effortLevel } }` and `{ settings: { fastMode } }` answer success
+//     and change the running session at once: the next `get_settings` reads the new value. They are flag settings,
+//     held by the process like a `--settings` flag: `settings.json` is not written (checked by its contents and mtime).
+const tuningCommand = (id) => control(id, { subtype: 'get_settings' });
+function tuningFromResponse(response) {
+  const d = response && response.success !== false && response.data && typeof response.data === 'object' ? response.data : null;
+  if (!d || !d.effective || typeof d.effective !== 'object') return null;
+  const e = d.effective;
+  return {
+    effort: typeof e.effortLevel === 'string' && e.effortLevel ? e.effortLevel : null,
+    fast: e.fastMode === true,
+  };
+}
+function setTuningCommand(id, { effort, fast } = {}) {
+  const settings = {};
+  if (typeof effort === 'string' && effort) settings.effortLevel = effort;
+  if (typeof fast === 'boolean') settings.fastMode = fast;
+  return control(id, { subtype: 'apply_flag_settings', settings });
 }
 
 // The mode a session starts in, before its first `system/init` names it (#730), measured on 2.1.286: no request
@@ -1631,6 +1681,9 @@ module.exports = {
   modelsCommand,
   setModelCommand,
   modelsFromResponse,
+  tuningCommand,
+  tuningFromResponse,
+  setTuningCommand,
   MODE_CYCLE,
   configuredModeCommand,
   configuredModeFromResponse,

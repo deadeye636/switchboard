@@ -410,6 +410,7 @@ contextBridge.exposeInMainWorld('api', {
     models: (id) => ipcRenderer.invoke('agent-models', id),
     setModel: (id, value) => ipcRenderer.invoke('agent-set-model', id, value),
     // The session's MCP servers (#728): the list again, and one action on one server, named in the backend's words.
+    setTuning: (id, patch) => ipcRenderer.invoke('agent-set-tuning', id, patch),
     servers: (id) => ipcRenderer.invoke('agent-servers', id),
     serverAction: (id, name, action, extra) => ipcRenderer.invoke('agent-server-action', id, name, action, extra),
   },

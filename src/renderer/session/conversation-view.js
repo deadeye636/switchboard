@@ -1628,61 +1628,259 @@ function createConversationView(getSession, container) {
   modelPop.setAttribute('aria-label', 'Model');
   container.appendChild(modelPop);
 
+  // #872: the picker is a menu in the shape of the CLI's own. The top rows are the models the runtime does not mark
+  // `more` (the default one with a badge, the one in force with a check, the others with their number key); then an
+  // "Effort" row and a "More models" row that each open a submenu beside the menu; then a fast-mode switch. Effort and
+  // fast mode are shown only where the session answered them (`tuning`) and the model in force offers them, so a
+  // backend that cannot change them shows the models alone.
+  const modelSub = document.createElement('div');
+  modelSub.className = 'conversation-bg-pop conversation-model-sub';
+  modelSub.hidden = true;
+  modelSub.setAttribute('role', 'menu');
+  container.appendChild(modelSub);
+
   let modelSwitching = false;
+  const currentModel = () => (view.models || []).find(m => m.current) || null;
+  // The rows of the menu itself, in order: `{ kind: 'model', m, key }`, `{ kind: 'effort' }`, `{ kind: 'more' }`,
+  // `{ kind: 'fast' }`. `key` is the number that picks the row (1-9).
+  function modelMenuItems() {
+    const rows = view.models || [];
+    const items = rows.filter(m => !m.more).map((m, i) => ({ kind: 'model', m, key: i < 9 ? i + 1 : null }));
+    const cur = currentModel();
+    if (view.tuning && cur && Array.isArray(cur.effortLevels) && cur.effortLevels.length) items.push({ kind: 'effort' });
+    if (rows.some(m => m.more)) items.push({ kind: 'more' });
+    // Fast mode is offered where the model takes it, and stays while it is on, so it can always be switched off.
+    if (view.tuning && ((cur && cur.fastMode) || view.tuning.fast)) items.push({ kind: 'fast' });
+    return items;
+  }
+  function modelSubItems() {
+    if (view.modelSub === 'more') return (view.models || []).filter(m => m.more).map(m => ({ kind: 'model', m }));
+    if (view.modelSub === 'effort') {
+      const cur = currentModel();
+      const effort = view.tuning && view.tuning.effort;
+      return ((cur && cur.effortLevels) || []).map(l => ({ kind: 'level', level: l, on: l.value === effort }));
+    }
+    return [];
+  }
+  const effortLabelOf = () => {
+    const cur = currentModel();
+    const effort = view.tuning && view.tuning.effort;
+    const hit = ((cur && cur.effortLevels) || []).find(l => l.value === effort);
+    // A level this model does not list (set on another model) is named as the session holds it, not hidden.
+    return hit ? hit.label : (effort || 'Default');
+  };
+  function menuRow(item, index, selected, inSub) {
+    const row = document.createElement('div');
+    row.className = 'conversation-model-item';
+    row.classList.toggle('sel', selected);
+    row.dataset.index = String(index);
+    row.setAttribute('role', item.kind === 'fast' ? 'menuitemcheckbox' : (item.kind === 'effort' || item.kind === 'more' ? 'menuitem' : 'menuitemradio'));
+    const name = document.createElement('span');
+    name.className = 'conversation-model-name';
+    const meta = document.createElement('span');
+    meta.className = 'conversation-model-meta';
+    if (item.kind === 'model') {
+      row.classList.add('conversation-model-row');
+      name.textContent = item.m.label;
+      if (item.m.description) row.title = item.m.description;
+      if (item.m.isDefault) {
+        const badge = document.createElement('span');
+        badge.className = 'backend-pill conversation-model-badge';
+        badge.textContent = 'Default';
+        name.appendChild(badge);
+      }
+      row.setAttribute('aria-checked', item.m.current ? 'true' : 'false');
+      if (item.m.current) { meta.textContent = '✓'; meta.classList.add('conversation-model-check'); }
+      else if (!inSub && item.key) meta.textContent = String(item.key);
+    } else if (item.kind === 'level') {
+      name.textContent = item.level.label;
+      row.setAttribute('aria-checked', item.on ? 'true' : 'false');
+      if (item.on) { meta.textContent = '✓'; meta.classList.add('conversation-model-check'); }
+    } else if (item.kind === 'effort' || item.kind === 'more') {
+      name.textContent = item.kind === 'effort' ? 'Effort' : 'More models';
+      row.setAttribute('aria-haspopup', 'menu');
+      row.setAttribute('aria-expanded', view.modelSub === item.kind ? 'true' : 'false');
+      row.classList.add('conversation-model-parent');
+      row.classList.toggle('open', view.modelSub === item.kind);
+      if (item.kind === 'effort') {
+        const v = document.createElement('span');
+        v.className = 'conversation-model-value';
+        v.textContent = effortLabelOf();
+        meta.appendChild(v);
+      }
+      const chev = document.createElement('span');
+      chev.className = 'conversation-model-chevron';
+      chev.textContent = '›';
+      meta.appendChild(chev);
+    } else if (item.kind === 'fast') {
+      const on = !!(view.tuning && view.tuning.fast);
+      name.textContent = 'Enable fast mode';
+      row.setAttribute('aria-checked', on ? 'true' : 'false');
+      const sw = document.createElement('label');
+      sw.className = 'settings-toggle';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.tabIndex = -1;
+      input.checked = on;
+      input.setAttribute('aria-label', 'Fast mode');
+      const slider = document.createElement('span');
+      slider.className = 'settings-toggle-slider';
+      sw.append(input, slider);
+      meta.appendChild(sw);
+    }
+    row.append(name, meta);
+    return row;
+  }
   function renderModelPop() {
     modelPop.replaceChildren();
     const head = document.createElement('div');
-    head.className = 'conversation-bg-head';
-    head.textContent = 'Model';
+    head.className = 'conversation-bg-section conversation-model-head';
+    head.textContent = 'Model · this session';
     modelPop.appendChild(head);
-    const rows = view.models;
-    if (!rows) {
+    if (!view.models) {
       const wait = document.createElement('div');
       wait.className = 'conversation-model-wait';
       wait.textContent = 'Asking the session…';
       modelPop.appendChild(wait);
     } else {
-      const list = document.createElement('div');
-      list.setAttribute('role', 'listbox');
-      list.setAttribute('aria-label', 'Models this session offers');
-      rows.forEach((m, i) => {
-        const row = document.createElement('div');
-        row.className = 'conversation-bg-row conversation-model-row';
-        row.classList.toggle('sel', i === view.modelSel);
-        row.dataset.index = String(i);
-        row.setAttribute('role', 'option');
-        row.setAttribute('aria-selected', i === view.modelSel ? 'true' : 'false');
-        const dot = document.createElement('span');
-        dot.className = 'conversation-bg-dot';
-        dot.style.visibility = m.current ? 'visible' : 'hidden';
-        const text = document.createElement('div');
-        text.className = 'conversation-bg-text';
-        const name = document.createElement('div');
-        name.textContent = m.label;
-        const sub = document.createElement('div');
-        sub.className = 'conversation-bg-detail';
-        sub.textContent = m.description || '';
-        text.appendChild(name);
-        text.appendChild(sub);
-        row.appendChild(dot);
-        row.appendChild(text);
-        row.addEventListener('click', () => { view.modelSel = i; pickModel(m); });
-        list.appendChild(row);
+      const menu = document.createElement('div');
+      menu.setAttribute('role', 'menu');
+      menu.setAttribute('aria-label', 'Models this session offers');
+      let last = null;
+      modelMenuItems().forEach((item, i) => {
+        // A rule before the Effort / More models block, and the fast-mode section with a heading of its own.
+        if (last === 'model' && item.kind !== 'model') {
+          const sep = document.createElement('div');
+          sep.className = 'popover-separator';
+          menu.appendChild(sep);
+        }
+        if (item.kind === 'fast') {
+          const sep = document.createElement('div');
+          sep.className = 'popover-separator';
+          const h = document.createElement('div');
+          h.className = 'conversation-bg-section conversation-model-head';
+          h.textContent = 'Fast mode';
+          menu.append(sep, h);
+        }
+        last = item.kind;
+        const row = menuRow(item, i, i === view.modelSel && view.modelSub == null, false);
+        // Hover opens a submenu or closes one, and otherwise only moves the mark, never rebuilding the row under the
+        // pointer (a click split across two elements is lost).
+        row.addEventListener('mouseenter', () => {
+          view.modelSel = i;
+          if (item.kind === 'effort' || item.kind === 'more') { openModelSub(item.kind, false); return; }
+          if (view.modelSub) closeModelSub();
+          markModelRows();
+        });
+        row.addEventListener('click', () => { view.modelSel = i; activateMenuItem(item); });
+        menu.appendChild(row);
       });
-      modelPop.appendChild(list);
+      modelPop.appendChild(menu);
     }
     const foot = document.createElement('div');
     foot.className = 'conversation-bg-foot';
-    foot.textContent = 'Switching models drops the prompt cache: the next reply reads the whole conversation uncached. ↑/↓ select · Enter switch · Esc close';
+    foot.textContent = 'Switching models drops the prompt cache: the next reply reads the whole conversation uncached. ↑/↓ select · 1-9 pick · → open · Enter choose · Esc close';
     modelPop.appendChild(foot);
-    const sel = modelPop.querySelector('.conversation-model-row.sel');
+    const sel = modelPop.querySelector('.conversation-model-item.sel');
     if (sel && typeof sel.scrollIntoView === 'function') sel.scrollIntoView({ block: 'nearest' });
+    renderModelSub();
+  }
+  function renderModelSub() {
+    modelSub.replaceChildren();
+    if (!view.modelOpen || !view.modelSub) { modelSub.hidden = true; return; }
+    modelSub.setAttribute('aria-label', view.modelSub === 'effort' ? 'Effort' : 'More models');
+    modelSubItems().forEach((item, i) => {
+      const row = menuRow(item, i, i === view.subSel, true);
+      // Hover only moves the mark: rebuilding the rows under the pointer would split a click across two elements.
+      row.addEventListener('mouseenter', () => {
+        view.subSel = i;
+        modelSub.querySelectorAll('.conversation-model-item').forEach((r, n) => r.classList.toggle('sel', n === i));
+      });
+      row.addEventListener('click', () => { view.subSel = i; activateSubItem(item); });
+      modelSub.appendChild(row);
+    });
+    modelSub.hidden = false;
+    placeModelSub();
+  }
+  // Beside the menu, level with the row that opened it: to the right where it fits, else to the left; kept inside the
+  // container vertically.
+  function placeModelSub() {
+    const parent = modelPop.querySelector('.conversation-model-parent.open');
+    if (!parent || typeof container.getBoundingClientRect !== 'function') return;
+    const box = container.getBoundingClientRect();
+    const pop = modelPop.getBoundingClientRect();
+    const row = parent.getBoundingClientRect();
+    const w = modelSub.offsetWidth;
+    const h = modelSub.offsetHeight;
+    let left = pop.right - box.left + 4;
+    if (box.left + left + w > box.right - 4) left = Math.max(4, pop.left - box.left - w - 4);
+    let top = row.top - box.top - 6;
+    if (top + h > box.height - 4) top = Math.max(4, box.height - h - 4);
+    modelSub.style.left = left + 'px';
+    modelSub.style.top = top + 'px';
+  }
+  // The menu's rows follow the state without being rebuilt: the mark, and which parent row is open.
+  function markModelRows() {
+    const items = modelMenuItems();
+    modelPop.querySelectorAll('.conversation-model-item').forEach((r) => {
+      const it = items[Number(r.dataset.index)];
+      const isParent = !!it && (it.kind === 'effort' || it.kind === 'more');
+      r.classList.toggle('sel', Number(r.dataset.index) === view.modelSel && view.modelSub == null);
+      if (isParent) {
+        r.classList.toggle('open', view.modelSub === it.kind);
+        r.setAttribute('aria-expanded', view.modelSub === it.kind ? 'true' : 'false');
+      }
+    });
+  }
+  // `focusFirst` (a key or a click) marks a row in the submenu; a hover opens it and marks the one in force only.
+  function openModelSub(kind, focusFirst) {
+    if (view.modelSub === kind && !focusFirst) return;
+    view.modelSub = kind;
+    const items = modelSubItems();
+    const at = items.findIndex(it => (it.kind === 'level' ? it.on : it.m && it.m.current));
+    view.subSel = focusFirst ? (at >= 0 ? at : 0) : (at >= 0 ? at : -1);
+    markModelRows();
+    renderModelSub();
+  }
+  function closeModelSub() {
+    if (!view.modelSub) return;
+    view.modelSub = null;
+    view.subSel = -1;
+    markModelRows();
+    renderModelSub();
+  }
+  function activateMenuItem(item) {
+    if (!item) return;
+    if (item.kind === 'model') pickModel(item.m);
+    else if (item.kind === 'effort' || item.kind === 'more') openModelSub(item.kind, true);
+    else if (item.kind === 'fast') setTuning({ fast: !(view.tuning && view.tuning.fast) });
+  }
+  function activateSubItem(item) {
+    if (!item) return;
+    if (item.kind === 'model') pickModel(item.m);
+    else if (item.kind === 'level') setTuning({ effort: item.level.value });
+  }
+  // Effort and fast mode stay in the menu after a change, as in the CLI's picker; the answer is the session's own.
+  async function setTuning(patch) {
+    if (modelSwitching) return;
+    modelSwitching = true;
+    let res;
+    try { res = await window.api.agent.setTuning(view.session.sessionId, patch); } catch { res = null; } finally { modelSwitching = false; }
+    if (!view.modelOpen) return;
+    if (!res || !res.ok) { notice('warning', (res && res.error) || 'The setting did not change.'); return; }
+    if (res.tuning) view.tuning = res.tuning;
+    if (patch.effort != null) { view.modelSub = null; view.subSel = -1; }
+    renderModelPop();
+    modelPop.focus();
   }
   async function openModelPop() {
     if (!view.canSwitchModel || view.exited || view.modelOpen) return;
     view.modelOpen = true;
     view.models = null;
+    view.tuning = null;
     view.modelSel = 0;
+    view.modelSub = null;
+    view.subSel = -1;
     modelPop.hidden = false;
     renderModelPop();
     modelPop.focus();
@@ -1692,8 +1890,9 @@ function createConversationView(getSession, container) {
     if (!view.modelOpen) return;
     if (!res || !res.ok) { closeModelPop(); notice('warning', (res && res.error) || 'The session did not list its models.'); return; }
     view.models = res.models;
-    // Start on the model in force, so Enter alone changes nothing surprising.
-    const at = res.models.findIndex(m => m.current);
+    view.tuning = res.tuning || null;
+    // Start on the model in force when it is a top row, so Enter alone changes nothing surprising.
+    const at = modelMenuItems().findIndex(it => it.kind === 'model' && it.m.current);
     view.modelSel = at >= 0 ? at : 0;
     renderModelPop();
   }
@@ -1701,7 +1900,10 @@ function createConversationView(getSession, container) {
     if (!view.modelOpen) return;
     view.modelOpen = false;
     view.models = null;
+    view.tuning = null;
+    view.modelSub = null;
     modelPop.hidden = true;
+    modelSub.hidden = true;
     renderStatus();
     if (refocus) {
       const btn = statusText.querySelector('.conversation-model');
@@ -1725,16 +1927,39 @@ function createConversationView(getSession, container) {
     if (typeof sessionSidebarContextChanged === 'function') sessionSidebarContextChanged(view.session.sessionId);
   }
   modelPop.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModelPop(); return; }
-    const rows = view.models;
-    if (!rows || !rows.length) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); view.modelSel = Math.min(rows.length - 1, view.modelSel + 1); renderModelPop(); }
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      if (view.modelSub) closeModelSub(); else closeModelPop();
+      return;
+    }
+    if (!view.models) return;
+    if (view.modelSub) {
+      const subs = modelSubItems();
+      if (e.key === 'ArrowDown') { e.preventDefault(); view.subSel = Math.min(subs.length - 1, view.subSel + 1); renderModelSub(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); view.subSel = Math.max(0, view.subSel - 1); renderModelSub(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); closeModelSub(); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); activateSubItem(subs[view.subSel]); }
+      return;
+    }
+    const items = modelMenuItems();
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); view.modelSel = Math.min(items.length - 1, view.modelSel + 1); renderModelPop(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); view.modelSel = Math.max(0, view.modelSel - 1); renderModelPop(); }
-    else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); pickModel(rows[view.modelSel]); }
+    else if (e.key === 'ArrowRight') {
+      const it = items[view.modelSel];
+      if (it && (it.kind === 'effort' || it.kind === 'more')) { e.preventDefault(); openModelSub(it.kind, true); }
+    } else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); activateMenuItem(items[view.modelSel]); }
+    else if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const it = items.find(x => x.kind === 'model' && x.key === Number(e.key));
+      if (it) { e.preventDefault(); e.stopPropagation(); pickModel(it.m); }
+    }
   });
+  // The submenu takes no focus of its own: the menu keeps the caret and drives it with the keys above.
+  modelSub.addEventListener('mousedown', (e) => e.preventDefault());
   // A click anywhere else closes it, as a menu does.
   container.addEventListener('mousedown', (e) => {
-    if (!view.modelOpen || modelPop.contains(e.target) || (e.target.closest && e.target.closest('.conversation-model'))) return;
+    if (!view.modelOpen || modelPop.contains(e.target) || modelSub.contains(e.target)
+      || (e.target.closest && e.target.closest('.conversation-model'))) return;
     closeModelPop(false);
   });
 

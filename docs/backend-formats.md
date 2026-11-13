@@ -1211,6 +1211,15 @@ directory) and Pi 1.5.2 (no model call made).
   (Pi's settings file was untouched), and an unknown one answers `success: false, error: 'Model not found: <provider>/<id>'`.
   `get_session_stats` then names the new `contextUsage.contextWindow`, `get_state` the new model.
 - The app's row value for Pi is `<provider>/<id>` (Pi's `--model` spelling); only the first `/` splits.
+- **Claude: effort and fast mode of a running session (#872)**, measured on Claude Code 2.1.323 over the pipe with no
+  model call. `{ subtype: 'get_settings' }` answers `effective.effortLevel` (`low` … `max`; absent when nothing set
+  one) and `effective.fastMode` (`true`, absent otherwise). `{ subtype: 'apply_flag_settings', settings: { effortLevel } }`
+  and `{ settings: { fastMode } }` answer success, and the next `get_settings` reads the new value. They are flag
+  settings, held by the running process: `~/.claude/settings.json` kept its own `effortLevel` and its mtime. The levels
+  a model takes come with its row of the `initialize` list (`supportsEffort`, `supportedEffortLevels`; Opus 4.6 and
+  Sonnet 4.6 list no `xhigh`, Haiku 4.5 takes no effort at all), and so does fast mode (`supportsFastMode`, true for
+  `default`, `opus`, `fable`, `claude-opus-5`, `claude-opus-4-8` on that account). The list also held `default` as
+  "Default (recommended)" beside the alias it resolves to; the picker folds the two into one row with a badge.
 
 ---
 
