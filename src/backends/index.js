@@ -4,7 +4,7 @@
 // just the default backend. Each backend is a DESCRIPTOR (static capability data: id/label/tier/
 // axis/status/monogram/colour/configFields) plus a set of HOOKS (functions the app calls):
 //
-//   buildLaunch({ cwd, resume, sessionId, resumeRef, forkFrom, options, profile }) -> { command, args, env, cwd?, spawnMode }
+//   buildLaunch({ cwd, resume, sessionId, resumeRef, forkFrom, options, profile, terminalTag }) -> { command, args, env, cwd?, spawnMode }
 //   discoverSessions()   -> [handle]        handle = {kind:'file', path, ...} | {kind:'db', ref}
 //   parseSession(handle) -> normalised session row (the shape session-cache expects, incl. cwd)
 //   watchTargets()       -> [target]        STORE-level: {kind:'dir', path} | {kind:'db', path}

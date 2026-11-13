@@ -612,11 +612,14 @@ The only backend whose history is **not** in files — the reason the discovery 
      what a `-r` on a compressed parent needs. The compression step is Hermes' `_CHAIN_STEP_SQL`: a child with no
      `_branched_from`, `_delegate_from` or `_reset_from` marker and not source `tool`; one that itself ended by
      compression first, then an open one, then the freshest. The branch step is `_BRANCH_CHILD_SQL` (marker, or
-     started at or after the parent ended as `branched`). **Known gap, `/new`** (CLI): it ends the row as
-     `new_session` and opens a parentless one, and the gateway store writes that row with `record_cwd=False`
-     (`cli_init_mixin.py`, `gateway_session_store.py`, `_row_cwd` -> NULL), so it names neither the old row nor a
-     directory. Pairing by time would risk taking a session the user started in another terminal, so a tab stays
-     on the ended row after `/new` (follow-up issue; source-read, not measured live). The old row stays listed
+     started at or after the parent ended as `branched`). **`/new`** (CLI, #869), measured on 0.23.1 with a gateway
+     (2026-11-13, no model turn): Hermes asks for a confirmation first (Approve once / Always / Cancel); the empty old
+     row is then deleted (`_discard_session_if_empty`; one with messages ends as `new_session`), and the new row has
+     no parent and `cwd` NULL (`record_cwd=False`), so it names neither the old row nor a directory. Hermes rewrites
+     `<home>/terminal-sessions/<terminal id>` (`{ session_id, cwd, ts }`, JSON) with the new id; with no tty the
+     terminal id is the first set of `ZELLIJ_PANE_ID`, `TMUX_PANE`, `KITTY_WINDOW_ID`, `WEZTERM_PANE`,
+     `TERM_SESSION_ID`, `WT_SESSION`, written as `<lower-case name>-<sanitized value>`. Switchboard sets
+     `TERM_SESSION_ID` per tab and follows through that file (spec 09). The old row, when kept, stays listed
      with its lineage. Live pairing offers a new tab only
      open rows without a parent, so a child is never handed to a different tab; the one exception is a `/branch`
      made before the tab's first pairing, where the child is offered when its `branched` parent was born inside

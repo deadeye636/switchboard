@@ -127,7 +127,8 @@ test('spawn.js hands the merged options, not the raw ones, to buildLaunch and re
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8');
   assert.match(src, /resolveResumeOptions\(\{/);
   assert.match(src, /!isNew && !resumeUnknown && !sessionOptions\?\.forkFrom/, 'a fork is not a resume');
-  assert.match(src, /options: launchOptions,\s*\}\);/, 'buildLaunch gets the merged options');
+  // #869 added the terminal's tag (with its comment) after the options; the merged options are still what goes in.
+  assert.match(src, /options: launchOptions,\s*(?:\/\/[^\n]*\n\s*)*terminalTag,\s*\}\);/, 'buildLaunch gets the merged options');
   assert.match(src, /appliedOptions: spawnOptionsFor\(backend, projectPath, launchOptions\)/);
   assert.doesNotMatch(src, /options: sessionOptions \|\| \{\}/, 'no raw options left in a launch call');
 });

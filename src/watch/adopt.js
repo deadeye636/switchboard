@@ -255,7 +255,9 @@ function followLiveMove(sessionId, session, backend, ref) {
   const liveId = session.realSessionId || sessionId;
   let next = null;
   try {
-    next = backend.followLiveSession(ref, { sinceMs: (session._openedAt || 0) - CLAIM_GRACE_MS });
+    // `terminalTag` is the terminal's identity, which outlives every re-key (#869): a backend whose CLI keeps a
+    // per-terminal record (Hermes' breadcrumb) follows a move the store alone cannot tie to this tab.
+    next = backend.followLiveSession(ref, { sinceMs: (session._openedAt || 0) - CLAIM_GRACE_MS, terminalTag: session._terminalTag || null });
   } catch (err) {
     ctx.log.warn(`[${backend.id}] follow failed: ${err?.message || err}`);
     return ref;

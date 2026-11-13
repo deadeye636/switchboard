@@ -432,3 +432,82 @@ test('busy/idle without a ledger: the message-row inference of the earlier schem
     assert.equal(deriveState(reader.readLiveState('s'), (T0 + 20) * 1000), 'busy');
   });
 });
+
+// --- #869: a CLI `/new`, followed through this tab's own breadcrumb ---
+// Measured on 0.23.1 with a gateway (2026-11-13, isolated demo, no model turn): the new row is parentless with cwd NULL,
+// the old empty row is deleted, and `terminal-sessions/term_session_id-switchboard-<tag>` is rewritten with the new id.
+const identity = require('../src/backends/hermes/terminal-identity');
+const TAG = '6b6d0d9e-a85f-4a9f-9dcf-ad2f7e2b7039';
+function crumb(dir, sessionId, tag = TAG) {
+  const d = path.join(dir, 'terminal-sessions');
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, identity.terminalIdFor(tag, 'win32')), JSON.stringify({ session_id: sessionId, cwd: 'proj', ts: T0 }));
+  reader._clearLiveStateCache();   // a rewrite within one millisecond keeps mtime and maybe size: ask afresh
+}
+// The follow reads the breadcrumb only where the spawn set an identity, which is Windows; elsewhere it is not asked.
+const WIN_ONLY = { skip: (!DatabaseSync && 'node:sqlite is not available in this runtime') || (process.platform !== 'win32' && 'the breadcrumb identity is set on Windows only') };
+
+test('terminal identity: the variable Hermes reads first, its file name, and the multiplexers ahead of it blanked', () => {
+  assert.equal(identity.terminalIdFor(TAG, 'win32'), 'term_session_id-switchboard-' + TAG);
+  assert.equal(identity.terminalIdFor('a/b c', 'win32'), 'term_session_id-switchboard-a-b-c', 'sanitized like Hermes does');
+  assert.equal(identity.terminalIdFor('', 'win32'), null);
+  assert.equal(identity.terminalIdFor(TAG, 'linux'), null, 'no identity set, nothing to look for');
+  const env = identity.terminalEnv(TAG, 'win32');
+  assert.equal(env.TERM_SESSION_ID, 'switchboard-' + TAG);
+  for (const v of ['ZELLIJ_PANE_ID', 'TMUX_PANE', 'KITTY_WINDOW_ID', 'WEZTERM_PANE']) assert.equal(env[v], '', v);
+  assert.deepEqual(identity.terminalEnv(TAG, 'linux'), {}, 'a tty names the breadcrumb there, so nothing is set');
+  assert.deepEqual(identity.terminalEnv('', 'win32'), {});
+  assert.deepEqual(hermes.buildLaunch({ cwd: 'proj', terminalTag: TAG }).env, identity.terminalEnv(TAG));
+});
+
+test('followLiveSession /new: the empty old row is gone, the breadcrumb names the new parentless row', WIN_ONLY, () => {
+  const dir = makeStore(({ session }) => {
+    session('fresh', { mc: 0, cwd: null, started: T0 + 50 });
+    session('elsewhere', { mc: 0, cwd: null, started: T0 + 51 });
+  });
+  crumb(dir, 'fresh');
+  withStore(dir, () => {
+    assert.deepEqual(hermes.followLiveSession('gone', { sinceMs: T0 * 1000, terminalTag: TAG }),
+      { sessionId: 'fresh', ref: 'fresh', reason: 'clear' });
+    assert.equal(hermes.followLiveSession('gone', { sinceMs: T0 * 1000 }), null, 'no tag, no follow');
+    assert.equal(hermes.followLiveSession('gone', { sinceMs: T0 * 1000, terminalTag: 'another-tab' }), null,
+      'another tab\'s breadcrumb is not read');
+  });
+});
+
+test('followLiveSession /new: an old row that ended as new_session is followed; any other end is not', WIN_ONLY, () => {
+  const dir = makeStore(({ session }) => {
+    session('old', { mc: 4, ended: T0 + 100, reason: 'new_session' });
+    session('new', { mc: 0, cwd: null, started: T0 + 100.2 });
+    session('quit', { mc: 4, ended: T0 + 100, reason: 'cli_close' });
+  });
+  crumb(dir, 'new');
+  withStore(dir, () => {
+    assert.deepEqual(hermes.followLiveSession('old', { sinceMs: T0 * 1000, terminalTag: TAG }),
+      { sessionId: 'new', ref: 'new', reason: 'clear' });
+    assert.equal(hermes.followLiveSession('quit', { sinceMs: T0 * 1000, terminalTag: TAG }), null);
+    assert.equal(hermes.followLiveSession('new', { sinceMs: T0 * 1000, terminalTag: TAG }), null, 'already there');
+  });
+});
+
+test('followLiveSession /new: a child row, a row older than the tab or than the old end is never the move', WIN_ONLY, () => {
+  const dir = makeStore(({ session }) => {
+    session('old', { mc: 4, ended: T0 + 100, reason: 'new_session' });
+    session('child', { mc: 1, parent: 'old', started: T0 + 101 });
+    session('early', { mc: 1, cwd: null, started: T0 + 10 });
+    session('open', { mc: 4 });
+    session('after-open', { mc: 0, cwd: null, started: T0 + 200 });
+  });
+  withStore(dir, () => {
+    crumb(dir, 'child');
+    assert.equal(hermes.followLiveSession('old', { sinceMs: T0 * 1000, terminalTag: TAG }), null, 'a child is a branch, not /new');
+    crumb(dir, 'early');
+    assert.equal(hermes.followLiveSession('old', { sinceMs: T0 * 1000, terminalTag: TAG }), null, 'started before the old row ended');
+    crumb(dir, 'missing');
+    assert.equal(hermes.followLiveSession('old', { sinceMs: T0 * 1000, terminalTag: TAG }), null, 'a row the store does not hold');
+    crumb(dir, 'after-open');
+    assert.equal(hermes.followLiveSession('open', { sinceMs: T0 * 1000, terminalTag: TAG }), null, 'the old row is still open');
+    assert.equal(hermes.followLiveSession('gone', { sinceMs: (T0 + 500) * 1000, terminalTag: TAG }), null,
+      'the old row is gone but the new one is older than the tab');
+  });
+});

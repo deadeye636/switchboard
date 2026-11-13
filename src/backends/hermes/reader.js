@@ -743,6 +743,59 @@ function followTarget(sessionId, opts = {}) {
   return result;
 }
 
+// A CLI `/new` (#869), measured on 0.23: the old row ends with `end_reason = 'new_session'` (or is deleted when it
+// was empty, `_discard_session_if_empty`), and the new one is parentless and, on a gateway store, has no cwd — so
+// nothing in the store ties it to the tab. What does is Hermes' per-terminal breadcrumb,
+// `<home>/terminal-sessions/<terminal id>` = `{ session_id, cwd, ts }`, rewritten at start, on `/new`, after a turn,
+// on a branch and on a resume (`hermes_cli/terminal_breadcrumbs.py`). The terminal id is the caller's, derived from
+// an identity the spawn set for this tab only, so the file names this tab's session and no other terminal's.
+// Followed only when the store agrees: the old row ended as `new_session` (or is gone), the new row exists, has no
+// parent, and started after the tab opened and not before the old row ended.
+const _newCache = new Map();   // `${ref}|${sinceMs}|${terminalId}` -> { sig, result }
+function breadcrumbSession(terminalId) {
+  if (!terminalId || /[\\/]/.test(terminalId) || terminalId === '.' || terminalId === '..') return { sig: '', id: null };
+  const file = path.join(hermesHome(), 'terminal-sessions', terminalId);
+  let st;
+  try { st = fs.statSync(file); } catch { return { sig: 'none', id: null }; }
+  if (!st.isFile() || st.size > 64 * 1024) return { sig: 'bad', id: null };
+  const sig = `${st.mtimeMs}:${st.size}`;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, ''));
+    const id = data && typeof data.session_id === 'string' ? data.session_id.trim() : '';
+    return { sig, id: id || null };
+  } catch { return { sig, id: null }; }
+}
+function followNewSession(sessionId, { sinceMs = null, terminalId = null } = {}) {
+  if (!sessionId || !terminalId) return null;
+  const crumb = breadcrumbSession(terminalId);
+  const key = `${sessionId}|${sinceMs == null ? '' : sinceMs}|${terminalId}`;
+  const sig = `${dbSignature(dbPath())}|${crumb.sig}`;
+  const hit = _newCache.get(key);
+  if (hit && hit.sig === sig) return hit.result;
+  let result = null;
+  if (crumb.id && crumb.id !== String(sessionId)) {
+    const db = openDb();
+    if (db) {
+      try {
+        const cols = tableColumns(db, 'sessions');
+        if (cols.has('end_reason') && cols.has('parent_session_id')) {
+          const old = db.get('SELECT end_reason AS endReason, ended_at AS endedAt FROM sessions WHERE id = ?', String(sessionId));
+          const next = db.get('SELECT id, started_at AS startedAt, parent_session_id AS parentId FROM sessions WHERE id = ?', crumb.id);
+          const started = next ? Number(next.startedAt) : NaN;
+          const ok = !!next && !next.parentId && Number.isFinite(started)
+            && (!old || old.endReason === 'new_session')
+            && (sinceMs == null || started * 1000 >= sinceMs)
+            && (!old || old.endedAt == null || started >= Number(old.endedAt) - 2);
+          if (ok) result = { sessionId: String(next.id), ref: String(next.id), reason: 'clear' };
+        }
+      } catch { result = null; } finally { db.close(); }
+    }
+  }
+  _newCache.set(key, { sig, result });
+  if (_newCache.size > LIVE_STATE_CACHE_MAX) _newCache.delete(_newCache.keys().next().value);
+  return result;
+}
+
 /**
  * The few facts busy/idle is made of — and nothing else.
  *
@@ -809,7 +862,7 @@ function readLiveStateGated(sessionId) {
 }
 
 /** Test seam: drop the gate's memo so a store mutated in place is re-read. */
-function _clearLiveStateCache() { _liveStateCache.clear(); _followCache.clear(); }
+function _clearLiveStateCache() { _liveStateCache.clear(); _followCache.clear(); _newCache.clear(); }
 
 // #283: the live-pairing candidates — just the three columns matchLiveSession needs (id, start, cwd),
 // one row per session from the small `sessions` table. The old path ran discoverSessions() (a GROUP BY
@@ -917,7 +970,7 @@ module.exports = {
   PARSER_SCHEMA_VERSION,
   hermesHome, setHome, dbPath, dbExists,
   discoverSessions, parseSession, watchTargets, readMessages, readLiveState, readLiveStateGated,
-  listLiveCandidates, sessionExists, followTarget,
+  listLiveCandidates, sessionExists, followTarget, followNewSession,
   _clearLiveStateCache,
   openDb,
 };

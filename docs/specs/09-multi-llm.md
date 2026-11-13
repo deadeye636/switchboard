@@ -235,11 +235,23 @@ never had.
   compression continuation). `watch/adopt.js` asks it after the claim and applies it through
   `session-transitions.js`' shared re-key (the Events record is told the reason); the old record stays in the
   store with its lineage. It declines when another live session holds the child, and `sinceMs` (the tab's own
-  start) keeps a branch made before the tab opened from pulling it away. **Known gap: a CLI `/new`.** It
-  ends the row as `new_session` and opens a PARENTLESS one; the gateway store writes that row with
-  `record_cwd=False` (`hermes_cli/cli_init_mixin.py`, `gateway_session_store.py`, `_row_cwd` -> NULL), so nothing
-  in it names the old row or a directory. A match by time would pull the tab onto a session the user started in
-  another terminal, so none is made: a tab stays on the ended row after `/new` (follow-up issue). The compression step is Hermes' own `_CHAIN_STEP_SQL` (no `_branched_from`, `_delegate_from`
+  start) keeps a branch made before the tab opened from pulling it away. **A CLI `/new` (#869).** It
+  ends the row as `new_session` (or deletes it when it was empty) and opens a PARENTLESS one; the gateway store writes
+  that row with `record_cwd=False` (`hermes_cli/cli_init_mixin.py`, `gateway_session_store.py`, `_row_cwd` -> NULL), so
+  nothing in it names the old row or a directory, and a match by time could pull the tab onto a session the user
+  started in another terminal. What ties it to the tab is Hermes' per-terminal breadcrumb
+  (`<home>/terminal-sessions/<terminal id>`, rewritten at start, on `/new`, after a turn, on a branch and a resume).
+  The spawn hands `buildLaunch` the terminal's tag (`terminalTag`, which outlives every re-key), Hermes' launch sets
+  `TERM_SESSION_ID=switchboard-<tag>` and blanks the four multiplexer variables Hermes reads before it
+  (`src/backends/hermes/terminal-identity.js`), and `followLiveSession(ref, { sinceMs, terminalTag })` reads that tab's
+  file. It follows (`clear`) only where the store agrees: the old row ended as `new_session` or is gone, the new row
+  exists, has no parent, and started after the tab opened and not before the old row ended. Measured on 0.23.1 with a
+  gateway (2026-11-13). **Gap:** where a tty exists (Linux, macOS) Hermes names the breadcrumb after the tty, not the
+  variable, so there a tab still stays on the ended row; and a tab spawned before this change has no breadcrumb under
+  its tag. On a gateway store `end_session` only detaches this viewer, and the row gets its `end_reason` once no viewer
+  is left: while another client still holds the old session, the tab does not follow (fails safe). A `hermes` the
+  agent starts from its own terminal tool inherits the variable and writes the same breadcrumb; the store checks keep it
+  from moving the tab, short of a narrow race. **Side effect, accepted by the owner on #869:** a bare `hermes -c` typed inside such a tab continues that tab's session (the breadcrumb is what `-c` reads). The compression step is Hermes' own `_CHAIN_STEP_SQL` (no `_branched_from`, `_delegate_from`
   or `_reset_from` child; a child that itself ended by compression first, then an open one, then the freshest);
   the branch step is `_BRANCH_CHILD_SQL`. Hermes only; a template forwards it.
 - `sharedDescendants: true` — OPTIONAL declaration (#864). The CLI starts a helper process that every client of

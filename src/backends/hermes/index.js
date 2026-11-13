@@ -110,7 +110,10 @@ function probe() {
  * Resume: `hermes -r <id>` continues a specific session (`-c` continues the last one).
  * We inject NO auth env — see the note at the top of this file.
  */
-function buildLaunch({ cwd, resume, sessionId, options } = {}) {
+// The tab's terminal identity for Hermes' breadcrumb (#869): `./terminal-identity.js`.
+const { terminalEnv, terminalIdFor } = require('./terminal-identity');
+
+function buildLaunch({ cwd, resume, sessionId, options, terminalTag } = {}) {
   const opts = options || {};
   const args = [];
 
@@ -132,7 +135,8 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
   return {
     command: exe || 'hermes',
     args,
-    env: {},          // Hermes self-auths from its own .env/OAuth — inject nothing.
+    // No auth: Hermes self-auths from its own .env/OAuth. Only the tab's terminal identity (#869).
+    env: terminalEnv(terminalTag),
     cwd,
     spawnMode: 'argv',
   };
@@ -192,13 +196,15 @@ function liveRefFor(sessionId) {
  * the re-key's Events record has) or null. `sinceMs` is the tab's own start, so a branch somebody made before
  * this tab opened is not its move.
  */
-function followLiveSession(ref, { sinceMs = null } = {}) {
-  // NOT followed, on purpose: a CLI `/new`. It ends the row as `new_session` and opens a PARENTLESS one, and
-  // nothing in the new row names the old one: the gateway store writes it with `record_cwd=False`
-  // (hermes_cli/cli_init_mixin.py, gateway_session_store.py, `_row_cwd` -> NULL), so there is no directory to
-  // match, and a guess by time would pull the tab onto a session the user started in another terminal. A tab
-  // stays on the ended row after `/new` (a known gap, spec 09).
-  return reader.followTarget(ref, { sinceMs });
+function followLiveSession(ref, { sinceMs = null, terminalTag = null } = {}) {
+  // A CLI `/new` (#869) ends the row as `new_session` and opens a PARENTLESS one that names neither the old row
+  // nor, on a gateway store, a directory (`record_cwd=False`), so the store alone cannot tie it to this tab and a
+  // guess by time could pull the tab onto a session started in another terminal. The tab's own breadcrumb can: it
+  // is written under the identity this tab's spawn set (`terminalEnv`), and the reader follows it only where the
+  // store agrees. With no breadcrumb under the tab's tag (a tty platform, a spawn from before this change) a tab
+  // stays on the ended row, as before.
+  return reader.followTarget(ref, { sinceMs })
+    || (terminalTag ? reader.followNewSession(ref, { sinceMs, terminalId: terminalIdFor(terminalTag) }) : null);
 }
 
 /**

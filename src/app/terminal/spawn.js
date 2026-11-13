@@ -999,6 +999,9 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
         resumeRef,
         forkFrom: sessionOptions?.forkFrom,
         options: launchOptions,
+        // The terminal's tag, which outlives every re-key: a backend may name the terminal by it (Hermes' breadcrumb
+        // identity, #869). A backend that does not ask for it ignores it.
+        terminalTag,
       });
       // LIVE RE-IDENTIFICATION (#223). A backend that can tell us mid-flight that this terminal moved to
       // a new session id gets the chance to set that up now: it receives the terminal's tag and the URL

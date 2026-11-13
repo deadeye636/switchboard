@@ -93,8 +93,11 @@ and compares directories through `pathKey`. Busy/idle is the turn ledger (`sessi
 corroboration; any queued or started row is an active turn, minus what a later STARTED turn's end supersedes) when the
 table exists and the message-row inference otherwise.
 `followLiveSession` re-keys a tab onto the child of a branch (`fork`) or a compression continuation (`adopted`; the
-compression step copies Hermes' own `_CHAIN_STEP_SQL`); the old row stays listed. A CLI `/new` is NOT followed (the new
-row names neither the old row nor a directory — a known gap, spec 09). A `/branch` made
+compression step copies Hermes' own `_CHAIN_STEP_SQL`); the old row stays listed. A CLI `/new` (#869) is followed
+(`clear`) only through the tab's own per-terminal breadcrumb: the spawn gets the terminal's tag in `buildLaunch`
+(`terminalTag`), Hermes' `buildLaunch` sets `TERM_SESSION_ID` from it (`hermes/terminal-identity.js`, Windows only — a tty names the
+breadcrumb elsewhere), and `followLiveSession(ref, { sinceMs, terminalTag })` reads that file and follows only where the
+store agrees. Never by time or directory: the new row names neither. A `/branch` made
 before the first pairing tick pairs the tab with the child (its parent was born in the tab's window). The daemon every
 client of a home shares is protected by the `sharedDescendants` declaration: in argv mode (where `pty.pid` is the CLI's
 launcher) the quit's escalation ends that process, not its tree; through a shell the tree kill stays. Reasoning: spec 09 and the Hermes section of `docs/backend-formats.md`.
