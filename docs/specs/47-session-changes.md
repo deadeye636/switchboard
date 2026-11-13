@@ -1,7 +1,9 @@
 # 47 — Session changes (the sidebar's Changes group)
 
-Issue #870. Status: **planned** (owner decisions of 2026-11-12 recorded below; nothing built). The plan is local
-(docs/plans/870-session-changes/PLAN.md, gitignored); this file is the lasting record.
+Issue #870. Status: **planned** (owner decisions of 2026-11-12 and 2026-11-13 recorded below; nothing built). The plan
+is local (docs/plans/870-session-changes/PLAN.md, mockups beside it, gitignored); this file is the lasting record. The
+decisions of 2026-11-13 (D1–D5, section "Timeline, range and views") override E1's `/clear` rule and widen Clear; the
+places they change are corrected in place.
 
 ## What it does
 
@@ -9,6 +11,9 @@ A compact **Changes** group in a session's sidebar (spec 43) that answers one qu
 since I last looked?* It shows the files the session edited with how often, the commits it made with their messages,
 whether it pushed, and totals in the collapsed header. **Details** opens the commits, the files and their diffs (and the
 review log). **Clear** means "I have reviewed this": the baseline moves to now and a review-log entry is kept.
+Nothing is ever dropped: the start, every Clear, every `/clear` typed in the CLI and every push are entries of one
+timeline, a range picks which part to show, and a view toggle shows it as one list (**All**) or split at each push
+(**Split**). See "Timeline, range and views".
 
 It is review only. It never blocks, gates or undoes anything, and it never writes to the repository.
 
@@ -107,7 +112,12 @@ Rules:
   project's (`project-refs.js`, `test/scoped-folder-deletes.test.js`).
 - **Caps** are named constants in `changes-record.js` (files per session, commit and push events per session, review
   entries per session, bytes of a review's file list). A row over a cap says `truncated` and the group says so.
-- **A re-key** (`/clear`, fork, resume under a new id) moves nothing: a new session id has its own baseline (see E1).
+- **A re-key** (`/clear`, resume under a new id) moves nothing in the derived tables: each session id keeps its own
+  rows. The timeline follows the lineage (`src/session/session-lineage.js`), so a `/clear` child continues its
+  parent's timeline instead of starting a fresh one (D1). A fork is a new timeline of its own.
+- **Push snapshots (D4).** Each push event row also stores the per-file edit counts at that position (capped JSON, the
+  same shape as `session_change_review.files`). A Split block's counts are the difference of two snapshots; no
+  per-edit table.
 - **Counts since the baseline** are a subtraction, not a second table: total edits of a file minus the edits it had when
   the last review was taken (`session_change_review.files`). A file is "touched since" when its last position is greater
   than the baseline position. Determinism of the parser is what keeps this stable across a rescan; a parser bump that
@@ -151,6 +161,9 @@ rather than `0` when there is nothing.
 
 ### 5. Clear and the review log
 
+Clear sets an entry and moves "Since last review"; it hides nothing (D5). With the range "Whole session" everything
+stays visible after a Clear.
+
 Clear writes, in one transaction: a `session_change_review` row (the totals and the per-file counts of what was shown),
 then moves the baseline to the current `HEAD` and the transcript's current position. It runs no git write. It is one
 click, no confirmation (nothing is lost: the review is logged), and a toast says what was cleared. The review log is
@@ -182,6 +195,30 @@ in the existing CodeMirror diff window with `fileVersions` learning a `rev` mode
 copy), and the **Review log** (reopen, E3 in the mockup). Every diff line is escaped; the diff text is read only when a
 row is opened.
 
+## Timeline, range and views (owner decisions of 2026-11-13)
+
+Mockup: docs/plans/870-session-changes/mockups/timeline.html (local). Recorded in #870.
+
+- **D1. One timeline per lineage.** A session is a chain of entries: its start, every **Clear** in the app, every
+  **`/clear`** typed in the CLI and every **push**. The `/clear` child (a new session id) continues the parent's
+  timeline through the lineage; its work stays in the same list. Replaces E1's "a `/clear` child gets its own
+  baseline".
+- **D2. Split at push only.** The **Split** view cuts the range into blocks that each end at a push; the newest block
+  ("Not pushed yet") is open on top, older ones fold to one line. Clear and `/clear` inside a block are shown as marks,
+  they do not cut. A pushed block is an exact commit range (`<previous push>..<push>`), so its diff is exact; only the
+  open block is against the working tree. **All** shows the whole range in one list, counts summed.
+- **D3. Range picker.** "Since last review" (the default, today's behaviour), "Today", "Since last push", "Whole
+  session", and "Pick entries…", which opens Details on the timeline strip to choose a from and a to entry. A range
+  always snaps to entries, so no block is cut in the middle. The choice and the view are kept per session.
+- **D4. Per-block counts from push snapshots.** Each push event stores the per-file edit counts at its position (see
+  "What the scan stores"); a block's counts are the difference of two snapshots. No per-edit rows. Caps as for reviews.
+- **D5. Clear hides nothing.** Clear only sets an entry and moves "Since last review". Any wider range still shows
+  what was cleared.
+
+The sidebar group carries the range select and the All / Split toggle above its rows (existing select and
+`.ssb-issue-toggle` styling, reflex 8). Details carries the same two controls in its header and a timeline strip with
+one tick per entry, the range highlighted.
+
 ## States the group must draw (each is a test case)
 
 | State | Shown |
@@ -199,7 +236,8 @@ row is opened.
 ## Open points for the owner
 
 Numbered `E`; each has options and a recommendation. **All decided by the owner on 2026-11-12: every recommendation
-below is taken** (E1 (a) with the (b) fallback and a `/clear` child's own baseline, E2 (a), E3 (a), E4 (a), E5, E6, E7
+below is taken** (E1 (a) with the (b) fallback and a `/clear` child's own baseline, the latter replaced by D1 on
+2026-11-13, E2 (a), E3 (a), E4 (a), E5, E6, E7
 (b), E8 (b), E9 commit baseline with the footer note, E10 list as outside, no diff). Also accepted: commits and pushes
 are small capped event rows beside the per-file aggregate, and the single `PARSER_SCHEMA_VERSION` bump comes after
 storage and all extractors. The byte-offset cost (more than 10 % on a full Claude parse) is measured in the build and
@@ -214,8 +252,9 @@ brought back to the owner before the sequence-number fallback is used.
   - (c) **Lazy: the first time the group is opened**, as (b) but explicit ("since you first looked"), and until then no baseline.
   - **Recommend (a), falling back to (b) when the start time is missing or the repository has no commit before it.** Old
     sessions then show real history, and (a) is reproducible. Transcript-derived lists never depend on the SHA.
-    A `/clear` child starts its own baseline by the same rule (not its parent's): recommended, since the user's
-    review point for a cleared conversation is a new one.
+    ~~A `/clear` child starts its own baseline by the same rule (not its parent's).~~ **Replaced by D1 (2026-11-13):**
+    a `/clear` child continues its parent's timeline; the `/clear` is an entry, and the child's baseline is the
+    parent's current one. Rule (a)/(b) applies only to the first session of a lineage.
 - **E2. When the baseline SHA is gone** (prune, history rewrite): the transcript-derived list stays; the diff and the log
   cannot be built. (a) say so and offer "Set review point to now"; (b) silently re-anchor to the merge-base with the
   upstream or to the current `HEAD`. **Recommend (a):** (b) hides that something was rewritten. The review log entry
