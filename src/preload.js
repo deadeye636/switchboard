@@ -226,6 +226,7 @@ contextBridge.exposeInMainWorld('api', {
   // #816: a project's forge issues, and whether the saved CLI path answers. #830: `query` is { state, assignee,
   // author }, `options.force` skips main's short cache.
   forgeIssuesList: (projectPath, query, options) => ipcRenderer.invoke('forge-issues-list', projectPath, query, options),
+  forgeIssueRead: (projectPath, number) => ipcRenderer.invoke('forge-issue-read', projectPath, number),
   forgeCliCheck: (providerId) => ipcRenderer.invoke('forge-cli-check', providerId),
   // #815: the languages the spell check would use for the field's text, and what a right click in a text field was.
   spellCheckLanguages: (stored) => ipcRenderer.invoke('spell-check-languages', stored),
@@ -409,8 +410,8 @@ contextBridge.exposeInMainWorld('api', {
     // The model of the running session (#865): what it offers, and the switch to one of those.
     models: (id) => ipcRenderer.invoke('agent-models', id),
     setModel: (id, value) => ipcRenderer.invoke('agent-set-model', id, value),
-    // The session's MCP servers (#728): the list again, and one action on one server, named in the backend's words.
     setTuning: (id, patch) => ipcRenderer.invoke('agent-set-tuning', id, patch),
+    // The session's MCP servers (#728): the list again, and one action on one server, named in the backend's words.
     servers: (id) => ipcRenderer.invoke('agent-servers', id),
     serverAction: (id, name, action, extra) => ipcRenderer.invoke('agent-server-action', id, name, action, extra),
   },

@@ -147,11 +147,11 @@ test('issue filter: text and label combine, and the old string form still works'
 });
 
 test('issue filter: the stored shape is cut down to what it may hold', () => {
-  assert.deepStrictEqual(logic.normalizeIssueFilter(null), { state: 'open', assignee: false, author: false, label: '' });
-  assert.deepStrictEqual(logic.normalizeIssueFilter({ state: 'x', assignee: 1, author: 'true', label: 5, text: 'kept?' }),
-    { state: 'open', assignee: false, author: false, label: '' }, 'no text is ever part of it');
-  assert.deepStrictEqual(logic.normalizeIssueFilter({ state: 'closed', assignee: true, author: true, label: 'bug' }),
-    { state: 'closed', assignee: true, author: true, label: 'bug' });
+  assert.deepStrictEqual(logic.normalizeIssueFilter(null), { state: 'open', assignee: false, author: false, label: '', sort: 'newest' });
+  assert.deepStrictEqual(logic.normalizeIssueFilter({ state: 'x', assignee: 1, author: 'true', label: 5, text: 'kept?', sort: 'random' }),
+    { state: 'open', assignee: false, author: false, label: '', sort: 'newest' }, 'no text is ever part of it, an unknown order is the default');
+  assert.deepStrictEqual(logic.normalizeIssueFilter({ state: 'closed', assignee: true, author: true, label: 'bug', sort: 'updated' }),
+    { state: 'closed', assignee: true, author: true, label: 'bug', sort: 'updated' });
   assert.strictEqual(logic.normalizeIssueFilter({ label: 'x'.repeat(255) }).label.length, 255, 'a GitLab-long label is kept whole');
   assert.strictEqual(logic.normalizeIssueFilter({ label: 'x'.repeat(5000) }).label, '', 'an oversized label is dropped, not cut');
   assert.deepStrictEqual(logic.issueQueryOf({ state: 'all', author: true, label: 'bug' }), { state: 'all', assignee: false, author: true });
@@ -181,10 +181,15 @@ test('issue filter: read and write go through the row, and a failing read is the
   const api = { getSetting: async (k) => store.get(k), mergeSetting: async (k, p) => { store.set(k, { ...(store.get(k) || {}), ...p }); } };
   const saved = await logic.patchIssueFilter(api, '<project>', { state: 'all', label: 'bug', text: 'never' });
   assert.deepStrictEqual(store.get('forgeIssueFilter:<project>'), { state: 'all', label: 'bug' }, 'only the named fields, never the text');
-  assert.deepStrictEqual(saved, { state: 'all', assignee: false, author: false, label: 'bug' });
+  assert.deepStrictEqual(saved, { state: 'all', assignee: false, author: false, label: 'bug', sort: 'newest' });
   // Another window, holding an older copy, changes one toggle: the state set here survives.
   const after = await logic.patchIssueFilter(api, '<project>', { assignee: true });
-  assert.deepStrictEqual(after, { state: 'all', assignee: true, author: false, label: 'bug' });
+  assert.deepStrictEqual(after, { state: 'all', assignee: true, author: false, label: 'bug', sort: 'newest' });
+  // The order (#874) is stored like the rest, as one field of its own.
+  const sorted = await logic.patchIssueFilter(api, '<project>', { sort: 'oldest' });
+  assert.strictEqual(sorted.sort, 'oldest');
+  assert.strictEqual(sorted.assignee, true);
+  await logic.patchIssueFilter(api, '<project>', { sort: 'newest' });
   assert.deepStrictEqual(logic.issueFilterPatch({ state: '--x', author: 'yes' }), { state: 'open', author: false });
   assert.deepStrictEqual(await logic.readIssueFilter(api, '<project>'), after);
   const broken = { getSetting: async () => { throw new Error('gone'); } };
@@ -196,4 +201,26 @@ test('issue filter: read and write go through the row, and a failing read is the
 test('issue filter: the sidebar listens for the event name tasks-logic sends', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'session', 'session-sidebar.js'), 'utf8');
   assert.ok(src.includes(`'${logic.ISSUE_FILTER_EVENT}'`), 'session-sidebar.js must listen for ISSUE_FILTER_EVENT');
+});
+
+// #874: one issue as the preview's Markdown.
+test('an issue becomes Markdown with its fields, description and comments', () => {
+  const t = Date.parse('2026-11-13T09:05:00Z');
+  const md = logic.issuePreviewMarkdown({ number: 9, title: 'Two\nlines', state: 'closed', author: 'a', createdAt: t, labels: ['bug', 'x`y'],
+    url: 'https://x/9', body: 'The body', comments: [{ author: 'b', body: 'first', createdAt: t }, { body: '' }] }, 'GitHub');
+  assert.match(md, /^# #9 Two lines\n/);
+  assert.match(md, /Closed · opened by a · 2026-11-13 09:05/);
+  assert.match(md, /Labels: `bug` `xy`/);
+  assert.match(md, /\[Open on GitHub\]\(https:\/\/x\/9\)/);
+  assert.match(md, /## Comments \(2\)/);
+  assert.match(md, /\*\*b\*\* · 2026-11-13 09:05\n\nfirst/);
+  assert.match(md, /\*\*someone\*\*\n\n_Empty\._/);
+  assert.match(logic.issuePreviewMarkdown({ number: 1, title: 'T' }), /_No description\._/);
+});
+
+test('the sidebar order sorts issues by their own dates like tasks', () => {
+  const rows = [{ number: 1, createdAt: 1, updatedAt: 9 }, { number: 2, createdAt: 5, updatedAt: 2 }];
+  assert.deepStrictEqual(logic.sortTasks(rows, 'newest').map((r) => r.number), [2, 1]);
+  assert.deepStrictEqual(logic.sortTasks(rows, 'updated').map((r) => r.number), [1, 2]);
+  assert.deepStrictEqual(logic.ISSUE_SORT_MODES, ['newest', 'oldest', 'updated', 'updated_oldest']);
 });

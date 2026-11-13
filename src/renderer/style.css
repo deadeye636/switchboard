@@ -3158,6 +3158,7 @@ body.restoring-sessions #restore-progress { display: flex; }
 .ssb-issue-count { font-size: 10px; color: #7a7a90; }
 .ssb-issue-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 2px 0 4px; }
 .ssb-issue-search,
+.ssb-sort,
 .ssb-issue-pop select {
   height: 22px;
   min-width: 0;
@@ -3169,8 +3170,14 @@ body.restoring-sessions #restore-progress { display: flex; }
   padding: 0 6px;
 }
 .ssb-issue-search { flex: 1; }
+/* #874: the bar sits under the headline; the order select stays narrow beside the text. */
+.ssb-sort { flex: 0 1 auto; max-width: 34%; }
 .ssb-issue-search:focus,
+.ssb-sort:focus,
 .ssb-issue-pop select:focus { outline: none; border-color: rgba(120, 160, 230, 0.6); }
+.ssb-forge-btns { display: inline-flex; gap: 2px; align-self: center; }
+.ssb-forge-btn { display: inline-flex; align-items: center; padding: 2px 4px; }
+.ssb-forge-btn svg { display: block; }
 .ssb-issue-filter-btn { font-size: 11px; white-space: nowrap; }
 .ssb-issue-filter-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.08); color: #e0e0ec; }
 .ssb-issue-pop { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; padding: 4px; background: #1b1b24; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; }

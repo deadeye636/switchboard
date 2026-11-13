@@ -15,8 +15,9 @@ const helpers = { skillInsertText, taskInsertText };
 
 test('each kind offers only the buttons it can honour', () => {
   assert.deepEqual(sidebarRowActions('task', { id: 1 }), ['open', 'copy']);
-  assert.deepEqual(sidebarRowActions('issue', { number: 3, url: 'https://x/3' }), ['open', 'copy']);
-  assert.deepEqual(sidebarRowActions('issue', { number: 3 }), ['copy'], 'no url, no open');
+  assert.deepEqual(sidebarRowActions('issue', { number: 3, url: 'https://x/3' }), ['preview', 'open', 'copy']);
+  assert.deepEqual(sidebarRowActions('issue', { number: 3 }), ['preview', 'copy'], 'no url, no open');
+  assert.deepEqual(sidebarRowActions('issue', {}), ['copy'], 'no number, no preview');
   assert.deepEqual(sidebarRowActions('handoff', { filePath: '/h.md' }), ['open', 'copy']);
   assert.deepEqual(sidebarRowActions('handoff', {}), []);
   assert.deepEqual(sidebarRowActions('skill', { id: 'abc' }), ['edit']);

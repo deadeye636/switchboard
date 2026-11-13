@@ -85,6 +85,24 @@ Decisions are on the issue (three comments of 2026-11-09). What was built:
   label and the toggles, and Escape closes it. The project view shows all of them in one row, with a text field of its
   own (the tasks' field filters the tasks only).
 
+## The sidebar's bar, order, preview and forge pages (#874)
+
+- **One bar under the group's headline.** The text field filters the local tasks and the issues alike; the "Filter"
+  button and its popover (state, label, the two toggles) are issue-only and appear only while issues are on. With
+  issues off the bar holds the text and the order for the tasks.
+- **An order** beside the text: newest, oldest, recently updated, least recently updated (the modes of `sortTasks`),
+  for both lists. It is stored as `sort` in the same `forgeIssueFilter:<owner>` row, so it is kept per project like the
+  filter. The list now asks for each issue's creation time too (`createdAt`, `created_at`).
+- **A preview** hover button on an issue row (the click still inserts the issue id). It reads one issue with its
+  comments on the click, never ahead of it — `forge-issue-read`, `readIssue(projectPath, number)`: gh `issue view
+  --json`, GitLab two `glab api` GETs (the issue and its notes, system notes left out), because `glab issue view
+  --output json` documents no comments. The GitLab path is not yet measured against a live instance. The issue is
+  drawn as Markdown (`issuePreviewMarkdown`) in the session's preview, read-only, as a text with no file behind it
+  (`openTextInPanel`: nothing watched, no path shown, no external open). Its Markdown is someone else's, so while it is sanitized every address that is not an http(s) link or a `data:image/` source is dropped (`dropForeignAddress` in `src/renderer/views/viewer-panel.js`): a protocol-relative `//host/share` image would otherwise be a network path in the app's `file:` document. A read-only preview cannot switch to the Live editor, which resolves `file:` images.
+- **The forge's own pages** as two icons with a tooltip in the issues' subhead: the issue list and a new issue. The
+  URLs are built in main from the parsed remote (`web` in the list answer; GitHub `/issues`, GitLab `/-/issues`) and
+  opened in the browser. A project without a known forge has neither.
+
 ## Measured
 
 `gh` 2.103 against this repository: `issue list --json number,title,labels,author,updatedAt,url,body` answers the shape
@@ -109,10 +127,19 @@ state, label and both toggles were back after the view was reopened, the text wa
 driven against this project (it would have meant starting a CLI in it); it shares the query and the stored filter with
 the Tasks view and was clicked against GitHub at #830.
 
+For #874 against this repository (2026-11-13): the list now asks `--json number,title,labels,author,createdAt,updatedAt,url,body,state`.
+`gh issue view <n> -R <repo> --json number,title,state,labels,author,url,body,createdAt,comments` answers each comment
+as `{ author: { login }, body, createdAt, … }`; an issue without comments answers `comments: []`. The sidebar bar, the
+order, the preview of an issue with its comments and the two forge pages were clicked in an isolated demo instance
+whose test project carried this repository as its remote (read calls only).
+
 ## Known gaps
 
-- `forge-issues-list` takes a project path from the window and does not check it is a registered project. It refuses a
-  foreign network path, and a local one only ever reaches `git -C` and a read.
+- `forge-issues-list` and `forge-issue-read` take a project path from the window and do not check it is a registered
+  project. They refuse a foreign network path, and a local one only ever reaches `git -C` and a read.
+- The preview reads at most 100 comments (`COMMENT_LIMIT`; GitLab one page of 100 notes, system notes dropped after the
+  read) and does not say when an issue has more.
+- The GitLab single read (#874, two `glab api` GETs) has not been run against a live GitLab.
 - A filter change in one window shows in another window only when that window's list next loads (see "Filters").
 - `glab api user --hostname` with a host that carries a port was not measured (the self-hosted host measured at #830
   runs on the default port).

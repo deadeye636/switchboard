@@ -59,7 +59,13 @@ test('both CLIs read open issues by default and carry no write verb', () => {
     for (const state of ['open', 'closed', 'all']) {
       const args = forge.listArgs('o/r', normalizeQuery({ state, assignee: true, author: true }), 'me');
       assert.deepEqual(args.slice(0, 2), ['issue', 'list']);
-      assert.ok(!/create|\bclose\b|edit|delete|comment/.test(args.join(' ')), args.join(' '));
+      // Whole words: the field list names `createdAt`, which is a read.
+      assert.ok(!/\bcreate\b|\bclose\b|\bedit\b|\bdelete\b|\bcomment\b/.test(args.join(' ')), args.join(' '));
+    }
+    // The single read (#874) is a view or a GET and nothing else.
+    for (const args of forge.viewArgs('o/r', 7, { host: 'gitlab.com', path: 'o/r' })) {
+      assert.ok(args[0] === 'issue' ? args[1] === 'view' : args[0] === 'api' && !args.includes('-X') && !args.includes('--method'), args.join(' '));
+      assert.ok(!/\bcreate\b|\bclose\b|\bedit\b|\bdelete\b|\bcomment\b/.test(args.join(' ')), args.join(' '));
     }
   }
   assert.ok(FORGES.github.listArgs('o/r').includes('open'));
@@ -92,10 +98,10 @@ test('a query the window sends is cut down to what the CLI may get', () => {
 
 test('a row of either CLI becomes the same issue', () => {
   const when = '2026-11-06T10:22:19Z';
-  const gh = normalizeRows(FORGES.github, [{ number: 7, title: 'T', labels: [{ name: 'bug' }], author: { login: 'a' }, updatedAt: when, url: 'https://x/7', body: 'B', state: 'OPEN' }]);
-  const gl = normalizeRows(FORGES.gitlab, [{ iid: 7, title: 'T', labels: ['bug'], author: { username: 'a' }, updated_at: when, web_url: 'https://x/7', description: 'B', state: 'opened' }]);
+  const gh = normalizeRows(FORGES.github, [{ number: 7, title: 'T', labels: [{ name: 'bug' }], author: { login: 'a' }, createdAt: when, updatedAt: when, url: 'https://x/7', body: 'B', state: 'OPEN' }]);
+  const gl = normalizeRows(FORGES.gitlab, [{ iid: 7, title: 'T', labels: ['bug'], author: { username: 'a' }, created_at: when, updated_at: when, web_url: 'https://x/7', description: 'B', state: 'opened' }]);
   assert.deepEqual(gh, gl);
-  assert.deepEqual(gh[0], { number: 7, title: 'T', labels: ['bug'], author: 'a', updatedAt: Date.parse(when), url: 'https://x/7', body: 'B', state: 'open' });
+  assert.deepEqual(gh[0], { number: 7, title: 'T', labels: ['bug'], author: 'a', createdAt: Date.parse(when), updatedAt: Date.parse(when), url: 'https://x/7', body: 'B', state: 'open' });
   assert.equal(normalizeRows(FORGES.gitlab, [{ iid: 1, title: 'T', state: 'closed' }])[0].state, 'closed');
   assert.equal(normalizeRows(FORGES.github, [{ number: 1, title: 'T', state: 'merged?' }])[0].state, '', 'an unknown state is none');
 });
@@ -333,4 +339,58 @@ test('the test control runs the saved binary and takes no path', async () => {
   assert.equal((await forgeIssues.checkCli('__proto__')).ok, false);
   fake({ answers: { gh: { err: { code: 'ENOENT' } } } });
   assert.match((await forgeIssues.checkCli('github')).message, /not found/);
+});
+
+// #874: the forge's web pages, and one issue with its comments, in the same neutral shape for either CLI.
+test('the web pages of a remote: the issue list and a new issue', () => {
+  assert.deepEqual(FORGES.github.web({ host: 'github.com', path: 'o/r' }), { issues: 'https://github.com/o/r/issues', newIssue: 'https://github.com/o/r/issues/new' });
+  assert.deepEqual(FORGES.gitlab.web({ host: 'gitlab.example', path: 'g/s/r', http: true }), { issues: 'http://gitlab.example/g/s/r/-/issues', newIssue: 'http://gitlab.example/g/s/r/-/issues/new' });
+});
+
+test('one issue reads the same from either CLI, comments in order, system notes left out', () => {
+  const when = '2026-11-13T09:00:00Z';
+  const gh = FORGES.github.fromView([{ number: 9, title: 'T', state: 'OPEN', labels: [{ name: 'bug' }], author: { login: 'a' }, url: 'https://x/9', body: 'B', createdAt: when,
+    comments: [{ author: { login: 'b' }, body: 'first', createdAt: when }] }]);
+  const gl = FORGES.gitlab.fromView([{ iid: 9, title: 'T', state: 'opened', labels: ['bug'], author: { username: 'a' }, web_url: 'https://x/9', description: 'B', created_at: when },
+    [{ author: { username: 'b' }, body: 'first', created_at: when }, { system: true, body: 'changed the label', author: { username: 'bot' } }]]);
+  assert.deepEqual(normalizeRows({ fromRow: (r) => r }, [gh]), normalizeRows({ fromRow: (r) => r }, [gl]));
+  assert.deepEqual(gh.comments, [{ author: 'b', body: 'first', createdAt: when }]);
+  assert.deepEqual(gl.comments, gh.comments);
+  const [args] = FORGES.gitlab.viewArgs('https://gitlab.com/g/s/r', 9, { host: 'gitlab.com', path: 'g/s/r' });
+  assert.deepEqual(args, ['api', '--hostname', 'gitlab.com', 'projects/g%2Fs%2Fr/issues/9'], 'the project path is one encoded segment');
+});
+
+// #874: one issue read through fakes — the number is checked first, and a refusal says why.
+test('reading one issue: number checked, gh view with comments, refusals and the comment cap', async () => {
+  for (const bad of ['-1', 'abc', 0, 1e21, '7; rm']) {
+    const calls = fake();
+    const r = await forgeIssues.readIssue('<project>', bad);
+    assert.equal(r.ok, false, String(bad));
+    assert.deepEqual(calls, [], 'nothing starts for a bad number');
+  }
+  const off = fake({ settings: { forgeIssuesEnabled: false } });
+  assert.deepEqual(await forgeIssues.readIssue('<project>', 7), { enabled: false });
+  assert.deepEqual(off, []);
+
+  const comments = Array.from({ length: 130 }, (_, i) => ({ author: { login: 'u' }, body: 'c' + i, createdAt: '2026-11-13T09:00:00Z' }));
+  const issue = { number: 7, title: 'T', state: 'OPEN', labels: [], author: { login: 'a' }, url: 'https://github.com/o/r/issues/7', body: 'B', createdAt: '2026-11-13T09:00:00Z', comments };
+  const calls = fake({ answers: { gh: { stdout: JSON.stringify(issue) } } });
+  const r = await forgeIssues.readIssue('<project>', '7');
+  assert.equal(r.ok, true);
+  assert.deepEqual(calls.find((c) => c.file === 'gh').args, ['issue', 'view', '7', '-R', 'o/r', '--json', 'number,title,state,labels,author,url,body,createdAt,comments']);
+  assert.equal(r.issue.comments.length, 100, 'capped');
+  assert.equal(r.issue.title, 'T');
+
+  fake({ answers: { gh: { err: Object.assign(new Error('x'), { code: 1 }), stderr: 'To get started with GitHub CLI, please run:  gh auth login' } } });
+  const login = await forgeIssues.readIssue('<project>', 7);
+  assert.equal(login.reason, 'login');
+  fake({ answers: { gh: { stdout: 'not json' } } });
+  assert.equal((await forgeIssues.readIssue('<project>', 7)).ok, false);
+});
+
+test('a refused list after the remote was read still names the forge pages', async () => {
+  fake({ answers: { gh: { err: Object.assign(new Error('x'), { code: 1 }), stderr: 'gh auth login' } } });
+  const r = await forgeIssues.listIssues('<project>', null, { force: true });
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.web, { issues: 'https://github.com/o/r/issues', newIssue: 'https://github.com/o/r/issues/new' });
 });

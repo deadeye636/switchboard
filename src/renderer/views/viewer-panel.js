@@ -87,6 +87,23 @@ window.loadPdfBundle = loadPdfBundle;
 // its end of life, so there is no single moment to unregister in.
 const _livePanels = new Set();
 
+// The DOMPurify hook for a foreign text's preview (#874): a link keeps only an http(s) or in-page target, an
+// image only an inline `data:image/` source, and every other address-bearing attribute is dropped. A source is
+// never resolved against the page: `//host/share/x.png` and `file:` both go.
+const FOREIGN_LINK_ATTRS = new Set(['href', 'xlink:href']);
+const FOREIGN_DROP_ATTRS = new Set(['srcset', 'poster', 'background', 'action', 'formaction', 'ping', 'cite', 'data', 'codebase']);
+function dropForeignAddress(_node, data) {
+  const name = String(data.attrName || '').toLowerCase();
+  const value = String(data.attrValue || '').trim();
+  if (FOREIGN_LINK_ATTRS.has(name)) {
+    if (!/^https?:\/\//i.test(value) && !/^#/.test(value)) data.keepAttr = false;
+  } else if (name === 'src') {
+    if (!/^data:image\//i.test(value)) data.keepAttr = false;
+  } else if (FOREIGN_DROP_ATTRS.has(name)) {
+    data.keepAttr = false;
+  }
+}
+
 window._applyViewerFormatSettings = () => {
   for (const panel of _livePanels) {
     if (!panel.container || !panel.container.isConnected) { _livePanels.delete(panel); continue; }
@@ -337,8 +354,13 @@ class ViewerPanel {
     this.filePath = filePath;
     this.title = title;
     this.readOnly = !!options.readOnly;
+    // A text with no file behind it (#874): no path shown, nothing watched, nothing opened or copied as a path.
+    this.virtual = !!options.virtual;
     this.toolbar.setTitle(title);
-    this.toolbar.setPath(filePath);
+    this.toolbar.setPath(this.virtual ? '' : filePath);
+    for (const b of [this.toolbar.externalEditorBtn, this.toolbar.copyPathBtn]) {
+      if (b) b.style.display = this.virtual ? 'none' : '';
+    }
     this.toolbar.setReadOnly(this.readOnly);
 
     this._previewKind = (typeof previewKindForExt === 'function')
@@ -390,7 +412,7 @@ class ViewerPanel {
     this.toolbar.setPreviewMode(false);
 
     // Watch for external changes (sync — does not need CodeMirror)
-    this._watchFile(filePath);
+    if (!this.virtual) this._watchFile(filePath);
 
     // Snapshot the caller's intent so that if open() is called again before
     // the bundle resolves, the latest content/filePath wins.
@@ -404,8 +426,8 @@ class ViewerPanel {
     // The panel asks rather than each of the four readers reporting it: three of
     // them return a bare string, and a caller-supplied flag would be present only
     // where someone remembered to pass it.
-    const readOnlyProbe = options.readOnly !== undefined
-      ? Promise.resolve(!!options.readOnly)
+    const readOnlyProbe = options.readOnly !== undefined || this.virtual
+      ? Promise.resolve(!!options.readOnly || this.virtual)
       : Promise.resolve(window.api.isFileReadOnly ? window.api.isFileReadOnly(filePath) : false)
         .catch(() => false);
 
@@ -742,7 +764,19 @@ class ViewerPanel {
       this.previewEl.appendChild(frame);
     } else {
       // No <style>: the Markdown lands in the app's own document, so a file's style block would restyle the window.
-      this.previewEl.innerHTML = DOMPurify.sanitize(window.marked.parse(content), { FORBID_TAGS: ['style'] });
+      // A text with no file behind it is someone else's (#874: an issue from a public forge), so while it is
+      // sanitized every address that is not a web link or an inline image is dropped — DOMPurify keeps a
+      // protocol-relative `//host/share` source, which in this `file:` document is a network path (the #77 class).
+      // The hook is on only for that one call, so the filtering happens before anything reaches the DOM.
+      const foreign = this.virtual === true;
+      if (foreign) DOMPurify.addHook('uponSanitizeAttribute', dropForeignAddress);
+      let html;
+      try {
+        html = DOMPurify.sanitize(window.marked.parse(content), { FORBID_TAGS: ['style'] });
+      } finally {
+        if (foreign) DOMPurify.removeHook('uponSanitizeAttribute');
+      }
+      this.previewEl.innerHTML = html;
     }
   }
 

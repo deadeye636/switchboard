@@ -314,7 +314,7 @@ written by the issue list in Tasks & notes and in the session sidebar, with no c
 
 | Key | Holds | Default |
 |---|---|---|
-| `forgeIssueFilter:<project>` | `{ state: open \| closed \| all, assignee: bool, author: bool, label: string }`. `<project>` is the owner path (`settingsOwnerPath`), so a worktree shares its project's filter. The free text is never stored. Not part of a settings export. | absent = open issues, no toggles, no label |
+| `forgeIssueFilter:<project>` | `{ state: open \| closed \| all, assignee: bool, author: bool, label: string, sort: newest \| oldest \| updated \| updated_oldest }`. `sort` (#874) is the session sidebar's order of its tasks and issues. `<project>` is the owner path (`settingsOwnerPath`), so a worktree shares its project's filter. The free text is never stored. Not part of a settings export. | absent = open issues, no toggles, no label, newest first |
 
 It sits outside the `project:<path>` blob on purpose: the project settings window replaces that blob on Save, so a
 key it does not show would be erased, and every write to it rebuilds the project list.

@@ -59,6 +59,8 @@ const ISSUE_FILTER_KEY_PREFIX = 'forgeIssueFilter:';
 // for a click on a filter.
 const ISSUE_FILTER_EVENT = 'switchboard:issue-filter';
 const ISSUE_FILTER_STATES = ['open', 'closed', 'all'];
+// The order of the session sidebar's tasks and issues (#874), the modes of `sortTasks`. Stored with the filter.
+const ISSUE_SORT_MODES = ['newest', 'oldest', 'updated', 'updated_oldest'];
 // Above any provider's own limit (GitLab allows 255). A longer value is dropped, never cut: a cut label would match
 // nothing after the next read.
 const ISSUE_LABEL_MAX = 1024;
@@ -74,6 +76,7 @@ function normalizeIssueFilter(value) {
     assignee: v.assignee === true,
     author: v.author === true,
     label: typeof v.label === 'string' && v.label.length <= ISSUE_LABEL_MAX ? v.label : '',
+    sort: ISSUE_SORT_MODES.includes(v.sort) ? v.sort : 'newest',
   };
 }
 
@@ -107,7 +110,7 @@ function issueFilterPatch(patch) {
   const p = patch && typeof patch === 'object' ? patch : {};
   const clean = normalizeIssueFilter(p);
   const out = {};
-  for (const k of ['state', 'assignee', 'author', 'label']) if (Object.prototype.hasOwnProperty.call(p, k)) out[k] = clean[k];
+  for (const k of ['state', 'assignee', 'author', 'label', 'sort']) if (Object.prototype.hasOwnProperty.call(p, k)) out[k] = clean[k];
   return out;
 }
 async function patchIssueFilter(api, ownerPath, patch) {
@@ -164,8 +167,34 @@ function sortTasks(tasks, mode) {
   return list;
 }
 
+// One issue as the Markdown the session's preview draws (#874): title, state, author, labels, the link, the
+// description and the comments in order. The texts are the forge's own Markdown and go in as they are; the fields
+// around them are plain words.
+function issuePreviewMarkdown(issue, provider) {
+  const i = issue && typeof issue === 'object' ? issue : {};
+  const when = (t) => (Number.isFinite(t) ? new Date(t).toISOString().slice(0, 16).replace('T', ' ') : '');
+  const oneLine = (v) => String(v || '').replace(/\s+/g, ' ').trim();
+  const head = [i.state === 'closed' ? 'Closed' : 'Open'];
+  if (i.author) head.push(`opened by ${oneLine(i.author)}`);
+  if (when(i.createdAt)) head.push(when(i.createdAt));
+  const lines = [`# #${i.number} ${oneLine(i.title)}`, '', head.join(' · ')];
+  const labels = (Array.isArray(i.labels) ? i.labels : []).filter((l) => typeof l === 'string' && l);
+  if (labels.length) lines.push('', `Labels: ${labels.map((l) => `\`${oneLine(l).replace(/`/g, '')}\``).join(' ')}`);
+  if (i.url) lines.push('', `[Open on ${oneLine(provider) || 'the web'}](${i.url})`);
+  lines.push('', '---', '', String(i.body || '').trim() || '_No description._');
+  const comments = Array.isArray(i.comments) ? i.comments : [];
+  lines.push('', '---', '', `## Comments (${comments.length})`);
+  for (const c of comments) {
+    const meta = [c && c.author ? `**${oneLine(c.author)}**` : '**someone**', when(c && c.createdAt)].filter(Boolean).join(' · ');
+    lines.push('', meta, '', String((c && c.body) || '').trim() || '_Empty._');
+  }
+  return lines.join('\n') + '\n';
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    issuePreviewMarkdown,
+    ISSUE_SORT_MODES,
     TASK_STATUS_ORDER,
     TASK_STATUS_LABELS,
     TASK_SCOPE_LABELS,

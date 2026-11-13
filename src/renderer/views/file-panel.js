@@ -252,7 +252,7 @@ function createPanelInstance(parent, hooks = {}) {
         editBtn.style.display = tab.editInSettings ? '' : 'none';
         // The tab OBJECT decides too: a reopen of the same path replaces it (new mode, new content) and tore the
         // viewer down on the way, while a plain re-render keeps the same object and so keeps the edits (#458).
-        if (viewerPanel.filePath !== tab.filePath || openedTab !== tab) { openedTab = tab; viewerPanel.open(tab.label, tab.filePath, tab.content, tab.readOnly ? { readOnly: true } : {}); }
+        if (viewerPanel.filePath !== tab.filePath || openedTab !== tab) { openedTab = tab; viewerPanel.open(tab.label, tab.filePath, tab.content, { ...(tab.readOnly ? { readOnly: true } : {}), ...(tab.virtual ? { virtual: true } : {}) }); }
       } else {
         viewerContainer.style.display = 'none';
         diffContainer.style.display = 'flex';
@@ -779,6 +779,7 @@ function openFileTab(sessionId, data) {
     content: data.content,
     readOnly: !!data.readOnly,
     editInSettings: data.editInSettings || null,
+    virtual: !!data.virtual,
   });
   revealEntry(state, sessionId, entry);
 }
@@ -846,6 +847,13 @@ async function openFileInPanel(sessionId, filePath, options = {}) {
     return;
   }
   openFileTab(sessionId, { filePath, content: result.content, readOnly: !!options.readOnly, editInSettings: options.editInSettings });
+}
+
+// A text with no file behind it, shown read-only in the preview (#874: an issue). `name` is the tab's label and decides
+// the preview kind by its extension (`.md` is drawn as Markdown); nothing is watched, saved or opened outside.
+function openTextInPanel(sessionId, { name, content }) {
+  if (!name) return;
+  openFileTab(sessionId, { filePath: name, content: String(content || ''), readOnly: true, virtual: true });
 }
 
 function closeAllDiffs(sessionId) {

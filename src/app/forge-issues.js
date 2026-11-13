@@ -69,13 +69,25 @@ const FORGES = {
       'issue', 'list', '-R', repo, '--state', query.state, '-L', String(LIST_LIMIT),
       ...(query.assignee ? ['--assignee', '@me'] : []),
       ...(query.author ? ['--author', '@me'] : []),
-      '--json', 'number,title,labels,author,updatedAt,url,body,state',
+      '--json', 'number,title,labels,author,createdAt,updatedAt,url,body,state',
     ],
+    // One issue with its comments (#874).
+    viewArgs: (repo, number) => [['issue', 'view', String(number), '-R', repo, '--json', 'number,title,state,labels,author,url,body,createdAt,comments']],
+    fromView: ([issue]) => ({
+      ...issue,
+      author: issue && issue.author && issue.author.login,
+      labels: issue && Array.isArray(issue.labels) ? issue.labels.map((l) => l && l.name) : [],
+      comments: (issue && Array.isArray(issue.comments) ? issue.comments : [])
+        .map((c) => ({ author: c && c.author && c.author.login, body: c && c.body, createdAt: c && c.createdAt })),
+    }),
+    // The project's issue list and its new-issue page on the web (#874).
+    web: ({ host, path: repo }) => ({ issues: `https://${host}/${repo}/issues`, newIssue: `https://${host}/${repo}/issues/new` }),
     fromRow: (row) => ({
       number: row.number,
       title: row.title,
       labels: Array.isArray(row.labels) ? row.labels.map((l) => l && l.name) : [],
       author: row.author && row.author.login,
+      createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       url: row.url,
       body: row.body,
@@ -100,11 +112,34 @@ const FORGES = {
       ...(query.assignee ? ['--assignee=@me'] : []),
       ...(query.author && userName(me) ? [`--author=${me}`] : []),
     ],
+    // One issue and its notes through the REST API (#874): `glab issue view --output json` documents no comments in
+    // its JSON. System notes ("changed the label") are left out. Not yet measured against a live GitLab.
+    viewArgs: (repo, number, { host, path: project }) => {
+      const base = `projects/${encodeURIComponent(project)}/issues/${number}`;
+      return [['api', '--hostname', host, base], ['api', '--hostname', host, `${base}/notes?sort=asc&per_page=100`]];
+    },
+    fromView: ([issue, notes]) => ({
+      number: issue && issue.iid,
+      title: issue && issue.title,
+      state: issue && issue.state,
+      labels: issue && issue.labels,
+      author: issue && issue.author && issue.author.username,
+      url: issue && issue.web_url,
+      body: issue && issue.description,
+      createdAt: issue && issue.created_at,
+      comments: (Array.isArray(notes) ? notes : []).filter((n) => n && !n.system)
+        .map((n) => ({ author: n.author && n.author.username, body: n.body, createdAt: n.created_at })),
+    }),
+    web: ({ host, path: repo, http }) => {
+      const root = `${http ? 'http' : 'https'}://${host}/${repo}/-/issues`;
+      return { issues: root, newIssue: `${root}/new` };
+    },
     fromRow: (row) => ({
       number: row.iid,
       title: row.title,
       labels: row.labels,
       author: row.author && row.author.username,
+      createdAt: row.created_at,
       updatedAt: row.updated_at,
       url: row.web_url,
       body: row.description,
@@ -159,6 +194,7 @@ function normalizeRows(forge, rows) {
       title: stringOr(i.title),
       labels: (Array.isArray(i.labels) ? i.labels : []).filter((l) => typeof l === 'string'),
       author: stringOr(i.author),
+      createdAt: timeOf(i.createdAt),
       updatedAt: timeOf(i.updatedAt),
       url: httpUrl(i.url),
       body: stringOr(i.body).slice(0, BODY_LIMIT),
@@ -267,8 +303,9 @@ async function listIssues(projectPath, query, options) {
   return promise;
 }
 
-async function readIssues(projectPath, settings, globalSettings, query, force) {
-  const refuse = (reason, message) => ({ enabled: true, ok: false, reason, message });
+// The forge, the repository argument and the binary for a project, or a refusal. Shared by the list and the single read.
+async function resolveRepo(projectPath, settings, globalSettings) {
+  const refuse = (reason, message) => ({ refused: { enabled: true, ok: false, reason, message } });
   if (ctx.isForeignNetworkFile && ctx.isForeignNetworkFile(projectPath)) return refuse('no-remote', 'This project is on a network share this app has no project on.');
 
   const remote = stringOr(settings.forgeRemote).trim() || 'origin';
@@ -286,8 +323,18 @@ async function readIssues(projectPath, settings, globalSettings, query, force) {
   const repo = forge.repoArg(parsed);
   if (!repo) return refuse('no-provider', `The remote "${remote}" does not look like a ${forge.label} repository.`);
 
+  // From here on the forge is known, so a refusal still names its web pages (#874): a missing or logged-out CLI is when
+  // the browser link helps most.
   const binary = binaryFor(forge, globalSettings);
-  if (!binary.file) return refuse(binary.reason, binary.message);
+  if (!binary.file) return { refused: { ...refuse(binary.reason, binary.message).refused, provider: forge.label, web: webOf(forge, parsed) } };
+  return { forge, repo, parsed, binary };
+}
+
+async function readIssues(projectPath, settings, globalSettings, query, force) {
+  const refuse = (reason, message) => ({ enabled: true, ok: false, reason, message });
+  const resolved = await resolveRepo(projectPath, settings, globalSettings);
+  if (resolved.refused) return resolved.refused;
+  const { forge, repo, parsed, binary } = resolved;
   // The name is needed BEFORE the list only when the list filters by it; otherwise both run at once, so a slow
   // "who am I" does not hold up a list that does not use it.
   const naming = forge.needsMe ? nameFor(forge, binary.file, parsed.host, force) : Promise.resolve('');
@@ -302,13 +349,45 @@ async function readIssues(projectPath, settings, globalSettings, query, force) {
   // What this provider can filter on; a toggle it cannot answer is left out of the window and out of the argv.
   const supports = { state: true, assignee: true, author: !forge.needsMe || !!me };
   const asked = supports.author ? query : { ...query, author: false };
-  if (res.err) return { enabled: true, ok: false, ...classifyFailure(forge, res.err, res.stderr) };
+  if (res.err) return { enabled: true, ok: false, ...classifyFailure(forge, res.err, res.stderr), provider: forge.label, web: webOf(forge, parsed) };
   let rows;
   try { rows = JSON.parse(res.stdout || '[]'); } catch { return refuse('failed', `${forge.cli} answered with something that is not a list of issues.`); }
   return {
     enabled: true, ok: true, provider: forge.label, repo: parsed.path, issues: normalizeRows(forge, rows),
-    limit: LIST_LIMIT, query: asked, supports,
+    limit: LIST_LIMIT, query: asked, supports, web: webOf(forge, parsed),
   };
+}
+
+// The web pages, only as http(s) URLs this module built from the parsed remote.
+function webOf(forge, parsed) {
+  const w = forge.web(parsed);
+  return { issues: httpUrl(w.issues), newIssue: httpUrl(w.newIssue) };
+}
+
+const COMMENT_LIMIT = 100;
+// One issue with its comments, read-only (#874). The number is checked before it reaches an argument; nothing is held.
+async function readIssue(projectPath, number) {
+  const settings = ctx.effectiveSettings(projectPath);
+  if (!projectPath || settings.forgeIssuesEnabled !== true) return { enabled: false };
+  const n = Number(number);
+  if (!Number.isSafeInteger(n) || n <= 0) return { enabled: true, ok: false, reason: 'failed', message: 'That is not an issue number.' };
+  const globalSettings = ctx.getSetting('global') || {};
+  const resolved = await resolveRepo(projectPath, settings, globalSettings);
+  if (resolved.refused) return resolved.refused;
+  const { forge, repo, parsed, binary } = resolved;
+  const parts = [];
+  for (const args of forge.viewArgs(repo, n, parsed)) {
+    const res = await run(binary.file, args, CLI_TIMEOUT_MS);
+    if (res.err) return { enabled: true, ok: false, ...classifyFailure(forge, res.err, res.stderr) };
+    try { parts.push(JSON.parse(res.stdout || 'null')); } catch { return { enabled: true, ok: false, reason: 'failed', message: `${forge.cli} answered with something that is not an issue.` }; }
+  }
+  const raw = forge.fromView(parts) || {};
+  const [row] = normalizeRows({ fromRow: (r) => r }, [raw]);
+  if (!row) return { enabled: true, ok: false, reason: 'failed', message: 'The issue could not be read.' };
+  const comments = (Array.isArray(raw.comments) ? raw.comments : []).slice(0, COMMENT_LIMIT).map((c) => ({
+    author: stringOr(c.author), body: stringOr(c.body).slice(0, BODY_LIMIT), createdAt: timeOf(c.createdAt),
+  }));
+  return { enabled: true, ok: true, provider: forge.label, issue: { ...row, comments } };
 }
 
 // The test control in Settings. It runs the SAVED path and takes no path from the window, so this handler cannot
@@ -326,9 +405,10 @@ async function checkCli(providerId) {
 function registerIpc(ipc) {
   ipc.handle('forge-issues-list', (_event, projectPath, query, options) => listIssues(projectPath, query, options));
   ipc.handle('forge-cli-check', (_event, providerId) => checkCli(providerId));
+  ipc.handle('forge-issue-read', (_event, projectPath, number) => readIssue(projectPath, number));
 }
 
 module.exports = {
-  init, registerIpc, listIssues, checkCli,
+  init, registerIpc, listIssues, readIssue, checkCli,
   parseRemoteUrl, providerForHost, normalizeRows, normalizeQuery, resolveBinary, classifyFailure, FORGES,
 };

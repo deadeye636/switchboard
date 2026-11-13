@@ -15,8 +15,9 @@
 // appGlobalSettings (app.js), moveVariableInOrder, stepVariableInOrder, sameVariableOrder (lib/variable-order.js),
 // SESSION_SIDEBAR_GROUP_NAMES, hiddenSidebarGroups, withSidebarGroupHidden (lib/sidebar-groups.js, #835),
 // and for the issue filters (#830) settingsOwnerPath (shared/worktree-path.js), filterIssues, normalizeIssueFilter,
-// issueQueryOf, issueLabels, issueCountLabel, readIssueFilter, patchIssueFilter, ISSUE_FILTER_EVENT (views/tasks-logic.js,
-// loaded after this file: every reference is inside a function; the window listener spells the event name itself).
+// issueQueryOf, issueLabels, issueCountLabel, readIssueFilter, patchIssueFilter, ISSUE_FILTER_EVENT, and since #874
+// filterTasks, sortTasks, issuePreviewMarkdown (views/tasks-logic.js, loaded after this file: every reference is inside a
+// function; the window listener spells the event name itself), and openTextInPanel (views/file-panel.js, #874).
 //
 // Read from outside: `SESSION_SIDEBAR_GROUP_MIME` by `isPaneTabDrag` (terminal/terminal-manager.js).
 //
@@ -193,8 +194,8 @@ function contextLineDetails(context) {
 //
 // What a row offers is decided by its kind and nothing else. `open` and `copy` and `edit` are the only buttons, and
 // a row gets only those it can honour (an issue without a url has no `open`, a skill without an id has no `edit`).
-const SIDEBAR_ROW_ACTIONS = { task: ['open', 'copy'], issue: ['open', 'copy'], handoff: ['open', 'copy'], skill: ['edit'] };
-const SIDEBAR_ACTION_FACE = { open: ['↗', 'Open'], copy: ['⧉', 'Copy'], edit: ['✎', 'Edit'] };
+const SIDEBAR_ROW_ACTIONS = { task: ['open', 'copy'], issue: ['preview', 'open', 'copy'], handoff: ['open', 'copy'], skill: ['edit'] };
+const SIDEBAR_ACTION_FACE = { preview: ['◫', 'Preview'], open: ['↗', 'Open'], copy: ['⧉', 'Copy'], edit: ['✎', 'Edit'] };
 
 const SIDEBAR_KIND_GROUP = { task: 'tasks', issue: 'tasks', handoff: 'handoffs', skill: 'connectors' };
 
@@ -202,6 +203,7 @@ function sidebarRowActions(kind, src) {
   const s = src || {};
   return (SIDEBAR_ROW_ACTIONS[kind] || []).filter((a) => {
     if (kind === 'issue' && a === 'open') return !!s.url;
+    if (kind === 'issue' && a === 'preview') return s.number != null;
     if (kind === 'handoff') return !!s.filePath;
     if (kind === 'skill' && a === 'edit') return !!s.id;
     return true;
@@ -396,13 +398,25 @@ function sidebarIssueQueryMoved(a, b) {
   return x.state !== y.state || x.assignee !== y.assignee || x.author !== y.author;
 }
 
+// The sort choices of the bar (#874), the modes of `sortTasks`, for the tasks and the issues alike.
+const SIDEBAR_SORTS = [['newest', 'Newest'], ['oldest', 'Oldest'], ['updated', 'Recently updated'], ['updated_oldest', 'Least recently updated']];
+
+// The local tasks after the bar's text and order (#874). `entry.sidebarTaskRows` is what the last read found.
+function sidebarTaskListHtml(entry) {
+  const all = entry.sidebarTaskRows || [];
+  const filter = entry.sidebarIssueFilter || normalizeIssueFilter(null);
+  const rows = sortTasks(filterTasks(all, { text: entry.sidebarIssueText || '' }), filter.sort);
+  if (!rows.length) return sidebarNote(all.length ? 'No tasks match the filter.' : 'No open tasks.');
+  return rows.slice(0, SESSION_SIDEBAR_ROWS).map((t) => sidebarItem(entry, 'task', t)).join('');
+}
+
 // The rows and the count; a keystroke in the text field redraws only these.
 function sidebarIssueListParts(entry) {
   const answer = entry.sidebarIssueAnswer;
   const filter = entry.sidebarIssueFilter || normalizeIssueFilter(null);
   if (!answer) return { count: '', list: sidebarNote('Loading…') };
   if (!answer.ok) return { count: '', list: sidebarNote(answer.message || 'The issues could not be read.') };
-  const rows = filterIssues(answer.issues, { text: entry.sidebarIssueText || '', label: filter.label });
+  const rows = sortTasks(filterIssues(answer.issues, { text: entry.sidebarIssueText || '', label: filter.label }), filter.sort);
   const word = filter.state === 'all' ? '' : ` ${filter.state}`;
   const count = issueCountLabel(rows.length, answer.issues.length, answer.limit) + word;
   const none = filter.state === 'closed' ? 'No closed issues.' : filter.state === 'all' ? 'No issues.' : 'No open issues.';
@@ -412,8 +426,11 @@ function sidebarIssueListParts(entry) {
   return { count, list };
 }
 
-// The text field, the Filter button and its popover. A toggle the provider cannot answer is not drawn.
+// The bar under the group's headline (#874): one text field and one order for the tasks and the issues; the Filter
+// button and its popover (state, label, the two "me" toggles) only while issues are on, because they are issue-only.
+// A toggle the provider cannot answer is not drawn.
 function sidebarIssueBarHtml(entry) {
+  const issuesOn = entry.sidebarIssuesOn === true;
   const filter = entry.sidebarIssueFilter || normalizeIssueFilter(null);
   const answer = entry.sidebarIssueAnswer;
   const supports = (answer && answer.ok && answer.supports) || entry.sidebarIssueSupports || {};
@@ -426,26 +443,52 @@ function sidebarIssueBarHtml(entry) {
     : '');
   return `
     <div class="ssb-issue-bar">
-      <input type="text" class="ssb-issue-search" data-ssb-focus="issue-search" placeholder="Filter issues…" aria-label="Filter issues" value="${escapeHtml(entry.sidebarIssueText || '')}">
-      <button type="button" class="ssb-head-btn ssb-issue-filter-btn" data-ssb="issue-filter" data-ssb-focus="issue-filter" aria-haspopup="true" aria-expanded="${open ? 'true' : 'false'}" title="State, label and the issues that are yours">Filter${active ? ` · ${active}` : ''}</button>
+      <input type="text" class="ssb-issue-search" data-ssb-focus="issue-search" placeholder="${issuesOn ? 'Filter tasks and issues…' : 'Filter tasks…'}" aria-label="${issuesOn ? 'Filter tasks and issues' : 'Filter tasks'}" value="${escapeHtml(entry.sidebarIssueText || '')}">
+      <select class="ssb-sort" data-ssb-focus="sort" aria-label="Order" title="Order of the tasks and issues">${SIDEBAR_SORTS.map(([v, l]) => `<option value="${v}"${v === filter.sort ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      ${issuesOn ? `<button type="button" class="ssb-head-btn ssb-issue-filter-btn" data-ssb="issue-filter" data-ssb-focus="issue-filter" aria-haspopup="true" aria-expanded="${open ? 'true' : 'false'}" title="State, label and the issues that are yours">Filter${active ? ` · ${active}` : ''}</button>
       <div class="ssb-issue-pop"${open ? '' : ' hidden'}>
         <select class="ssb-issue-state" data-ssb-focus="issue-state" aria-label="Issue state">${SIDEBAR_ISSUE_STATES.map(([v, l]) => `<option value="${v}"${v === filter.state ? ' selected' : ''}>${l}</option>`).join('')}</select>
         <select class="ssb-issue-label" data-ssb-focus="issue-label" aria-label="Label"><option value="">All labels</option>${labels.map((l) => `<option value="${escapeHtml(l)}"${l === filter.label ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
         ${toggle('assignee', 'Assigned to me')}
         ${toggle('author', 'Opened by me')}
-      </div>
+      </div>` : ''}
     </div>`;
+}
+
+// The forge's own pages (#874): the issue list and a new issue, as two icons. Only for an answer that named them, so a
+// project without a known forge has none.
+const FORGE_ICON_LIST = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>';
+const FORGE_ICON_NEW = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
+function sidebarForgeButtonsHtml(entry) {
+  const answer = entry.sidebarIssueAnswer;
+  // A refusal after the remote was read still names the pages (a missing or logged-out CLI).
+  const web = answer && answer.web;
+  if (!web) return '';
+  const name = escapeHtml(answer.provider || 'the forge');
+  return '<span class="ssb-forge-btns">'
+    + (web.issues ? `<button type="button" class="ssb-head-btn ssb-forge-btn" data-ssb="forge-web" data-which="issues" title="Open the issue list on ${name}" aria-label="Open the issue list on ${name}">${FORGE_ICON_LIST}</button>` : '')
+    + (web.newIssue ? `<button type="button" class="ssb-head-btn ssb-forge-btn" data-ssb="forge-web" data-which="newIssue" title="New issue on ${name}" aria-label="New issue on ${name}">${FORGE_ICON_NEW}</button>` : '')
+    + '</span>';
 }
 
 function sidebarIssuesBlockHtml(entry) {
   const parts = sidebarIssueListParts(entry);
-  return `<div class="ssb-subhead ssb-issue-head"><span>Issues · read-only</span><span class="ssb-issue-count">${escapeHtml(parts.count)}</span></div>`
-    + sidebarIssueBarHtml(entry)
+  return `<div class="ssb-subhead ssb-issue-head"><span>Issues · read-only</span><span class="ssb-issue-count">${escapeHtml(parts.count)}</span>${sidebarForgeButtonsHtml(entry)}</div>`
     + `<div class="ssb-issue-list">${parts.list}</div>`;
 }
 
+// The whole group (#874): the bar, the tasks, and the issues while they are on.
+function sidebarTasksGroupHtml(entry) {
+  return sidebarIssueBarHtml(entry)
+    + `<div class="ssb-task-list">${sidebarTaskListHtml(entry)}</div>`
+    + (entry.sidebarIssuesOn === true ? sidebarIssuesBlockHtml(entry) : '');
+}
+
+// The tasks and the issues after a keystroke or another order, without the bar (it holds the caret).
 function sidebarRedrawIssueList(entry) {
   const root = entry.sidebar;
+  const tasks = root && root.querySelector('.ssb-task-list');
+  if (tasks) tasks.innerHTML = sidebarTaskListHtml(entry);
   const list = root && root.querySelector('.ssb-issue-list');
   if (!list) return;
   const parts = sidebarIssueListParts(entry);
@@ -485,7 +528,7 @@ async function sidebarChangeIssueFilter(entry, patch) {
     const bar = entry.sidebar && entry.sidebar.querySelector('.ssb-issue-bar');
     if (bar) bar.outerHTML = sidebarIssueBarHtml(entry);
     sidebarRedrawIssueList(entry);
-    sidebarRestoreFocus(entry.sidebar, patch.label !== undefined ? 'issue-label' : null);
+    sidebarRestoreFocus(entry.sidebar, patch.label !== undefined ? 'issue-label' : patch.sort !== undefined ? 'sort' : null);
   }
 }
 
@@ -613,6 +656,19 @@ async function sessionSidebarRowClick(entry, key, plain) {
   sidebarInsert(entry, text);
 }
 
+// An issue read-only in the session's preview (#874): read on the click, never ahead of it, and drawn as Markdown.
+async function sessionSidebarPreviewIssue(entry, src) {
+  const session = sidebarSessionOf(entry);
+  if (!session.projectPath || src.number == null || typeof openTextInPanel !== 'function') return;
+  let res;
+  try { res = await window.api.forgeIssueRead(session.projectPath, src.number); } catch { res = null; }
+  if (!res || !res.ok || !res.issue) {
+    window.showControlToast?.({ message: (res && res.message) || 'The issue could not be read.', timeoutMs: 3000 });
+    return;
+  }
+  openTextInPanel(entry.session.sessionId, { name: `Issue #${res.issue.number}.md`, content: issuePreviewMarkdown(res.issue, res.provider) });
+}
+
 // A hover button. Open leads out of the sidebar to the kind's own view; none of these touch the prompt.
 async function sessionSidebarRowAct(entry, key, act) {
   const held = entry.sidebarRows && entry.sidebarRows.get(key);
@@ -631,6 +687,7 @@ async function sessionSidebarRowAct(entry, key, act) {
     else if (kind === 'handoff' && typeof openFileInPanel === 'function') openFileInPanel(entry.session.sessionId, src.filePath);
     return;
   }
+  if (act === 'preview' && kind === 'issue') { sessionSidebarPreviewIssue(entry, src); return; }
   if (act === 'edit' && kind === 'skill') {
     const projectPath = session.projectPath || null;
     const project = src.scope === 'project' && projectPath;
@@ -753,26 +810,26 @@ const SESSION_SIDEBAR_GROUPS = [
       const projectPath = sidebarSessionOf(entry).projectPath;
       if (!projectPath) return sidebarNote('This session has no project.');
       const res = await window.api.taskList({ projectPath });
-      const rows = openTaskRows(res && res.tasks);
-      let html = rows.length
-        ? rows.slice(0, SESSION_SIDEBAR_ROWS).map((t) => sidebarItem(entry, 'task', t)).join('')
-        : sidebarNote('No open tasks.');
       const settings = await window.api.getEffectiveSettings(projectPath);
-      if (settings && settings.forgeIssuesEnabled === true) {
-        if (!current()) return html;
-        const owner = sidebarIssueOwner(projectPath);
-        if (entry.sidebarIssueOwner !== owner) {
-          entry.sidebarIssueOwner = owner;
-          entry.sidebarIssueText = '';
-          entry.sidebarIssueSupports = null;
-        }
-        const stored = await readIssueFilter(window.api, owner);
-        if (!current()) return html;
-        entry.sidebarIssueFilter = stored;
+      // The text and the order are the bar's for the tasks too (#874), so the stored filter row is read either way.
+      const owner = sidebarIssueOwner(projectPath);
+      const stored = await readIssueFilter(window.api, owner);
+      if (!current()) return sidebarTasksGroupHtml(entry);
+      if (entry.sidebarIssueOwner !== owner) {
+        entry.sidebarIssueOwner = owner;
+        entry.sidebarIssueText = '';
+        entry.sidebarIssueSupports = null;
+      }
+      entry.sidebarTaskRows = openTaskRows(res && res.tasks);
+      entry.sidebarIssueFilter = stored;
+      entry.sidebarIssuesOn = !!(settings && settings.forgeIssuesEnabled === true);
+      let html = sidebarTasksGroupHtml(entry);
+      if (entry.sidebarIssuesOn) {
         if (entry.sidebarIssueAnswer && entry.sidebarIssueAnswer.ok && entry.sidebarIssueAnswer.supports) entry.sidebarIssueSupports = entry.sidebarIssueAnswer.supports;
         entry.sidebarIssueAnswer = null;
         // The tasks are local and the CLI can take its timeout, so they do not wait for it.
-        draw(html + sidebarIssuesBlockHtml(entry));
+        html = sidebarTasksGroupHtml(entry);
+        draw(html);
         let issues;
         try {
           issues = await window.api.forgeIssuesList(projectPath, issueQueryOf(entry.sidebarIssueFilter), { force: force === true });
@@ -781,7 +838,7 @@ const SESSION_SIDEBAR_GROUPS = [
         }
         if (!current()) return html;
         entry.sidebarIssueAnswer = issues && issues.enabled ? issues : { ok: false, message: 'The issues could not be read.' };
-        html += sidebarIssuesBlockHtml(entry);
+        html = sidebarTasksGroupHtml(entry);
       }
       return html;
     },
@@ -1434,6 +1491,12 @@ function buildSidebar(entry) {
         if (entry.sidebarIssuePopOpen && pop) { const first = pop.querySelector('select, button'); if (first) first.focus(); }
         break;
       }
+      case 'forge-web': {
+        const web = entry.sidebarIssueAnswer && entry.sidebarIssueAnswer.ok && entry.sidebarIssueAnswer.web;
+        const url = web && (el.dataset.which === 'newIssue' ? web.newIssue : web.issues);
+        if (url) window.api.openExternal(url);
+        break;
+      }
       case 'issue-toggle': {
         const field = el.dataset.field;
         const filter = entry.sidebarIssueFilter || normalizeIssueFilter(null);
@@ -1443,7 +1506,7 @@ function buildSidebar(entry) {
       default:
     }
   });
-  // The issue filters (#830): the text redraws the rows only; state and label are stored.
+  // The bar (#830, #874): the text redraws the task and issue rows only; state, label and order are stored.
   root.addEventListener('input', (e) => {
     if (!e.target.classList || !e.target.classList.contains('ssb-issue-search')) return;
     entry.sidebarIssueText = e.target.value;
@@ -1454,6 +1517,7 @@ function buildSidebar(entry) {
     if (!t.classList) return;
     if (t.classList.contains('ssb-issue-state')) sidebarChangeIssueFilter(entry, { state: t.value });
     else if (t.classList.contains('ssb-issue-label')) sidebarChangeIssueFilter(entry, { label: t.value });
+    else if (t.classList.contains('ssb-sort')) sidebarChangeIssueFilter(entry, { sort: t.value });
   });
   // Escape closes the popover and hands the caret back to its button; it never reaches the session.
   root.addEventListener('keydown', (e) => {
