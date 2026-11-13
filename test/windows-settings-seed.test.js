@@ -21,8 +21,9 @@ test('main takes an item only beside a known category, and only as a 16-characte
     assert.equal(settingsQuery('global', null, { cat: 'instructions', item: bad }).item, undefined, `refused ${JSON.stringify(bad)}`);
   }
   assert.equal(settingsQuery('global', null, { item: ID }).item, undefined, 'no category: no item');
-  assert.equal(settingsQuery('global', null, { cat: 'backends', item: ID }).item, undefined, 'unknown category: no item');
-  assert.equal(settingsQuery('global', null, { cat: 'backends', item: ID }).cat, undefined);
+  // `backends` is a deep-link category since #873 (the welcome tour's gear); `tags` is not one.
+  assert.equal(settingsQuery('global', null, { cat: 'tags', item: ID }).item, undefined, 'unknown category: no item');
+  assert.equal(settingsQuery('global', null, { cat: 'tags', item: ID }).cat, undefined);
 });
 
 test('the item does not make the window a different thing', () => {
