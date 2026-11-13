@@ -350,11 +350,24 @@ function contextHeadFigure(figures) {
   return figures && Number.isFinite(Number(figures.percent)) ? `${Math.round(Number(figures.percent))} %` : '';
 }
 
+// The small bar beside it in the collapsed header (#876): the open group's stacked bar where the session answered a
+// breakdown, a plain fill at the percentage otherwise, nothing without a figure. Only numbers and the backend's own
+// kind and slot words reach the markup, and those are escaped.
+function contextHeadBarHtml(figures, breakdown) {
+  if (!figures || !Number.isFinite(Number(figures.percent))) return '';
+  const segments = breakdown && Array.isArray(breakdown.categories) ? sidebarBarSegments(breakdown, figures.window) : [];
+  if (segments.length) {
+    return segments.map((s) => `<i${Number.isInteger(s.slot) ? ` data-slot="${s.slot}"` : ''} data-kind="${escapeHtml(s.kind)}" style="width:${s.width}%"></i>`).join('');
+  }
+  const width = Math.max(0, Math.min(100, Number(figures.percent)));
+  return `<i class="ssb-head-fill" style="width:${width}%"></i>`;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
     instructionGroups, instructionRow, repositoryRows, repositorySignature, repositoryRowHtml, processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure,
-    sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, sidebarItemHtml,
+    contextHeadBarHtml, sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
   };
@@ -788,7 +801,8 @@ const SESSION_SIDEBAR_GROUPS = [
       const fromView = entry.conversation && entry.conversation.context ? entry.conversation.context() : null;
       const session = sidebarSessionOf(entry);
       const figures = sidebarContextFigures(fromView, session.contextFill, session.lastModel);
-      sidebarSetHeadFigure(entry, 'context', contextHeadFigure(figures));
+      // The header's figure and its bar (#876) are written in one place.
+      sidebarUpdateContextHead(entry);
       if (!figures) return sidebarNote('No figure for this session yet.');
       const percent = Math.max(0, Math.min(100, figures.percent));
       const tokens = Number.isFinite(Number(figures.tokens)) && Number.isFinite(Number(figures.window))
@@ -951,7 +965,15 @@ function sidebarSetHeadFigure(entry, groupId, text) {
 function sidebarUpdateContextHead(entry) {
   const fromView = entry.conversation && entry.conversation.context ? entry.conversation.context() : null;
   const session = sidebarSessionOf(entry);
-  sidebarSetHeadFigure(entry, 'context', contextHeadFigure(sidebarContextFigures(fromView, session.contextFill, session.lastModel)));
+  const figures = sidebarContextFigures(fromView, session.contextFill, session.lastModel);
+  sidebarSetHeadFigure(entry, 'context', contextHeadFigure(figures));
+  // The bar beside the figure (#876), from the same answers; only a changed bar touches the DOM.
+  const bar = entry.sidebar && entry.sidebar.querySelector('.ssb-group[data-group="context"] > summary > .ssb-group-bar');
+  if (bar) {
+    const html = contextHeadBarHtml(figures, fromView && fromView.breakdown);
+    if (bar._html !== html) { bar._html = html; bar.innerHTML = html; }
+    bar.hidden = !html;
+  }
 }
 
 // --- The Processes group's poll (#834, #840). ---
@@ -1428,7 +1450,7 @@ function buildSidebar(entry) {
     <div class="ssb-body">${sessionSidebarGroupOrder().map((id) => SESSION_SIDEBAR_GROUPS.find((g) => g.id === id)).map((g) => `
       <div class="ssb-slot" data-group-slot="${g.id}"${hidden.includes(g.id) ? ' hidden' : ''}>
         <details class="ssb-group" data-group="${g.id}"${state.groups.includes(g.id) ? ' open' : ''}>
-          <summary><span class="ssb-group-name">${escapeHtml(sidebarGroupLabel(g.id))}</span><span class="ssb-group-figure" aria-hidden="true"></span><span class="ssb-group-figure-sr visually-hidden"></span></summary>
+          <summary><span class="ssb-group-name">${escapeHtml(sidebarGroupLabel(g.id))}</span><span class="ssb-group-figure" aria-hidden="true"></span>${g.id === 'context' ? '<span class="ssb-group-bar ssb-stack" aria-hidden="true"></span>' : ''}<span class="ssb-group-figure-sr visually-hidden"></span></summary>
           <div class="ssb-group-body"></div>
         </details>
         <button type="button" class="ssb-grip" title="Drag to reorder (Alt+Up / Alt+Down)" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"

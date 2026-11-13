@@ -5,7 +5,7 @@ const test = require('node:test');
 const { after } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure } = require('../src/renderer/session/session-sidebar');
+const { processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure, contextHeadBarHtml } = require('../src/renderer/session/session-sidebar');
 const { setupSessionSidebar, closeSessionSidebarWindows } = require('./helpers/session-sidebar-dom');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -271,4 +271,31 @@ test('#842: a collapsed header speaks name and figure apart, and says what the f
 test('#842: an open group hides the spoken figure with the drawn one (jsdom loads no stylesheet, so the rule is read)', () => {
   const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'style.css'), 'utf8');
   assert.match(css, /\.ssb-group\[open\] > summary > \.ssb-group-figure,\s*\.ssb-group\[open\] > summary > \.ssb-group-figure-sr \{ display: none; \}/);
+});
+
+// #876: the collapsed Context header also shows the bar — the stacked one with a breakdown, a plain fill without.
+test('the collapsed context bar: stacked from a breakdown, a plain fill from a percentage, nothing without a figure', () => {
+  global.escapeHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  try {
+    assert.equal(contextHeadBarHtml(null), '');
+    assert.equal(contextHeadBarHtml({ percent: NaN }), '');
+    assert.equal(contextHeadBarHtml({ percent: 42 }), '<i class="ssb-head-fill" style="width:42%"></i>');
+    assert.equal(contextHeadBarHtml({ percent: 140 }), '<i class="ssb-head-fill" style="width:100%"></i>', 'capped');
+    const breakdown = { categories: [
+      { label: 'System', tokens: 100, kind: 'used', slot: 1 },
+      { label: 'Buffer', tokens: 50, kind: 'buffer', slot: null },
+      { label: 'Free', tokens: 850, kind: 'free', slot: null },
+    ], lists: [] };
+    assert.equal(contextHeadBarHtml({ percent: 15, window: 1000 }, breakdown),
+      '<i data-slot="1" data-kind="used" style="width:10%"></i><i data-kind="buffer" style="width:5%"></i>');
+    assert.equal(contextHeadBarHtml({ percent: 15 }, breakdown), '<i class="ssb-head-fill" style="width:15%"></i>',
+      'no window, no stack: the plain fill');
+    assert.equal(contextHeadBarHtml({ percent: 10, window: 10 }, { categories: [{ tokens: 1, kind: 'used', slot: '"><x' }] }),
+      '<i data-kind="used" style="width:10%"></i>', 'a slot that is not an integer is not written');
+  } finally { delete global.escapeHtml; }
+});
+
+test('#876: the header bar is hidden while the group is open and when it has nothing to show (the rules are read)', () => {
+  const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'style.css'), 'utf8');
+  assert.match(css, /\.ssb-group-bar\[hidden\],\s*\.ssb-group\[open\] > summary > \.ssb-group-bar \{ display: none; \}/);
 });

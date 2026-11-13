@@ -3088,6 +3088,12 @@ body.restoring-sessions #restore-progress { display: flex; }
 .ssb-group-figure { float: right; margin-top: 1px; font-size: 10px; font-weight: 400; color: #7a7a90; }
 .ssb-group[open] > summary > .ssb-group-figure,
 .ssb-group[open] > summary > .ssb-group-figure-sr { display: none; }
+/* #876: the collapsed Context header's bar, beside the percentage; the open group draws its own. */
+/* It gives way in a narrow pane (the summary does not wrap): a quarter of the row at most. */
+.ssb-group-bar.ssb-stack { float: right; width: min(64px, 25%); height: 5px; margin: 6px 8px 0 0; }
+.ssb-group-bar[hidden],
+.ssb-group[open] > summary > .ssb-group-bar { display: none; }
+.ssb-group-bar > .ssb-head-fill { background: var(--status-running); }
 .ssb-group-body { padding: 0 8px 8px; }
 /* The groups' order (#829): a grip at the right of a group's head row, shown while that row is hovered or the grip has
    the focus; the dragged group at the 0.5 every drag in the app uses, and the project list's 2px line where it lands. */
