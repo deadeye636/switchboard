@@ -48,7 +48,8 @@ test('a deep link carries only a category from the fixed list, the same list mai
   const dom = load();
   try {
     assert.equal(settingsQuery('global', null, { cat: 'plugins-skills' }).cat, 'plugins-skills');
-    assert.equal(settingsQuery('global', null, { cat: 'backends' }).cat, undefined, 'not a Plugins category');
+    assert.equal(settingsQuery('global', null, { cat: 'tags' }).cat, undefined, 'not on the list');
+    assert.equal(settingsQuery('global', null, { cat: 'backends' }).cat, 'backends', 'the welcome tour\'s gear (#873)');
     assert.equal(settingsQuery('global', null, { cat: '<x>' }).cat, undefined);
     const rendererCats = JSON.parse(JSON.stringify(dom.window.settingsPlugins.SEED_CATS));
     assert.deepEqual([...rendererCats].sort(), [...SETTINGS_SEED_CATS].sort(), 'main and the renderer hold the same list, both ways');

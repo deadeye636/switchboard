@@ -766,20 +766,26 @@
         </label>`;
     }
     if (control.kind === 'mode') {
-      // The Backends list's row choices (#761 E6 c) as a segmented switch, then the CLI's toggle. While the toggle
-      // is off the switch shows the mode switching on would bring back, and is disabled. A combination the
-      // switch cannot offer presses no segment and is named in a note, never rewritten (D13).
+      // The Backends list's controls (#873): the mode badge and the picker-default badge, each a chip that opens a
+      // popover with the choices (#761 E6), then the CLI's toggle. While the toggle is off the mode badge names the
+      // mode switching on would bring back, and is disabled (D14). A combination the choices cannot offer is the
+      // badge's text with no choice marked, never rewritten (D13).
       const group = control.setting.group;
       const on = group.ids.some((gid) => value[gid] === true);
-      const shown = backendModes.choiceFor(group, value)
-        || backendModes.choiceFor(group, rememberedModes[group.owner.id] || ownerOnly(group));
-      const fixed = !!(shown && shown.readOnly);
-      const buttons = backendModes.modeChoices(group).map((c, i) => {
-        const pressed = !fixed && !!shown && shown.value === c.value;
-        return `<button type="button" class="fp-toolbar-btn viewer-mode-btn${pressed ? ' active' : ''}" id="${id}-c${i}" data-choice="${esc(c.value)}" aria-pressed="${pressed}" ${on ? '' : 'disabled'}>${esc(c.label)}</button>`;
-      }).join('');
-      const note = fixed ? `<span class="wt-unit wt-mode-note">Now: ${esc(shown.label)}</span>` : '';
-      return `${note}<div class="viewer-mode-group wt-mode-switch" role="group" id="${id}" aria-label="Mode of ${esc(control.label)}">${buttons}</div>
+      const shown = shownChoiceOf(group, value);
+      const picker = pickerModesOn(group);
+      const pickerText = `Picker: ${pickerLabelOf(group)}`;
+      return `<span class="backend-badge-anchor">
+          <button type="button" class="conversation-bg-chip backend-mode-badge" id="${id}" data-wt-badge="mode"
+                  aria-haspopup="dialog" aria-expanded="false" title="Mode of ${esc(control.label)}. Click to change it."
+                  aria-label="Mode of ${esc(control.label)}: ${esc(shown ? shown.label : '')}" ${on ? '' : 'disabled'}>${esc(shown ? shown.label : '')}</button>
+        </span>
+        <span class="backend-badge-anchor backend-picker-anchor" ${picker.length > 1 ? '' : 'hidden'}>
+          <button type="button" class="conversation-bg-chip backend-picker-badge" id="${id}-picker" data-wt-badge="picker"
+                  aria-haspopup="dialog" aria-expanded="false"
+                  title="Which mode the New Session list starts for ${esc(control.label)}. Click to change it."
+                  aria-label="Default in the picker for ${esc(control.label)}: ${esc(pickerText)}">${esc(pickerText)}</button>
+        </span>
         <label class="settings-toggle">
           <input type="checkbox" id="${id}-on" aria-label="Enable ${esc(control.label)}" ${on ? 'checked' : ''}>
           <span class="settings-toggle-slider"></span>
@@ -797,22 +803,52 @@
     return `<input class="settings-input wt-input-path" type="text" id="${id}" value="${esc(value)}">`;
   }
 
-  // "Default in the picker" under a CLI's description (#761 E6 d), only while more than one of its modes is on:
-  // the choices of the Backends list's picker badge, over the same `pickerModeByBackend` value and the same fallback
-  // (`pickerModeOf`).
-  function pickerSwitchHtml(control, id) {
-    if (control.kind !== 'mode') return '';
-    const group = control.setting.group;
+  // What the mode badge shows: the enabled modes; while the toggle is off, the mode it would switch back on (D14).
+  // The same derivation as the Backends list's `shownChoice`, over the tour's stored blob instead of a live copy.
+  function shownChoiceOf(group, enabled) {
+    return backendModes.choiceFor(group, enabled)
+      || backendModes.choiceFor(group, rememberedModes[group.owner.id] || ownerOnly(group));
+  }
+  // The picker default (#761 E6 d) is offered only while more than one mode of the CLI is on.
+  function pickerModesOn(group) {
     const enabled = groupEnabledIn(settings, group);
-    const on = group.modes.filter((m) => enabled[m.id] === true);
-    if (on.length < 2) return '';
-    const current = backendModes.pickerModeOf(group, (settings.pickerModeByBackend || {})[group.owner.id], enabled);
-    const buttons = on.map((m, i) => {
-      const pressed = m.id === current;
-      return `<button type="button" class="fp-toolbar-btn viewer-mode-btn${pressed ? ' active' : ''}" id="${id}-p${i}" data-picker-mode="${esc(m.id)}" aria-pressed="${pressed}">${esc(m.label)}</button>`;
-    }).join('');
-    return `<div class="wt-row-desc wt-picker-mode">Default in the picker
-        <div class="viewer-mode-group wt-picker-mode-switch" role="group" aria-label="Default in the picker for ${esc(control.label)}">${buttons}</div>
+    return group.modes.filter((m) => enabled[m.id] === true);
+  }
+  function pickerModeIdOf(group) {
+    return backendModes.pickerModeOf(group, (settings.pickerModeByBackend || {})[group.owner.id], groupEnabledIn(settings, group));
+  }
+  function pickerLabelOf(group) {
+    const mode = group.modes.find((m) => m.id === pickerModeIdOf(group));
+    return mode ? mode.label : '';
+  }
+
+  // Same affordance and the same markup as the Backends list's gear (`gearBtn` in panels/backends-panel.js). In the
+  // tour it opens the settings window on its Backends category, which replaces the tour (see `[data-wt-settings]`).
+  const GEAR_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+  function gearHtml(control) {
+    return `<button type="button" class="backend-gear" data-wt-gear
+              title="Launch defaults for ${esc(control.label)}" aria-label="Launch defaults for ${esc(control.label)}">${GEAR_SVG}</button>`;
+  }
+
+  // A CLI's row in the Backends list's look (#873): `.settings-field.backend-row`, the badge, the name, the
+  // `built-in` / `not installed` pills, the backend's description and a line per mode that is not installed; the
+  // controls of `controlWidget` and the gear on the right. The tour keeps its own wiring and writes at once.
+  function backendRowHtml(control, n) {
+    const id = 'wt-ctl-' + n;
+    const b = control.backend;
+    return `
+      <div class="settings-field backend-row wt-backend-row" data-backend-row="${esc(b.id)}">
+        <div class="settings-field-info">
+          <div class="settings-field-header">
+            ${control.badge ? `<span class="wt-row-icon">${control.badge}</span>` : ''}
+            <label class="settings-label" for="${control.kind === 'mode' ? id + '-on' : id}">${esc(control.label)}</label>
+            <span class="backend-pill">built-in</span>
+            ${b.available === false ? '<span class="backend-pill missing">not installed</span>' : ''}
+          </div>
+          ${b.description ? `<div class="settings-description">${esc(b.description)}</div>` : ''}
+          ${control.missing.map((line) => `<div class="settings-description backend-unavailable">${esc(line)}</div>`).join('')}
+        </div>
+        <div class="settings-field-control">${controlWidget(control, id)}${gearHtml(control)}</div>
       </div>`;
   }
 
@@ -820,18 +856,17 @@
     if (!pane.controls || !pane.controls.length) {
       return pane.ctlNote ? `<div class="wt-note">${pane.ctlNote}</div>` : '';
     }
-    const rows = pane.controls.map((control, n) => `
+    const rows = pane.controls.map((control, n) => (control.backend ? backendRowHtml(control, n) : `
       <div class="wt-row">
         <div class="wt-row-info">
           ${control.badge ? `<span class="wt-row-icon">${control.badge}</span>` : ''}
           <div>
             <label class="wt-row-label" for="wt-ctl-${n}">${esc(control.label)}</label>
             ${control.desc ? `<div class="wt-row-desc">${esc(control.desc)}</div>` : ''}
-            ${pickerSwitchHtml(control, 'wt-ctl-' + n)}
           </div>
         </div>
         <div class="wt-row-control">${controlWidget(control, 'wt-ctl-' + n)}</div>
-      </div>`).join('');
+      </div>`)).join('');
     return `<div class="wt-rows">${rows}</div>`
       + (pane.ctlNote ? `<div class="wt-note">${pane.ctlNote}</div>` : '')
       + '<div class="wt-status" hidden></div>';
@@ -854,6 +889,7 @@
   }
 
   function renderPane(index) {
+    closeBadgePop(false);
     current = index;
     seen.add(index);
     const pane = panes[index];
@@ -933,18 +969,16 @@
         if (['backendMode', 'backendEnabled', 'pickerMode'].includes(setting.type)) rebuildPanes(focusId);
       };
       if (control.kind === 'mode') {
-        // The segments are buttons: Tab reaches them, Enter / Space press them, a click commits. The picker
-        // default sits in the row's info column, so it is looked up in the row.
-        el.addEventListener('click', (e) => {
-          const btn = e.target.closest('[data-choice]');
-          if (btn && !btn.disabled) commit(btn.dataset.choice, btn.id);
+        // The two badges open a popover with the choices, as in the Backends list; a choice commits at once.
+        const group = control.setting.group;
+        el.addEventListener('click', () => {
+          if (el.disabled) return;
+          openBadgePop(el, group, 'mode', (value) => commit(value, el.id));
         });
-        const row = el.closest('.wt-row');
-        const picker = row && row.querySelector('.wt-picker-mode-switch');
+        const picker = root.querySelector('#wt-ctl-' + n + '-picker');
         if (picker) {
-          picker.addEventListener('click', (e) => {
-            const btn = e.target.closest('[data-picker-mode]');
-            if (btn) commit(btn.dataset.pickerMode, btn.id, { type: 'pickerMode', group: control.setting.group });
+          picker.addEventListener('click', () => {
+            openBadgePop(picker, group, 'picker', (value) => commit(value, picker.id, { type: 'pickerMode', group }));
           });
         }
       } else {
@@ -956,6 +990,114 @@
         el.addEventListener('input', () => drawFigure(pane, root));
       }
     });
+  }
+
+  // The badge popover (#873): the markup and the placement of the Backends list's `openRowPop`, with the choices
+  // committed at once instead of held until Save. It lives inside the overlay, so the overlay's own z-index carries
+  // it, and it is closed by a pick, Escape, a click elsewhere, a scroll or a resize, and with the tour.
+  let badgePop = null;
+  function closeBadgePop(refocus) {
+    if (!badgePop) return;
+    const { pop, badge, onDown, onMove, onFocusOut } = badgePop;
+    badgePop = null;
+    pop.remove();
+    badge.removeEventListener('focusout', onFocusOut);
+    badge.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', onDown, true);
+    document.removeEventListener('scroll', onMove, true);
+    window.removeEventListener('resize', onMove);
+    if (refocus && badge.isConnected) badge.focus();
+  }
+  function placeBadgePop(pop, badge) {
+    const vw = document.documentElement.clientWidth || window.innerWidth || 0;
+    const vh = document.documentElement.clientHeight || window.innerHeight || 0;
+    const r = badge.getBoundingClientRect();
+    const w = pop.offsetWidth;
+    const h = pop.offsetHeight;
+    const GAP = 6;
+    const EDGE = 8;
+    let left = r.right - w;
+    if (vw) left = Math.max(EDGE, Math.min(left, vw - w - EDGE));
+    let top = r.bottom + GAP;
+    if (vh && top + h > vh - EDGE && r.top - GAP - h >= EDGE) top = r.top - GAP - h;
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+  function openBadgePop(badge, group, kind, onPick) {
+    const wasOpen = badgePop && badgePop.badge === badge;
+    closeBadgePop(false);
+    if (wasOpen) return;
+    const pop = document.createElement('div');
+    pop.className = 'conversation-bg-pop backend-badge-pop';
+    pop.tabIndex = -1;
+    pop.setAttribute('role', 'dialog');
+    const head = document.createElement('div');
+    head.className = 'conversation-bg-head';
+    const row = document.createElement('div');
+    row.className = 'conversation-idle-choices';
+    const choice = (label, value, pressed) => {
+      const c = document.createElement('button');
+      c.type = 'button';
+      c.className = 'new-session-secondary-btn conversation-bg-btn';
+      c.dataset.value = value;
+      c.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+      c.textContent = label;
+      row.appendChild(c);
+    };
+    const label = group.owner.label || group.owner.id;
+    const shown = kind === 'mode' ? shownChoiceOf(group, groupEnabledIn(settings, group)) : null;
+    if (kind === 'mode') {
+      head.textContent = 'Mode';
+      pop.setAttribute('aria-label', `Mode of ${label}`);
+      for (const c of backendModes.modeChoices(group)) {
+        choice(c.label, c.value, !!shown && !shown.readOnly && shown.value === c.value);
+      }
+    } else {
+      head.textContent = 'Default in the picker';
+      pop.setAttribute('aria-label', `Default in the picker for ${label}`);
+      const current = pickerModeIdOf(group);
+      for (const m of pickerModesOn(group)) choice(m.label, m.id, m.id === current);
+    }
+    pop.append(head, row);
+    if (shown && shown.readOnly) {
+      const note = document.createElement('div');
+      note.className = 'conversation-idle-info';
+      note.textContent = `Enabled now: ${shown.label}. Pick a mode to change it.`;
+      pop.appendChild(note);
+    }
+    // Escape is the tour's document-capture handler's: it closes this popover first (see `escapeHandler`).
+    pop.addEventListener('click', (e) => {
+      const c = e.target.closest('button[data-value]');
+      if (!c) return;
+      closeBadgePop(false);
+      onPick(c.dataset.value);
+    });
+    const onDown = (e) => {
+      if (pop.contains(e.target) || badge.contains(e.target)) return;
+      closeBadgePop(false);
+    };
+    const onMove = (e) => {
+      if (e && e.type === 'scroll' && e.target && e.target.nodeType === 1 && pop.contains(e.target)) return;
+      closeBadgePop(false);
+    };
+    // Focus that moves on to something that is neither the popover nor its badge (Tab to the gear) closes it, as in
+    // the Backends list; a focusout with no new target (the window lost focus) keeps it.
+    const onFocusOut = (e) => {
+      const to = e.relatedTarget;
+      if (!to || pop.contains(to) || to === badge) return;
+      closeBadgePop(false);
+    };
+    (overlay || document.body).appendChild(pop);
+    placeBadgePop(pop, badge);
+    badge.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    pop.addEventListener('focusout', onFocusOut);
+    badge.addEventListener('focusout', onFocusOut);
+    badgePop = { pop, badge, onDown, onMove, onFocusOut };
+    const first = pop.querySelector('button[aria-pressed="true"]') || pop.querySelector('button');
+    if (first) first.focus();
   }
 
   function showStatus(root, text) {
@@ -988,8 +1130,11 @@
             return {
               kind: multi ? 'mode' : 'toggle',
               label: b.label || b.id,
-              desc: missing.map((x) => (multi ? `${x.m.label}: ` : '')
-                + (x.d.unavailableReason || 'Not installed on this machine.')).join(' '),
+              // Drawn as the Backends list's row (#873): the owner for its pills and description, one line per
+              // mode that is not installed.
+              backend: b,
+              missing: missing.map((x) => (multi ? `${x.m.label}: ` : '')
+                + (x.d.unavailableReason || 'Not installed on this machine.')),
               // The SAME badge the settings screen draws BESIDE A TOGGLE — `backends-panel.js`'s enable
               // list, which spells the key `colour || id` and deliberately NOT `icon`. The per-backend
               // page header uses `icon` first and therefore shows Claude's Anthropic mark; the enable
@@ -1100,6 +1245,12 @@
         // write a stale copy back over anything changed here. It replaces the tour rather than joining it.
         close();
         window.api.openSettingsWindow?.('global', null);
+        return;
+      }
+      // A backend row's gear (#873): the same replacement, landing on the Backends category.
+      if (e.target.closest('[data-wt-gear]')) {
+        close();
+        window.api.openSettingsWindow?.('global', null, { cat: 'backends' });
       }
     });
 
@@ -1112,6 +1263,8 @@
       if (e.key !== 'Escape' || !isOpen()) return;
       e.stopPropagation();
       e.preventDefault();
+      // An open badge popover takes the first Escape, as it does in the Backends list (#873).
+      if (badgePop) { closeBadgePop(true); return; }
       dismiss();
     };
     document.addEventListener('keydown', escapeHandler, true);
@@ -1123,6 +1276,7 @@
 
   function close() {
     if (!overlay) return;
+    closeBadgePop(false);
     if (escapeHandler) {
       document.removeEventListener('keydown', escapeHandler, true);
       escapeHandler = null;

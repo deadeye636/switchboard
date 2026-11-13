@@ -117,11 +117,19 @@ screen has to be re-shot and re-checked for a stray project name every time the 
 The pane builds its controls from `backendModes.cliGroups` (`src/shared/backend-modes.js`), the module the Backends
 list asks. The two cannot group differently, and the tour still names no backend.
 
-A CLI with one mode gets the toggle it always had. A CLI with a GUI mode also gets a segmented switch, Terminal | GUI |
-Both, which is disabled while the toggle is off. The Backends list offers the same choices behind a badge with a
-popover. A combination the switch cannot offer presses no segment and is named beside it. With Both chosen, the row
-shows a second switch, "Default in the picker" (Terminal | GUI), under its name. It writes `pickerModeByBackend.<owner>`,
-the same value Settings saves.
+Since #873 a row looks like the Backends list's row: the same `.settings-field.backend-row` markup, the `built-in` and
+`not installed` pills, the backend's description, the mode badge and the "Picker: …" badge with their popover, the
+toggle and the gear. The tour keeps its own code for it (owner decision on #873: match the look, not share the row
+builder), so a change to the Backends row has to be repeated here. What still differs on purpose: the tour writes each
+change at once, Settings on Save; the gear closes the tour and opens Settings on its Backends category (a deep link,
+`backends` in `SETTINGS_SEED_CATS`), because the Settings window is a snapshot and must not sit beside the tour; and
+templates, planned backends and the default-target select stay in Settings.
+
+A CLI with one mode gets the toggle it always had. A CLI with a GUI mode also gets the mode badge (Terminal | GUI |
+Both in its popover), which is disabled while the toggle is off. A combination the choices cannot offer is the badge's
+text with no choice marked. With Both chosen, the "Picker: …" badge appears beside it. It writes
+`pickerModeByBackend.<owner>`, the same value Settings saves. An open popover takes the first Escape; the second
+closes the tour.
 
 Every write goes through the whole-blob route. A mode choice writes `enabledForChoice` into `backendEnabled` and moves
 `defaultLaunchTarget` with `targetAfterModeChange` when the target was the mode that went off. With no target stored

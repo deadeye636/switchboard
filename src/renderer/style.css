@@ -11880,8 +11880,9 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   width: max-content; max-width: none; max-height: none; overflow: visible; white-space: nowrap; z-index: 1000;
 }
 .backend-badge-pop .conversation-idle-choices { flex-wrap: nowrap; margin-bottom: 0; }
-/* The welcome tour's "Default in the picker" line under a CLI's name. */
-.wt-picker-mode { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+/* The welcome tour's CLI rows are the Backends list's rows (#873); only the icon slot and the row edge differ. */
+.wt-backend-row .wt-row-icon { margin-right: 2px; }
+.wt-rows .wt-backend-row:last-child { border-bottom: none; }
 
 /* Row action buttons (Set default / Edit / Delete) + the editor's small buttons. */
 .backend-btn {

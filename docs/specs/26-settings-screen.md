@@ -190,8 +190,8 @@ The badge is not a setting. `backendEnabled` stays one flag per id, so main, the
 learn about groups; a choice writes only the flags of its group (`enabledForChoice`). A CLI without a second mode has
 no badge. With three modes some subsets have no choice of their own. The badge then shows the subset ("Terminal +
 GUI"), the popover marks nothing and says why, and nothing is rewritten. The badge is disabled while the toggle is off.
-The owner looked at a dropdown and at an inline segmented switch first and picked the badge; the welcome tour keeps the
-segmented switch.
+The owner looked at a dropdown and at an inline segmented switch first and picked the badge. The welcome tour kept the
+segmented switch until #873, which gave its rows the same badges and popover (spec 27, D7b).
 Toggling off writes every flag `false`; toggling on restores the mode the group had earlier in the open window, or
 Terminal when there is none. The default launch target follows the mode (`targetAfterModeChange`): if the target is
 the GUI mode and the user switches to Terminal only, the target moves to Terminal. Main does the same in
@@ -202,8 +202,8 @@ Terminal"). Its popover lists the enabled modes and sets which one the New Sessi
 one entry per CLI keyed by the owner's id (`pickerModeByBackend`). The panel holds it like the enabled flags and Save
 writes it through `readGlobal`. The value is a mode id from the registry. `pickerModeOf` in `src/shared/backend-modes.js`
 is the only fallback: the stored id while it is an enabled mode of the CLI, else the terminal mode while it is
-enabled, else the first enabled mode. The welcome tour shows it as a segmented switch on the CLI's row when Both is
-chosen and writes the same key through the whole blob.
+enabled, else the first enabled mode. The welcome tour shows the same "Picker: …" badge on the CLI's row when Both
+is chosen and writes the same key through the whole blob at once.
 
 **The page.** One gear. A block "Launch defaults" holds the fields every mode shares, then one section per enabled
 mode holds the fields only that mode has, then that mode's env variables, prompt overrides and integrations. A

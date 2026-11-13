@@ -19,7 +19,8 @@ moving them buys churn).
 
 `src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js` (its settings-window seed carries `addon`
 and, since #803, a `cat` that is passed on only when it is in `SETTINGS_SEED_CATS` — the renderer's list of the
-Plugins group's views, compared both ways by `test/settings-plugins.test.js`),
+Plugins group's views plus `instructions`, `idle-maintenance` and `backends` (the welcome tour's gear, #873), compared
+both ways by `test/settings-plugins.test.js`),
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
 `skills.js` (what a running session can be asked to run — #462; a BACKEND skill is asked for through
 the descriptor's `listResources`/`expandResource`, a SWITCHBOARD skill belongs to nobody's CLI and is

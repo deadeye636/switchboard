@@ -35,7 +35,8 @@
   };
   // The categories a deep link may land on (`openSettingsWindow(scope, path, { cat })`); main validates the same list.
   // `instructions` is panels/settings-instructions.js (#823 T6): its own nav item, not part of this group.
-  const SEED_CATS = [CATS.plugins, CATS.apps, CATS.skills, CATS.agents, CATS.commands, CATS.rules, CATS.globalMcps, CATS.projectMcps, CATS.marketplace, 'instructions', 'idle-maintenance'];
+  // `backends` is the welcome tour's gear on a backend row (#873); the global window's nav holds it.
+  const SEED_CATS = [CATS.plugins, CATS.apps, CATS.skills, CATS.agents, CATS.commands, CATS.rules, CATS.globalMcps, CATS.projectMcps, CATS.marketplace, 'instructions', 'idle-maintenance', 'backends'];
 
   function navHtml(scope) {
     const mcps = scope === 'project' ? CATS.projectMcps : CATS.globalMcps;
