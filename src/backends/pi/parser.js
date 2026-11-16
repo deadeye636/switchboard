@@ -34,7 +34,8 @@ const { activeChain } = require('./active-branch');
 // 6 (#620): the row carries the last assistant turn's context — lastInputTokens, lastModel, lastProvider.
 // 7 (#568): the row carries `transport` — whether the session was ever driven over RPC, from the marker entry the
 // runtime-driven backend writes (./transport-marker.js). Existing rows were read without it.
-const PARSER_SCHEMA_VERSION = 7;
+// 8 (#703): the row says whether a compaction came after the last usage record, as Claude's does (#698).
+const PARSER_SCHEMA_VERSION = 8;
 
 const FINGERPRINT_BYTES = 64;
 
@@ -72,6 +73,11 @@ function createParseState() {
     lastInputTokens: 0,
     lastModel: null,
     lastProvider: null,
+    // Whether a `compaction` entry came AFTER that record on the visible branch (#703). The entry's own usage is
+    // the summarising call, so until the next assistant turn the record above is the fill from before the
+    // compaction (spec 28). Decided in visibleState, because only the visible branch counts; the next
+    // assistant record with a non-zero input clears it.
+    compactedSinceLastTurn: false,
     // Raw entries after the session header. Pi JSONL is a TREE, not an append-only linear chat: the last
     // appended entry is the current leaf, and the visible conversation is the parent walk back to root.
     // Keep the parsed entries so buildRow can reconstruct that active branch (and incremental parsing can
@@ -346,6 +352,11 @@ function visibleState(st) {
       if (Array.isArray(entry.retainedTail)) {
         for (const m of entry.retainedTail) applyMessageToVisible(out, { type: 'message', timestamp: entry.timestamp, message: m });
       }
+      // After the retained tail, when an entry carries one (the other shape keeps its messages through
+      // `firstKeptEntryId`, as ancestors already applied above): they are from before the compaction and must not
+      // clear the mark.
+      // A branch summary is not a compaction and leaves the window as it was.
+      if (entry.type === 'compaction' && out.lastInputTokens > 0) out.compactedSinceLastTurn = true;
       continue;
     }
     if (entry.type === 'custom_message') {
@@ -391,6 +402,7 @@ function applyMessageToVisible(st, entry) {
       : 0;
     if (input > 0) {
       st.lastInputTokens = input;
+      st.compactedSinceLastTurn = false;
       st.lastModel = (typeof m.model === 'string' && m.model) || st.model || null;
       st.lastProvider = (typeof m.provider === 'string' && m.provider) || st.provider || null;
     }
@@ -454,6 +466,8 @@ function buildRow(st, filePath, opts = {}) {
     lastInputTokens: visible.lastInputTokens || 0,
     lastModel: visible.lastModel || null,
     lastProvider: visible.lastProvider || null,
+    // That figure is from before a compaction (#703); `contextFillFor` marks the fill.
+    compactedSinceLastTurn: !!visible.compactedSinceLastTurn,
     // How the session was last driven (#568). The registry's `openerFor` reads it; the row stays Pi's.
     transport: visible.transport || null,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).

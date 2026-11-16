@@ -497,6 +497,45 @@ test('Codex: a model switch after the last report does not relabel that report',
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// #703: the shape measured on cli 0.166.0 — a top-level `compacted` line after the last report of the old window,
+// whose `latest_token_usage_record` is the summarising call, then a zero report, then the new window's figure.
+const codexCompacted = { timestamp: '2026-09-15T10:05:00Z', type: 'compacted', payload: {
+  window_number: 1, latest_token_usage_record: { usage: { input_tokens: 27343 } },
+} };
+
+test('Codex: a compaction after the last report marks its fill as from before it, until a real report (#703)', () => {
+  const { dir, file } = tmpFile('ctxfill-codex-', 'rollout.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(codexHead('C5')) + line(codexModel('gpt-5.6-luna')) + line(codexPrompt)
+      + line(codexTokens(18318)) + line(codexCompacted) + line(codexTokens(0)));
+    let row = codex.parseSession({ kind: 'file', path: file });
+    assert.equal(row.compactedSinceLastTurn, true, 'the zero report after the line does not clear it');
+    assert.equal(row.lastInputTokens, 18318, 'the figure is kept, not replaced by the summarising call');
+
+    fs.appendFileSync(file, line(codexTokens(20588)));
+    row = codex.parseSession({ kind: 'file', path: file });
+    assert.equal(row.compactedSinceLastTurn, false);
+    assert.equal(row.lastInputTokens, 20588);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Codex: a compaction before any report marks nothing, and the incremental read carries the mark (#703)', () => {
+  const { dir, file } = tmpFile('ctxfill-codex-', 'rollout.jsonl');
+  try {
+    fs.writeFileSync(file, line(codexHead('C6')) + line(codexModel('gpt-5.5')) + line(codexPrompt) + line(codexCompacted));
+    assert.equal(codex.parseSession({ kind: 'file', path: file }).compactedSinceLastTurn, false);
+
+    fs.appendFileSync(file, line(codexTokens(120000)));
+    const first = codex.parseSessionIncremental({ kind: 'file', path: file }, {}, null);
+    assert.equal(first.row.compactedSinceLastTurn, false);
+    fs.appendFileSync(file, line(codexCompacted));
+    const second = codex.parseSessionIncremental({ kind: 'file', path: file }, {}, first.parseState);
+    assert.equal(second.row.compactedSinceLastTurn, true);
+    assert.equal(second.row.compactedSinceLastTurn, codex.parseSession({ kind: 'file', path: file }).compactedSinceLastTurn);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 // ── Pi ─────────────────────────────────────────────────────────────────────────────────────────────
 
 const piHead = (id) => ({ type: 'session', version: 3, id, timestamp: '2026-09-15T10:00:00.000Z', cwd: '/some/project' });
@@ -553,5 +592,70 @@ test('Pi: the incremental read matches a full read', () => {
     const full = pi.parseSession({ kind: 'file', path: file });
     assert.equal(second.row.lastInputTokens, full.lastInputTokens);
     assert.equal(second.row.lastInputTokens, 26481);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// #703: a `compaction` entry carries the summarising call's usage, so until the next assistant turn the last record
+// is the fill from before it.
+const piCompaction = (id, parentId, extra = {}) => ({
+  type: 'compaction', id, parentId, timestamp: '2026-09-15T10:00:03.000Z', summary: 's', tokensBefore: 260000,
+  usage: { input: 256000, cacheRead: 0, cacheWrite: 0 }, ...extra,
+});
+
+test('Pi: a compaction after the last turn marks its fill, and the next real turn clears it (#703)', () => {
+  const { dir, file } = tmpFile('ctxfill-pi-', 's.jsonl');
+  try {
+    fs.writeFileSync(file, line(piHead('P4')) + line(piUser('u1', null))
+      + line(piTurn('a1', 'u1', 'anthropic', 'claude-opus-5', { input: 1, cacheRead: 259000, cacheWrite: 0 }))
+      + line(piCompaction('c1', 'a1')));
+    let row = pi.parseSession({ kind: 'file', path: file });
+    assert.equal(row.compactedSinceLastTurn, true);
+    assert.equal(row.lastInputTokens, 259001, 'the figure is kept, not the summarising call');
+
+    // A zero record (an aborted turn) is not a reading and does not clear it.
+    fs.appendFileSync(file, line(piUser('u2', 'c1')) + line(piTurn('a2', 'u2', 'anthropic', 'claude-opus-5', { input: 0, cacheRead: 0, cacheWrite: 0 })));
+    assert.equal(pi.parseSession({ kind: 'file', path: file }).compactedSinceLastTurn, true);
+
+    fs.appendFileSync(file, line(piUser('u3', 'a2')) + line(piTurn('a3', 'u3', 'anthropic', 'claude-opus-5', { input: 2, cacheRead: 30000, cacheWrite: 0 })));
+    row = pi.parseSession({ kind: 'file', path: file });
+    assert.equal(row.compactedSinceLastTurn, false);
+    assert.equal(row.lastInputTokens, 30002);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Pi: a retained tail, a branch summary and a compaction off the visible branch mark nothing wrongly (#703)', () => {
+  const { dir, file } = tmpFile('ctxfill-pi-', 't.jsonl');
+  try {
+    // The retained tail holds messages from BEFORE the compaction; they must not clear the mark.
+    const tail = [{ role: 'assistant', content: [{ type: 'text', text: 'kept' }], provider: 'anthropic', model: 'claude-opus-5', usage: { input: 1, cacheRead: 200000, cacheWrite: 0 } }];
+    fs.writeFileSync(file, line(piHead('P5')) + line(piUser('u1', null))
+      + line(piTurn('a1', 'u1', 'anthropic', 'claude-opus-5', { input: 1, cacheRead: 250000, cacheWrite: 0 }))
+      + line(piCompaction('c1', 'a1', { retainedTail: tail })));
+    assert.equal(pi.parseSession({ kind: 'file', path: file }).compactedSinceLastTurn, true);
+
+    const second = tmpFile('ctxfill-pi-', 'u.jsonl');
+    try {
+      fs.writeFileSync(second.file, line(piHead('P6')) + line(piUser('u1', null))
+        + line(piTurn('a1', 'u1', 'anthropic', 'claude-opus-5', { input: 1, cacheRead: 40000, cacheWrite: 0 }))
+        // A compaction on a branch the user left, then the visible branch goes on from a1.
+        + line(piCompaction('c1', 'a1'))
+        + line(piUser('u2', 'a1'))
+        + line({ type: 'branch_summary', id: 'b1', parentId: 'u2', timestamp: '2026-09-15T10:00:04.000Z', summary: 'b' }));
+      assert.equal(pi.parseSession({ kind: 'file', path: second.file }).compactedSinceLastTurn, false);
+    } finally { fs.rmSync(second.dir, { recursive: true, force: true }); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Pi: the incremental read carries the compaction mark like a full read (#703)', () => {
+  const { dir, file } = tmpFile('ctxfill-pi-', 'v.jsonl');
+  try {
+    fs.writeFileSync(file, line(piHead('P7')) + line(piUser('u1', null))
+      + line(piTurn('a1', 'u1', 'anthropic', 'claude-sonnet-5', { input: 4, cacheRead: 2000, cacheWrite: 0 })));
+    const first = pi.parseSessionIncremental({ kind: 'file', path: file }, {}, null);
+    assert.equal(first.row.compactedSinceLastTurn, false);
+    fs.appendFileSync(file, line(piCompaction('c1', 'a1')));
+    const second = pi.parseSessionIncremental({ kind: 'file', path: file }, {}, first.parseState);
+    assert.equal(second.row.compactedSinceLastTurn, true);
+    assert.equal(second.row.compactedSinceLastTurn, pi.parseSession({ kind: 'file', path: file }).compactedSinceLastTurn);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -37,7 +37,8 @@ const { isTurnEvent } = require('./state');
 //   v7: the row carries the last request's context (lastInputTokens, lastModel) and the stored window (#620)
 //   v8: injected context no longer counts as a user turn or prompt, and four more injected kinds are known
 //       — a stopped turn, a skill's text, a subagent's result, a plugin list (#713)
-const PARSER_SCHEMA_VERSION = 8;
+//   v9: the row says whether a compaction came after the last usage report (#703), as Claude's does (#698)
+const PARSER_SCHEMA_VERSION = 9;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;
@@ -72,6 +73,11 @@ function createParseState() {
     // and a zero-input report skipped for the fill still updates it — after a model change the two could
     // then describe different requests.
     lastContextWindow: 0,
+    // Whether a compaction came AFTER that report (#703, measured on cli 0.166.0, spec 28). Codex writes a
+    // top-level `compacted` line, then a `token_count` with input 0, and only the next one carries the new
+    // window's figure, so until then `lastInputTokens` is the fill from before. The `compacted` line's own
+    // `latest_token_usage_record` is the summarising call, not the fill. The next non-zero report clears it.
+    compactedSinceLastTurn: false,
     // rollout tail state for busy/idle (deriveState reads these)
     lastTaskEvent: null, // 'task_started' | one of state.js's TURN_END_EVENTS | null
 
@@ -155,6 +161,11 @@ function applyEntry(st, entry) {
     st.lastEntryAt = timestamp;
     const at = bucketFromIso(timestamp, null);
     if (at.date) st.lastBucket = at;
+  }
+  // Read before the payload check: the line alone says a compaction took place, whatever it carries.
+  if (type === 'compacted') {
+    if (st.lastInputTokens > 0) st.compactedSinceLastTurn = true;
+    return;
   }
   if (!payload || typeof payload !== 'object') return;
 
@@ -257,6 +268,7 @@ function applyEntry(st, entry) {
         const lastInput = last && typeof last === 'object' ? Number(last.input_tokens || 0) : 0;
         if (lastInput > 0) {
           st.lastInputTokens = lastInput;
+          st.compactedSinceLastTurn = false;
           st.lastModel = st.model;
           // A report without a window of its own falls back to the last one seen, rather than to none.
           st.lastContextWindow = typeof info.model_context_window === 'number' ? info.model_context_window : st.contextWindow;
@@ -369,6 +381,8 @@ function buildRow(st, filePath, opts = {}) {
     lastInputTokens: st.lastInputTokens || 0,
     lastModel: st.lastModel || null,
     lastContextWindow: st.lastContextWindow || 0,
+    // That figure is from before a compaction (#703); `contextFillFor` marks the fill.
+    compactedSinceLastTurn: !!st.compactedSinceLastTurn,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
     dailyMetrics: Object.values(st.dailyMetrics),
   };

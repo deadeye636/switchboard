@@ -76,8 +76,7 @@ The sidebar keeps the figure and says what it is: "34 % context before compactio
 detail line saying it updates with the next reply. A marked fill raises no Handoff Recommended, because the
 compaction has just freed the window; the other thresholds still judge. Estimating the fill from `postTokens`
 plus a baseline (route B) was rejected for the spread above. Taking the runtime's figure for a claude-native
-session (route C) may follow. Codex and Pi do not write the mark: whether they have the same gap has not been
-measured.
+session (route C) may follow. Codex and Pi write the same mark since #703, below.
 
 What Codex's rollout records at a compaction, measured on cli 0.166.0 (`codex exec`, gpt-5.6-luna, an
 automatic compaction forced with `-c model_auto_compact_token_limit=25000`; #826, #703): a top-level line
@@ -88,8 +87,19 @@ automatic compaction forced with `-c model_auto_compact_token_limit=25000`; #826
 input here), not the fill, the same rule as Pi's `compaction.usage`. The next `token_count` reports
 `input_tokens: 0`, and only the one after it carries the new window's figure (18 318 before, 20 588 after).
 So the transcript has the same gap as Claude's: between the `compacted` line and the next non-zero
-`token_count`, the last usage record is the pre-compaction one. Whether the sidebar shows that figure in the
-gap, and Pi's half of the question, are still #703's.
+`token_count`, the last usage record is the pre-compaction one.
+
+Pi has the same gap by construction: a `compaction` entry carries only the summarising call's `usage`, which
+the reader skips, and the next assistant message is the first new reading (measured about 260k → 30k, above).
+
+**Both readers mark it the way Claude's does (#703).** Codex's parser (v9) sets `compactedSinceLastTurn` on the
+top-level `compacted` line and clears it on the next `token_count` with a non-zero input; the zero report in
+between leaves it set. Pi's parser (v8) sets it on a `compaction` entry on the visible branch, after that
+entry's retained tail (those messages are from before the compaction), and clears it on the next assistant
+message with a non-zero input; a branch summary is not a compaction. Either way the mark is set only when a
+reading exists before the compaction. The sidebar reads the row, so no app-side change was needed: the
+stored column and `contextFillFor` are backend-neutral. Pi's half was settled from the format above rather
+than a new turn.
 
 | Backend | Numerator | Where it is read |
 |---|---|---|
@@ -342,7 +352,7 @@ The rest err the other way, remove the fill, or are cosmetic:
 - **The `/model` picker's transcript form was not measured.** The reader treats any `/model` without an
   argument as clearing the spec.
 - **Hermes and agy** could get a fill if their stores ever expose per-turn input; both hooks decline today.
-- **Only Claude marks a fill from before a compaction** (#698). Whether Pi and Codex leave the sidebar on a
-  stale figure between a compaction and the next call is not measured; #703 tracks it.
+- **Claude, Codex and Pi mark a fill from before a compaction** (#698, #703). Hermes and agy have no fill to
+  mark.
 - The settings caches expire after five seconds, so a changed settings file shows on the next payload after
   that.
