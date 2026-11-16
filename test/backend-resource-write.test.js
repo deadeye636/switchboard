@@ -389,3 +389,137 @@ test('a save parses its text once, and says when it was too large to check', asy
   assert.equal(large.ok, true, 'saved all the same');
   assert.deepEqual([large.unchecked, large.tooLarge], [true, true], 'and the reply says why it was not checked');
 });
+
+// --- #708: the first file of a kind whose directory does not exist yet ---
+//
+// The listing names only directories that are there. The backend's scaffold answers `dirFor` for the place the
+// first file goes; `createResource` accepts exactly that directory, checks it, and makes it with the file.
+
+function setupFirstOfKind({ dirFor, knows = () => true } = {}) {
+  const home = tmpdir();
+  const project = tmpdir();
+  const backend = {
+    id: 'stub',
+    resourceEditing: { extensions: ['.md'] },
+    resourceScaffolds: [
+      { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory', 'project-skills'],
+        template: (n) => `---\nname: ${n}\n---\n`,
+        dirFor: dirFor || (({ scope, projectPath }) => (scope === 'project'
+          ? (projectPath ? { path: path.join(projectPath, '.stub', 'skills'), source: 'project-skills' } : null)
+          : { path: path.join(home, 'skills'), source: 'skills-directory' })) },
+    ],
+    // Nothing listed: neither skills folder exists yet.
+    listResources: async () => ({ ok: true, resources: [] }),
+    expandResource: Object.assign(async () => ({ ok: true, entries: [] }), { knowsSource: knows }),
+  };
+  backendResources.init({
+    backends: { get: (id) => (id === 'stub' ? backend : null) },
+    log: { warn() {}, error() {}, info() {} },
+  });
+  return { home, project, backend };
+}
+
+test('#708: the first skill makes its global folder, and only the folder the backend names', async () => {
+  const box = setupFirstOfKind();
+  const dir = path.join(box.home, 'skills');
+  assert.deepEqual(backendResources.missingDirFor(box.backend, 'skill', { scope: 'global' }), { dir, source: 'skills-directory' });
+  const res = await backendResources.createResource('stub', { kind: 'skill', name: 'first', parentDir: dir });
+  assert.equal(res.ok, true, res.reason);
+  assert.equal(read(path.join(dir, 'first', 'SKILL.md')).includes('name: first'), true);
+  assert.equal(backendResources.missingDirFor(box.backend, 'skill', { scope: 'global' }), null, 'once it is there, the listing answers');
+
+  const elsewhere = await backendResources.createResource('stub', { kind: 'skill', name: 'x', parentDir: path.join(box.home, 'other') });
+  assert.equal(elsewhere.ok, false);
+  assert.equal(fs.existsSync(path.join(box.home, 'other')), false, 'a folder nobody named is never made');
+});
+
+test('#708: a project\'s first skill goes inside the project, and a scaffold that points outside is refused', async () => {
+  const box = setupFirstOfKind();
+  const dir = path.join(box.project, '.stub', 'skills');
+  const res = await backendResources.createResource('stub', { kind: 'skill', name: 'first', parentDir: dir, projectPath: box.project });
+  assert.equal(res.ok, true, res.reason);
+  assert.equal(fs.existsSync(path.join(dir, 'first', 'SKILL.md')), true);
+
+  const outside = tmpdir();
+  const bad = setupFirstOfKind({ dirFor: () => ({ path: path.join(outside, 'skills'), source: 'project-skills' }) });
+  assert.equal(backendResources.missingDirFor(bad.backend, 'skill', { scope: 'project', projectPath: bad.project }), null);
+  const refused = await backendResources.createResource('stub', { kind: 'skill', name: 'x', parentDir: path.join(outside, 'skills'), projectPath: bad.project });
+  assert.equal(refused.ok, false);
+  assert.equal(fs.existsSync(path.join(outside, 'skills')), false);
+});
+
+test('#708: a source the scaffold does not claim, or the expander cannot read, offers no first folder', () => {
+  const foreign = setupFirstOfKind({ dirFor: ({ scope }) => (scope === 'global' ? { path: path.join(tmpdir(), 'skills'), source: 'commands-directory' } : null) });
+  assert.equal(backendResources.missingDirFor(foreign.backend, 'skill', { scope: 'global' }), null);
+  const unreadable = setupFirstOfKind({ knows: () => false });
+  assert.equal(backendResources.missingDirFor(unreadable.backend, 'skill', { scope: 'global' }), null);
+  const relative = setupFirstOfKind({ dirFor: () => ({ path: 'skills', source: 'skills-directory' }) });
+  assert.equal(backendResources.missingDirFor(relative.backend, 'skill', { scope: 'global' }), null);
+  const blocked = setupFirstOfKind();
+  write(path.join(blocked.home, 'skills'), 'a file where the folder would go\n');
+  assert.equal(backendResources.missingDirFor(blocked.backend, 'skill', { scope: 'global' }), null);
+});
+
+test('#708: every backend that scaffolds a kind names the folder its listing would show, under a source it claims', () => {
+  const project = tmpdir();
+  for (const id of ['claude', 'codex', 'hermes', 'pi']) {
+    const b = require(`../src/backends/${id}`);
+    for (const sc of b.resourceScaffolds || []) {
+      assert.equal(typeof sc.dirFor, 'function', `${id}.${sc.kind} declares dirFor`);
+      for (const scope of ['global', 'project']) {
+        const answer = sc.dirFor({ scope, projectPath: scope === 'project' ? project : null });
+        if (!answer) continue;
+        assert.ok(path.isAbsolute(answer.path), `${id}.${sc.kind} (${scope}) answers an absolute path`);
+        assert.ok(sc.sources.includes(answer.source), `${id}.${sc.kind} (${scope}) answers a source its scaffold claims`);
+        assert.ok(b.expandResource.knowsSource(answer.source), `${id}.${sc.kind} (${scope}) answers a source its expander reads`);
+        if (scope === 'project') assert.ok(answer.path.startsWith(project + path.sep), `${id}.${sc.kind} stays inside the project`);
+      }
+    }
+  }
+});
+
+test('#708: the folder a backend names is the folder its listing names once it exists', async () => {
+  // Every backend, scaffold and scope, each against an isolated home so no real CLI folder is made: make the folder
+  // `dirFor` names, and the listing must name it, with the same source and scope.
+  const homes = {
+    SWITCHBOARD_STORE_CLAUDE: path.join(tmpdir(), 'projects'),
+    SWITCHBOARD_STORE_CODEX: path.join(tmpdir(), 'sessions'),
+    SWITCHBOARD_STORE_HERMES: tmpdir(),
+    SWITCHBOARD_STORE_PI: tmpdir(),
+  };
+  const saved = {};
+  for (const [k, v] of Object.entries(homes)) { saved[k] = process.env[k]; process.env[k] = v; }
+  // Claude reads its root once at load; the app (and a test) point it with `setRoots`.
+  const claudeBackend = require('../src/backends/claude');
+  claudeBackend.setRoots([homes.SWITCHBOARD_STORE_CLAUDE]);
+  try {
+    const project = tmpdir();
+    let checked = 0;
+    for (const id of ['claude', 'codex', 'hermes', 'pi']) {
+      const b = require(`../src/backends/${id}`);
+      for (const sc of b.resourceScaffolds || []) {
+        for (const scope of ['global', 'project']) {
+          const answer = sc.dirFor({ scope, projectPath: scope === 'project' ? project : null });
+          if (!answer) continue;
+          assert.ok(answer.path.startsWith(os.tmpdir() + path.sep),
+            `${id}.${sc.kind} (${scope}) resolves from the isolated home, not the real one: ${answer.path}`);
+          fs.mkdirSync(answer.path, { recursive: true });
+          const listed = await b.listResources({ projectPath: scope === 'project' ? project : null });
+          assert.ok(listed.resources.some(r => r.path === answer.path && r.source === answer.source && (r.scope || 'global') === scope),
+            `${id}.${sc.kind} (${scope}): the listing names ${answer.path} under ${answer.source} once it exists`);
+          checked++;
+        }
+      }
+    }
+    assert.ok(checked >= 10, `the loop looked at ${checked} answers`);
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    claudeBackend.setRoots([saved.SWITCHBOARD_STORE_CLAUDE || path.join(os.homedir(), '.claude', 'projects')]);
+  }
+});
+
+test('#708: a file where a parent folder should be offers nothing (ENOTDIR is not "missing")', () => {
+  const box = setupFirstOfKind();
+  write(path.join(box.project, '.stub'), 'a file named like the folder\n');
+  assert.equal(backendResources.missingDirFor(box.backend, 'skill', { scope: 'project', projectPath: box.project }), null);
+});

@@ -130,12 +130,24 @@ written to the wrong place, but the field claiming to be "what was validated" wa
 that had canonicalised its temp directory first. Two resolutions of one question is the defect this whole
 section exists to remove.
 
-## What is left
+## The first file of a kind (#708)
 
-A directory that has never existed cannot receive its first file: the listing only names directories that
-are there, so a project with no `.claude/skills/` at all is not a create target. It needs a `dirFor`
-answer on the scaffold, so the backend names the directory from its own store-override-resolved home.
-Tracked in #708.
+The listing names only directories that are there, so a project with no `.claude/skills/` at all used to be no
+create target. A scaffold now carries `dirFor({ scope, projectPath })` → `{ path, source }` or `null`: the backend
+names the folder the first file of its kind goes into, from its own store-override-resolved home, with the same
+joins its listing makes (Claude, Codex and Pi in their `resources.js`, Hermes in its own). So once the folder
+exists, the listing names that very folder under that very source.
+
+`src/app/backend-resources.js` (`missingDirFor`) accepts the answer only when the source is one the scaffold
+claims and the backend's expander reads, the path is absolute and really not there (a file in its way is refused),
+and, for a project, the folder is inside the project on the real-path check (`path-containment.js` answers about
+the nearest existing ancestor). `createResource` takes an unlisted parent only when it is that folder, builds the template first (so a
+template that throws leaves no empty folder), makes the folder, asks the project containment again now that it
+exists, and then runs the create exactly as for a listed one. That create writes with the `wx` flag, as it always
+has, not through `writeTextFile`: a create must refuse a file that is already there, and `writeTextFile` without a
+baseline would replace it. A nearest existing ancestor that is not a folder (a file named `.claude`) offers nothing. The place lists the New dialogs read (`skills.js`,
+`resource-inventory.js`) offer it with "(new folder)" after the label. What is not offered: a kind a backend does
+not scaffold, and a scope its CLI keeps no folder for (Codex and Hermes skills have no project folder).
 
 ## Tests
 

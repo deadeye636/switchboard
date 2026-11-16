@@ -442,6 +442,8 @@ module.exports = {
   // Hermes' skills are directories; its bundles and hooks are not offered (#441).
   resourceScaffolds: [
     { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory'],
+      // #708: the first skill when the skills directory is not there yet.
+      dirFor: (q) => resources.dirFor({ ...q, kind: 'skill' }),
       template: (name) => `---
 name: ${name}
 description: 

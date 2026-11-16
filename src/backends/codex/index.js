@@ -215,6 +215,10 @@ function liveState(ref) {
   return deriveStateFromFileTailGated(ref);
 }
 
+// Where a scaffolded kind's first file goes when its directory is not there yet (#708), from the
+// store-override-resolved home (`./resources.js`).
+const codexDirFor = resources.createDirFor({ codexHome });
+
 module.exports = {
   id: 'codex',
   // #878: the account's model catalog with the reasoning levels per model (`./models.js`).
@@ -288,6 +292,7 @@ module.exports = {
   // Codex keeps skills as directories and rules as flat markdown (#441).
   resourceScaffolds: [
     { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory'],
+      dirFor: (q) => codexDirFor({ ...q, kind: 'skill' }),
       template: (name) => `---
 name: ${name}
 description: 
@@ -295,6 +300,7 @@ description:
 
 ` },
     { kind: 'rule', layout: 'file', ext: '.md', sources: ['rules-directory', 'project-rules'],
+      dirFor: (q) => codexDirFor({ ...q, kind: 'rule' }),
       template: (name) => `# ${name}
 
 ` },

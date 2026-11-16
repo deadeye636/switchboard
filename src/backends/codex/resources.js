@@ -87,6 +87,21 @@ function addProfileFiles(out, home) {
   }
 }
 
+// Where a scaffolded kind's FIRST file goes when its directory does not exist yet (#708): the joins the listing
+// below makes, so the listing names this directory once it is there.
+const CREATE_DIRS = {
+  skill: { global: ['skills', 'skills-directory'] },
+  rule: { global: ['rules', 'rules-directory'], project: ['rules', 'project-rules'] },
+};
+function createDirFor({ codexHome }) {
+  return function dirFor({ kind, scope, projectPath } = {}) {
+    const row = CREATE_DIRS[kind] && CREATE_DIRS[kind][scope];
+    if (!row) return null;
+    if (scope === 'project') return projectPath ? { path: path.join(projectPath, '.codex', row[0]), source: row[1] } : null;
+    return { path: path.join(codexHome(), row[0]), source: row[1] };
+  };
+}
+
 function createListResources({ codexHome }) {
   return function listResources({ projectPath } = {}) {
     const home = codexHome();
@@ -129,4 +144,4 @@ const expandResource = createExpandResource(
   (source) => (pluginFromSource(source) ? PLUGIN_SKILLS_RULE : EXPAND_RULES[source]),
 );
 
-module.exports = { createListResources, expandResource, EXPAND_RULES };
+module.exports = { createListResources, createDirFor, expandResource, EXPAND_RULES };

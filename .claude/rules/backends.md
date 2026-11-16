@@ -350,6 +350,10 @@ are the backend's:
   is the same key `expandResource` reads, which is what ties a scaffold to a directory the listing
   already names: a new directory in the listing cannot silently become a create target, and a kind
   cannot be created in a directory that holds a different one. An empty array is an answer.
+  A scaffold may add **`dirFor({ scope, projectPath })` → `{ path, source } | null`** (#708): the folder the
+  FIRST file of its kind goes into when the listing names none, built with the same joins the listing makes,
+  from the store-override-resolved home. The core (`missingDirFor` in `src/app/backend-resources.js`) still
+  checks the source, the expander, absence and project containment; spec 24 has the rest.
 
 Three rules around them that are not the backend's:
 

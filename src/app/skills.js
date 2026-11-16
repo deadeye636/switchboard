@@ -551,7 +551,8 @@ async function saveSkill({ id, projectPath = null, content, baseline = null } = 
 // --- A new skill (#803 T12a, owner decision E15) -----------------------------------------------------------
 //
 // Where a new skill may go is the backends' answer, the same one the sidebar's "New" used (#441): a directory the
-// current listing names as skills, under a source the backend's own `skill` scaffold claims, that exists. The window
+// current listing names as skills, under a source the backend's own `skill` scaffold claims, that exists — or, when a
+// scope has none yet, the one folder the scaffold's `dirFor` names for the first skill (#708). The window
 // gets an opaque place id and a label, never a backend id or a path to send back; the file is written by
 // `backend-resources.createResource`, which checks the directory against the listing again. The app's own skills
 // directory is not a place: no scaffold is declared for it, and the sidebar never offered one either.
@@ -580,6 +581,16 @@ function collectSkillPlaces(projectPath) {
           id: crypto.createHash('sha1').update(`${d.id}\0${scope}\0${entry.path}`).digest('hex').slice(0, 16),
           label: `${d.label || d.id} · ${scope} — ${entry.path}`,
           scope, backendId: d.id, dir: entry.path,
+        });
+      }
+      // #708: where the first skill goes when this scope has no skills folder yet. The backend names it;
+      // `createResource` makes it with the file, after the same checks (`backendResources.missingDirFor`).
+      const missing = backendResources.missingDirFor(d, 'skill', { scope, projectPath: scope === 'project' ? projectPath : null });
+      if (missing && !places.some(p => p.backendId === d.id && samePath(p.dir, missing.dir))) {
+        places.push({
+          id: crypto.createHash('sha1').update(`${d.id}\0${scope}\0${missing.dir}`).digest('hex').slice(0, 16),
+          label: `${d.label || d.id} · ${scope} — ${missing.dir} (new folder)`,
+          scope, backendId: d.id, dir: missing.dir,
         });
       }
     }

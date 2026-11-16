@@ -667,6 +667,8 @@ module.exports = {
   // offered — creating something that RUNS is a different feature.
   resourceScaffolds: [
     { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory', 'shared-skills-directory'],
+      // #708: the first skill or prompt when its directory is not there yet (`./resources.js`).
+      dirFor: (q) => resources.dirFor({ ...q, kind: 'skill' }),
       template: (name) => `---
 name: ${name}
 description: 
@@ -674,6 +676,7 @@ description:
 
 ` },
     { kind: 'prompt-template', layout: 'file', ext: '.md', sources: ['prompts-directory'],
+      dirFor: (q) => resources.dirFor({ ...q, kind: 'prompt-template' }),
       template: (name) => `# ${name}
 
 ` },

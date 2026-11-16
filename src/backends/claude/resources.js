@@ -137,6 +137,22 @@ function addProjectResources(out, projectPath) {
   addDir(out, path.join(projectPath, '.claude'), 'hooks', 'hook', 'project-hooks', 'project');
 }
 
+// Where a kind's FIRST file goes when its directory does not exist yet (#708): the same joins the listing makes,
+// so the listing names this very directory once it is there. Only the kinds this backend scaffolds.
+const CREATE_DIRS = {
+  skill: { global: ['skills', 'skills-directory'], project: ['skills', 'project-skills'] },
+  command: { global: ['commands', 'commands-directory'], project: ['commands', 'project-commands'] },
+  agent: { global: ['agents', 'agents-directory'], project: ['agents', 'project-agents'] },
+};
+function createDirFor({ claudeHome }) {
+  return function dirFor({ kind, scope, projectPath } = {}) {
+    const row = CREATE_DIRS[kind] && CREATE_DIRS[kind][scope];
+    if (!row) return null;
+    if (scope === 'project') return projectPath ? { path: path.join(projectPath, '.claude', row[0]), source: row[1] } : null;
+    return { path: path.join(claudeHome(), row[0]), source: row[1] };
+  };
+}
+
 function createListResources({ claudeHome }) {
   return function listResources({ projectPath } = {}) {
     const resources = [];
@@ -190,4 +206,4 @@ const expandResource = createExpandResource(
   (source) => (pluginFromSource(source) ? PLUGIN_SKILLS_RULE : EXPAND_RULES[source]),
 );
 
-module.exports = { createListResources, expandResource, EXPAND_RULES, projectPlansDirectory, projectInstructionsFile };
+module.exports = { createListResources, createDirFor, expandResource, EXPAND_RULES, projectPlansDirectory, projectInstructionsFile };

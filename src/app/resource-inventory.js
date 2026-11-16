@@ -292,7 +292,7 @@ async function deleteResourceItem({ id, projectPath = null, view = null } = {}) 
 
 /**
  * Every place a new item of the view may go: a listed directory of a kind the backend's scaffold claims, under a
- * source it names, that exists. `[{ id, label, scope, kind, backendId, dir }]`; the window gets `id`, `label`,
+ * source it names, that exists — or the folder the scaffold's `dirFor` names for a kind's first file (#708). `[{ id, label, scope, kind, backendId, dir }]`; the window gets `id`, `label`,
  * `scope` and `kind`: no path field and no backend id (the label does show the folder, the user's own).
  */
 function collectPlaces(view, projectPath) {
@@ -318,6 +318,16 @@ function collectPlaces(view, projectPath) {
             id: crypto.createHash('sha1').update(`${d.id}\0${kind}\0${scope}\0${entry.path}`).digest('hex').slice(0, 16),
             label: `${d.label || d.id} · ${scope} — ${entry.path}`,
             scope, kind, backendId: d.id, dir: entry.path,
+          });
+        }
+        // #708: where the first item of this kind goes when the scope has no folder for it yet. The backend names
+        // it; `createResource` makes it with the file, after the same checks (`backendResources.missingDirFor`).
+        const missing = backendResources.missingDirFor(d, kind, { scope, projectPath: scope === 'project' ? projectPath : null });
+        if (missing && !places.some(p => p.backendId === d.id && p.kind === kind && samePath(p.dir, missing.dir))) {
+          places.push({
+            id: crypto.createHash('sha1').update(`${d.id}\0${kind}\0${scope}\0${missing.dir}`).digest('hex').slice(0, 16),
+            label: `${d.label || d.id} · ${scope} — ${missing.dir} (new folder)`,
+            scope, kind, backendId: d.id, dir: missing.dir,
           });
         }
       }

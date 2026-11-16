@@ -703,6 +703,10 @@ function listModels({ search } = {}) {
   return require('./models').listModels({ exe: startable, env: { ...process.env, ...(cliHomeEnv() || {}) }, search });
 }
 
+// Where a scaffolded kind's first file goes when its directory is not there yet (#708): `./resources.js` makes the
+// same joins its listing makes, from the store-override-resolved home.
+const claudeDirFor = resources.createDirFor({ claudeHome });
+
 module.exports = {
   id: 'claude',
   listModels,
@@ -1091,6 +1095,7 @@ module.exports = {
   // so a new directory in the listing cannot silently become a create target.
   resourceScaffolds: [
     { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory', 'project-skills'],
+      dirFor: (q) => claudeDirFor({ ...q, kind: 'skill' }),
       template: (name) => `---
 name: ${name}
 description: 
@@ -1098,10 +1103,12 @@ description:
 
 ` },
     { kind: 'command', layout: 'file', ext: '.md', sources: ['commands-directory', 'project-commands'],
+      dirFor: (q) => claudeDirFor({ ...q, kind: 'command' }),
       template: (name) => `# /${name}
 
 ` },
     { kind: 'agent', layout: 'file', ext: '.md', sources: ['agents-directory', 'project-agents'],
+      dirFor: (q) => claudeDirFor({ ...q, kind: 'agent' }),
       template: (name) => `---
 name: ${name}
 description: 

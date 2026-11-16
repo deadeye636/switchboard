@@ -56,6 +56,13 @@ function addDir(out, root, rel, kind, source) {
 
 
 
+// Where a skill's FIRST file goes when the skills directory does not exist yet (#708): the join the listing makes.
+// Hermes keeps skills in its home only, so a project scope has none.
+function dirFor({ kind, scope } = {}) {
+  if (kind !== 'skill' || scope !== 'global') return null;
+  return { path: path.join(reader.hermesHome(), 'skills'), source: 'skills-directory' };
+}
+
 function listResources() {
   const root = reader.hermesHome();
   const resources = [];
@@ -88,4 +95,4 @@ function listResources() {
 
 const expandResource = createExpandResource(EXPAND_RULES);
 
-module.exports = { listResources, expandResource, EXPAND_RULES };
+module.exports = { listResources, dirFor, expandResource, EXPAND_RULES };

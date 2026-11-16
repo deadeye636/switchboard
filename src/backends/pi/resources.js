@@ -92,6 +92,17 @@ function addPackageDirs(out, root, scope) {
 // Resolved by trust.js, which is where every Pi path that has to follow the isolated store lives.
 const agentSkillsDir = () => trust.agentsSharedSkillsDir();
 
+// Where a scaffolded kind's FIRST file goes when its directory does not exist yet (#708): the joins the listing
+// below makes. For a skill that is Pi's own directory, not the shared `.agents/skills` one other CLIs read too.
+const CREATE_DIRS = { skill: ['skills', 'skills-directory'], 'prompt-template': ['prompts', 'prompts-directory'] };
+function dirFor({ kind, scope, projectPath } = {}) {
+  const row = CREATE_DIRS[kind];
+  if (!row) return null;
+  if (scope === 'project') return projectPath ? { path: path.join(projectPath, '.pi', row[0]), source: row[1] } : null;
+  if (scope === 'global') return { path: path.join(trust.agentDir(), row[0]), source: row[1] };
+  return null;
+}
+
 function listResources({ projectPath } = {}) {
   const resources = [];
   const globalRoot = trust.agentDir();
@@ -127,4 +138,4 @@ function listResources({ projectPath } = {}) {
 
 const expandResource = createExpandResource(EXPAND_RULES);
 
-module.exports = { listResources, expandResource, EXPAND_RULES, _addSettings: addSettings };
+module.exports = { listResources, dirFor, expandResource, EXPAND_RULES, _addSettings: addSettings };

@@ -8,7 +8,7 @@ const path = require('path');
 const { readableError: toReadable } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
 const { validateContent } = require('./format-validate');
-const { isInside: isReallyInside } = require('./path-containment');
+const { isInside: isReallyInside, samePath } = require('./path-containment');
 
 let backends = null;
 let shell = null;
@@ -278,6 +278,40 @@ function scaffoldFor(backend, kind) {
 }
 
 /**
+ * Where a kind's FIRST file goes when its directory does not exist yet (#708): `{ dir, source }` or null.
+ *
+ * The listing names only directories that are there, so a project with no skills folder at all could never get its
+ * first skill. The backend answers through its scaffold's `dirFor({ scope, projectPath })`, from its own
+ * store-override-resolved home — the core composes no CLI's layout. What the core still decides, as for a listed
+ * directory: the source has to be one the scaffold claims and the backend's expander can read (or the new file could
+ * be created and never opened), the directory must really not be there (a file in its way, or a directory that
+ * exists, is the listing's business), and a project's directory must be inside the project on the real-path check
+ * (`path-containment.js`, which answers about the nearest existing ancestor for a path that is not there yet).
+ */
+function missingDirFor(backend, kind, { scope, projectPath = null } = {}) {
+  const scaffold = scaffoldFor(backend, kind);
+  if (!scaffold || typeof scaffold.dirFor !== 'function') return null;
+  let answer = null;
+  try { answer = scaffold.dirFor({ scope, projectPath }); } catch { return null; }
+  if (!answer || typeof answer.path !== 'string' || !path.isAbsolute(answer.path)) return null;
+  if (!Array.isArray(scaffold.sources) || !scaffold.sources.includes(answer.source)) return null;
+  const knows = backend && typeof backend.expandResource === 'function' ? backend.expandResource.knowsSource : null;
+  if (typeof knows === 'function' && !knows(answer.source)) return null;
+  // Only "not there" is a place to offer, and the nearest thing that IS there must be a folder: a file where a parent
+  // folder should be (a file named `.claude`) answers ENOENT on Windows and ENOTDIR elsewhere, and either way the
+  // create could not succeed. A folder that cannot be looked at is no place either.
+  try { fs.statSync(answer.path); return null; } catch (err) { if (!err || (err.code !== 'ENOENT' && err.code !== 'ENOTDIR')) return null; }
+  for (let up = path.dirname(answer.path); ; up = path.dirname(up)) {
+    let st = null;
+    try { st = fs.statSync(up); } catch (err) { if (!err || (err.code !== 'ENOENT' && err.code !== 'ENOTDIR')) return null; }
+    if (st) { if (!st.isDirectory()) return null; break; }
+    if (path.dirname(up) === up) return null;
+  }
+  if (scope === 'project' && (!projectPath || !isReallyInside(answer.path, projectPath))) return null;
+  return { dir: answer.path, source: answer.source };
+}
+
+/**
  * Create one resource from its backend's scaffold (#441).
  *
  * The target directory must be one the CURRENT listing names, under a source the scaffold itself claims
@@ -294,11 +328,34 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
   }
   if (!parentDir) return { ok: false, reason: 'No directory given.' };
 
-  const parent = await listedResource(backendId, parentDir, projectPath);
-  if (!parent) return { ok: false, reason: 'That directory is not a discovered resource for this backend.' };
+  let parent = await listedResource(backendId, parentDir, projectPath);
+  // Not listed: the one other directory accepted is the one the backend names for this kind's first file (#708).
+  // Matched by real path against that answer, and made before anything below resolves it.
+  let firstOfKind = null;
+  if (!parent) {
+    firstOfKind = missingDirFor(backend, kind, { scope: projectPath ? 'project' : 'global', projectPath });
+    if (!firstOfKind || !samePath(firstOfKind.dir, parentDir)) {
+      return { ok: false, reason: 'That directory is not a discovered resource for this backend.' };
+    }
+    parent = { source: firstOfKind.source };
+  }
   const sources = Array.isArray(scaffold.sources) ? scaffold.sources : [];
   if (!sources.includes(parent.source)) {
     return { ok: false, reason: `A ${kind} does not belong in that directory.` };
+  }
+  // Built before a first folder is made, so a template that throws leaves no empty folder behind (#708).
+  let body;
+  try { body = String(scaffold.template(name) ?? ''); }
+  catch { return { ok: false, reason: 'That template could not be built.' }; }
+
+  if (firstOfKind) {
+    try { fs.mkdirSync(firstOfKind.dir, { recursive: true }); }
+    catch (err) { return { ok: false, reason: readableError(err, 'That folder could not be created.') }; }
+    // Asked again now that it exists: a link put in place between the check and the mkdir must not carry a
+    // project's first folder outside the project.
+    if (projectPath && !isReallyInside(firstOfKind.dir, projectPath)) {
+      return { ok: false, reason: 'That folder is not inside the project.' };
+    }
   }
 
   // The REAL directory, not the one that was named: everything else in this file checks containment
@@ -325,10 +382,6 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
   if (!isReallyInside(holder, realParent)) {
     return { ok: false, reason: 'That name would put the file outside the directory.' };
   }
-
-  let body;
-  try { body = String(scaffold.template(name) ?? ''); }
-  catch { return { ok: false, reason: 'That template could not be built.' }; }
 
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -432,4 +485,4 @@ function registerIpc(ipc) {
   ipc.handle('backend-delete-resource', (_event, backendId, resourcePath, projectPath) => deleteResource(backendId, resourcePath, projectPath ?? null));
 }
 
-module.exports = { init, registerIpc, listResources, openResource, expandResource, readResource, writeResource, createResource, deleteResource, isDeletableKind, _isInside: isInside, _editableHere: editableHere, _reachable: reachable, _validResourceName: validResourceName, _readableError: readableError };
+module.exports = { init, registerIpc, listResources, openResource, expandResource, readResource, writeResource, createResource, deleteResource, isDeletableKind, missingDirFor, _isInside: isInside, _editableHere: editableHere, _reachable: reachable, _validResourceName: validResourceName, _readableError: readableError };
