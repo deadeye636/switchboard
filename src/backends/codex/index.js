@@ -342,6 +342,8 @@ description:
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
+  // Spec 47 (#870): declines, no extractor reads a Codex rollout for changes yet.
+  reportsChanges: false,
   capabilities: {
     fork: { state: 'limited', note: 'only after its first reply — Codex names its own sessions' },
     deleteSessions: 'yes',
@@ -366,6 +368,7 @@ description:
     task: { state: 'no', note: 'a task runs on a pipe, and Codex has no pipe driver here' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and Codex has no pipe driver here' },
     sessionFlow: { state: 'limited', note: 'one lane with steps, an AGENTS.md block (not per file), context checkpoints, compactions and permission changes; one lane per spawned subagent, found by scanning later rollouts; risk marks are a built-in pattern list on the shell calls (heuristic) plus escalation requests and a policy without a sandbox, and the only approval read is the guardian\'s verdict on an escalated call (spec 46)' },
+    sessionChanges: 'no',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

@@ -254,6 +254,8 @@ function profileToDescriptor(p) {
     // Neither asks a list: it is called for one session's row, on demand.
     ...(base && typeof base.sessionFlow === 'function' ? { sessionFlow: base.sessionFlow } : {}),
     ...(base && typeof base.readSessionFlow === 'function' ? { readSessionFlow: base.readSessionFlow } : {}),
+    // Spec 47 (#870): the transcript is the base's, so is what its parser reads of it.
+    reportsChanges: base ? base.reportsChanges === true : false,
     providesMcpInjection: base ? base.providesMcpInjection === true : false,
     ...(base && typeof base.buildMcpInjection === 'function' ? { buildMcpInjection: base.buildMcpInjection } : {}),
     ...(base && typeof base.releaseMcpInjection === 'function' ? { releaseMcpInjection: base.releaseMcpInjection } : {}),

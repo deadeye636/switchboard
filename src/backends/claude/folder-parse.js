@@ -176,7 +176,10 @@ function parseClaudeFolder({ folder, folderPath, exists, projectPath, removed, c
     // File is new or modified — re-read it INCREMENTALLY, sharing the watcher's memo (#199 step 2). We
     // hand the memo over, we do NOT delete it. This is the #194 parity fix applied to Claude.
     const prev = _fileReadState.get(filePath) || null;
-    const res = sessionReader.readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);
+    // A file with no cached row (dropped by a delete-diff, a wipe or a removal) or one written by an older parser has
+    // nothing stored for its changes either, whatever the memo says it already sent (#870).
+    const forceChanges = !cachedEntry || cachedEntry.parserVersion !== CLAUDE_PARSER_VERSION;
+    const res = sessionReader.readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId, forceChanges }, prev);
     if (res) {
       rememberFileReadState(filePath, res.next);
       // full-vs-incremental is classified by whether a memo existed (the dominant signal); a rare
@@ -214,6 +217,8 @@ function parseClaudeFolder({ folder, folderPath, exists, projectPath, removed, c
 //               stale memo is already dropped here, mirroring the old refreshFile behaviour.
 //   sessionId — session.sessionId when there is one, else null (convenience for main).
 //   next      — the retained parse state that was just remembered (null on a null read).
+// Known gap (#870, spec 47 "Known gaps"): this lane cannot see that a session row was dropped, so a row it re-creates
+// from a still-alive memo carries no `changes` until the next settled edit, commit or push, a restart or a parser bump.
 function parseClaudeFile(filePath, folder, projectPath, { parentSessionId } = {}) {
   const prev = _fileReadState.get(filePath) || null;
   const res = sessionReader.readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);

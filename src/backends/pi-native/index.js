@@ -276,6 +276,8 @@ module.exports = {
   trustsProjectResources: (ctx = {}) => pi.trustsProjectResources({ ...ctx, options: stripNotOffered(ctx.options) }),
   declinesSharedResource: pi.declinesSharedResource,
   caveat: pi.caveat,
+  // Spec 47 (#870): the transcript is Pi's; what Pi's parser answers is this driver's answer.
+  reportsChanges: pi.reportsChanges,
   capabilities,
   configFields,
   buildLaunch,

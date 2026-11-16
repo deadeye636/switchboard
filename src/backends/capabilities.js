@@ -111,6 +111,15 @@ const CATALOG = [
     declaredBy: 'sessionFlow',
   },
   {
+    // Spec 47 (#870): the session's edits, commits and pushes, read from its own transcript by the parser; the native
+    // drivers share their owner's parser.
+    id: 'sessionChanges',
+    group: 'sessions',
+    label: 'Track what a session changed',
+    description: 'Count the files a session edited and list its commits and pushes, read from its own transcript.',
+    declaredBy: 'reportsChanges',
+  },
+  {
     id: 'modelList',
     group: 'models',
     label: 'Pick a model from a list',

@@ -323,6 +323,8 @@ module.exports = {
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
+  // Spec 47 (#870): declines, the readable strings of a step are schema-less and unverified (docs/backend-formats.md, File edits, commits and pushes).
+  reportsChanges: false,
   capabilities: {
     fork: { state: 'no', note: 'no confirmed fork flag' },
     deleteSessions: 'yes',
@@ -347,6 +349,7 @@ module.exports = {
     task: { state: 'no', note: 'a task runs on a pipe, and agy has no pipe driver here' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and agy has no pipe driver here' },
     sessionFlow: 'no',
+    sessionChanges: 'no',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

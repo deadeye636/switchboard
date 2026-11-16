@@ -27,6 +27,7 @@ const PINNED = {
     task: 'no',     // spec 41: a task runs on a pipe; Claude's pipe driver is claude-native
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is claude-native
     sessionFlow: 'limited', // spec 46: main and subagent lanes, risk marks; a background agent's end and approvals not read
+    sessionChanges: 'yes', // spec 47: read from the transcript by the parser
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'yes', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
@@ -43,6 +44,7 @@ const PINNED = {
     task: 'no',     // spec 41: no pipe driver
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
     sessionFlow: 'limited', // spec 46: main plus child lanes, risk marks; approvals only as the guardian's verdict
+    sessionChanges: 'no', // spec 47: declined for now
     turnDigest: 'yes',   // #507: a bounded tail read of its rollout
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -59,6 +61,7 @@ const PINNED = {
     task: 'no',     // spec 41: no pipe driver
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
     sessionFlow: 'no', // spec 46: declined: SQLite rows, nothing measured
+    sessionChanges: 'no', // spec 47: declined for now
     turnDigest: 'yes',   // #507: the viewer's SQL reader, bounded by a row limit
     resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'no',
     // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
@@ -83,6 +86,7 @@ const PINNED = {
     task: 'no',     // spec 41: a task runs on a pipe; Pi's pipe driver is pi-native
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is pi-native
     sessionFlow: 'limited', // spec 46: one lane, agents as a summary step, no approval step in a terminal
+    sessionChanges: 'no', // spec 47: declined for now
     turnDigest: 'yes',   // #507: a bounded tail read of its session file
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
@@ -104,6 +108,7 @@ const PINNED = {
     task: 'yes',    // spec 41: taskProfile, asks shown on the row
     idleMaintenance: 'limited', // spec 45: the hit verdict is best effort
     sessionFlow: 'limited', // spec 46: read through its owner Pi
+    sessionChanges: 'no', // spec 47: declined for now
     turnDigest: 'yes',   // #507: Pi's answer, over the same store
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -124,6 +129,7 @@ const PINNED = {
     task: 'yes',    // spec 41: taskProfile, asks shown on the row
     idleMaintenance: 'limited', // spec 45: the hit verdict is best effort
     sessionFlow: 'limited', // spec 46: read through its owner Claude
+    sessionChanges: 'yes', // spec 47: read from the transcript by the parser
     turnDigest: 'yes',   // #507: Claude's reader, over the same store
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -140,6 +146,7 @@ const PINNED = {
     task: 'no',     // spec 41: no pipe driver
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
     sessionFlow: 'no', // spec 46: declined: protobuf, no token counts
+    sessionChanges: 'no', // spec 47: declined for now
     turnDigest: 'limited', // #507: whole-database walk, so it declines above a size guard
     resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no

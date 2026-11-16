@@ -351,6 +351,10 @@ brought back to the owner before the sequence-number fallback is used.
   extractor may not. v1 counts only the edit tools and `Write`-like calls; shell-made writes are not attributed (a known
   under-report, not a wrong claim).
 - Hermes answers nothing (T1: no edit or shell call exists in its local store); agy and Codex answer in part (section 2).
+- A session row that is dropped (a failed stat, a removal and bring-back) while the index worker's read memo is still
+  alive, and that the watcher lane re-creates before a reconcile pass reaches it, comes back without its change rows. It
+  heals when the next edit, commit or push settles, after an app restart, or with a parser bump. The reconcile pass
+  itself forces the rows back for a file that has no cached row (`forceChanges` in `src/backends/claude/folder-parse.js`).
 
 ## Files (planned)
 

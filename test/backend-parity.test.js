@@ -369,6 +369,17 @@ test('the sessionFlow capability row agrees with what the hook answers, and a re
   }
 });
 
+// Spec 47 (#870): every backend answers `reportsChanges` with a boolean, the capability row says the same, and a driver
+// gives its owner's answer (its transcript is the owner's).
+test('every backend answers reportsChanges, and the sessionChanges row agrees', () => {
+  const expected = { claude: true, 'claude-native': true, codex: false, pi: false, 'pi-native': false, hermes: false, agy: false };
+  assert.deepEqual(Object.fromEntries(READY.map(b => [b.id, b.reportsChanges])), expected);
+  for (const b of READY) {
+    const state = b.capabilities.sessionChanges.state || b.capabilities.sessionChanges;
+    assert.equal(state === 'no', b.reportsChanges === false, `${b.id}: the sessionChanges row says ${state} but reportsChanges is ${b.reportsChanges}`);
+  }
+});
+
 // `idleMaintenance` is in NOT_INHERITED (test/template-descriptor-shape.test.js) because a template cannot run on a pipe driver.
 // That holds through `BASE_IDS` in src/backends/profiles.js; widening it would make a template a pipe session that declares
 // the capability row without the hook, so forward the hook or decline the row when this fails.

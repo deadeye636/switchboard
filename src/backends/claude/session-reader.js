@@ -4,6 +4,7 @@ const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 const { sessionProjectPath } = require('../../session/derive-project-path');
 const { specNamesModel } = require('./model-windows');
 const { transportFromEntry } = require('./transport-marker');
+const { createClaudeChangeExtractor, createLineCursor } = require('./change-events');
 
 // Bump on ANY change to what this parser writes into a session row or its metrics. The scan compares
 // this to the version recorded on the cached row (#152) and re-reads the session when they differ —
@@ -462,6 +463,10 @@ function createParseState() {
     // How the session was driven, once any line carried the driver's marker (./transport-marker.js). Kept in
     // the parse state so the incremental path keeps it: the marker is on the lines already consumed.
     transport: null,
+    // What the session edited, committed and pushed (#870, spec 47). Retained across incremental reads with the rest of
+    // the state; `changesSent` is the revision the last emitted row carried (-1: none yet).
+    changes: createClaudeChangeExtractor(),
+    changesSent: -1,
   };
 }
 
@@ -510,9 +515,10 @@ function startsTurn(entry, text) {
  *  a JSONL file being written concurrently by a live Claude CLI session can
  *  have its tail captured mid-write — one truncated line should not invalidate
  *  the whole file. */
-function applyEntryLine(st, line) {
+function applyEntryLine(st, line, cursor) {
   let entry;
   try { entry = JSON.parse(line); } catch { return; }
+  if (cursor) st.changes.feed(entry, cursor);
   if (entry.timestamp) {
     const timestamp = new Date(entry.timestamp);
     if (!Number.isNaN(timestamp.getTime())) {
@@ -633,7 +639,7 @@ function readModelFromTail(text) {
 
 /** Assemble the session row from an accumulated parse state + fresh stat.
  *  Returns null when the state doesn't (yet) describe a valid session. */
-function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMetrics) {
+function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMetrics, fullParse) {
   const fileBase = path.basename(filePath, '.jsonl');
   const isSubagent = Boolean(opts.parentSessionId);
   // A session whose only user message so far is the slash command that opened it still gets a row: it is
@@ -648,6 +654,9 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
   // the same project. The folder keeps its own stable identity either way, so no sibling is dragged
   // along — which is what sank the first attempt at this.
   const rowProjectPath = sessionProjectPath(st.lastCwd, projectPath);
+  // The cumulative changes aggregate (#870): always on a full parse (empty included, so a session that lost its edits
+  // is replaced), on an incremental one only when something new was found.
+  const changes = fullParse || st.changes.revision !== st.changesSent ? st.changes.toRow() : undefined;
   const activeMinutes = st.startedAt && st.lastEntryAt
     ? Math.max(0, Math.round((new Date(st.lastEntryAt) - new Date(st.startedAt)) / 60000))
     : 0;
@@ -666,6 +675,7 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     const meta = readSubagentMeta(filePath) || {};
     const subagentType = meta.agentType || null;
     const description = meta.description || null;
+    if (changes) st.changesSent = st.changes.revision;
     return {
       sessionId: subagentSessionId(opts.parentSessionId, agentId),
       folder, projectPath: rowProjectPath,
@@ -681,9 +691,11 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
       subagentType,
       description,
       dailyMetrics,
+      ...(changes ? { changes } : {}),
     };
   }
 
+  if (changes) st.changesSent = st.changes.revision;
   return {
     sessionId: fileBase, folder, projectPath: rowProjectPath,
     summary, firstPrompt: summary,
@@ -708,6 +720,7 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     // Whether it was ever driven over the stream pipe (#658); `openerFor` decides who opens it.
     transport: st.transport || null,
     dailyMetrics,
+    ...(changes ? { changes } : {}),
   };
 }
 
@@ -718,16 +731,17 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
 function readSessionFile(filePath, folder, projectPath, opts = {}) {
   try {
     const stat = fs.statSync(filePath);
-    const content = fs.readFileSync(filePath, 'utf8');
-    const lines = content.split('\n').filter(Boolean);
+    const buf = fs.readFileSync(filePath);
+    const lines = buf.toString('utf8').split('\n').filter(Boolean);
     const st = createParseState();
-    for (const line of lines) applyEntryLine(st, line);
+    const cursor = createLineCursor(buf, 0);
+    for (let i = 0; i < lines.length; i++) { cursor.index = i; applyEntryLine(st, lines[i], cursor); }
     // Same fallback as buildSessionRow's guard: a just-cleared session is only its command so far.
     if ((!st.summary && !st.commandSummary) || st.messageCount < 1) return null;
 
     const fallbackDate = stat.mtime.toISOString().slice(0, 10);
     const dailyMetrics = extractDailyMetrics(lines, fallbackDate);
-    return buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMetrics);
+    return buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMetrics, true);
   } catch {
     return null;
   }
@@ -826,6 +840,8 @@ const INCREMENTAL_TAIL_CHECK = 32;
  *  divergence from a fresh full read: timestamp-less lines keep the fallback
  *  date of the chunk that first read them (rare, cosmetic).
  *
+ *  `opts.forceChanges` puts the cumulative `changes` into the row even when nothing moved: the caller has no stored
+ *  row for this file (it was dropped while this memo lived), and the memo's "already sent" says nothing about the DB (#870).
  *  Returns { session, next } or null when the file isn't (yet) a valid session.
  */
 function readSessionFileIncremental(filePath, folder, projectPath, opts = {}, prev = null) {
@@ -857,12 +873,13 @@ function readSessionFileIncremental(filePath, folder, projectPath, opts = {}, pr
         if (lastNl === -1) {
           // No new bytes, or only a partial line so far — rebuild the row so
           // stat-derived fields stay fresh; the partial line is consumed next time.
-          const session = buildSessionRow(prev.state, stat, filePath, folder, projectPath, opts, Array.from(prev.metrics.values()));
+          const session = buildSessionRow(prev.state, stat, filePath, folder, projectPath, opts, Array.from(prev.metrics.values()), opts.forceChanges === true);
           return session ? { session, next: prev } : null;
         }
         const consumed = buf.subarray(0, lastNl + 1);
         const lines = consumed.toString('utf8').split('\n').filter(Boolean);
-        for (const line of lines) applyEntryLine(prev.state, line);
+        const cursor = createLineCursor(consumed, prev.offset);
+        for (let i = 0; i < lines.length; i++) { cursor.index = i; applyEntryLine(prev.state, lines[i], cursor); }
         mergeDailyMetrics(prev.metrics, extractDailyMetrics(lines, fallbackDate));
         const next = {
           offset: prev.offset + lastNl + 1,
@@ -870,7 +887,7 @@ function readSessionFileIncremental(filePath, folder, projectPath, opts = {}, pr
           state: prev.state,
           metrics: prev.metrics,
         };
-        const session = buildSessionRow(next.state, stat, filePath, folder, projectPath, opts, Array.from(next.metrics.values()));
+        const session = buildSessionRow(next.state, stat, filePath, folder, projectPath, opts, Array.from(next.metrics.values()), opts.forceChanges === true);
         return session ? { session, next } : null;
       }
       // Fingerprint mismatch: fall through to the full read below.
@@ -881,10 +898,11 @@ function readSessionFileIncremental(filePath, folder, projectPath, opts = {}, pr
     const consumed = fbuf.lastIndexOf(0x0A) + 1; // 0 when no complete line exists yet
     const lines = fbuf.toString('utf8', 0, consumed).split('\n').filter(Boolean);
     const st = createParseState();
-    for (const line of lines) applyEntryLine(st, line);
+    const cursor = createLineCursor(fbuf, 0);
+    for (let i = 0; i < lines.length; i++) { cursor.index = i; applyEntryLine(st, lines[i], cursor); }
     const metrics = new Map();
     mergeDailyMetrics(metrics, extractDailyMetrics(lines, fallbackDate));
-    const session = buildSessionRow(st, stat, filePath, folder, projectPath, opts, Array.from(metrics.values()));
+    const session = buildSessionRow(st, stat, filePath, folder, projectPath, opts, Array.from(metrics.values()), true);
     if (!session) return null;
     const next = {
       offset: consumed,

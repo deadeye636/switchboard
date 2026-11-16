@@ -383,6 +383,8 @@ module.exports = {
   // What another CLI may take over from Claude is offered once, by the terminal backend: the files are the
   // same, and a second source with the same skills would list every one of them twice in "Resources from".
   sharedResources: null,
+  // Spec 47 (#870): the transcript is Claude's and its parser reads the changes, through the owner.
+  reportsChanges: claude.reportsChanges,
   capabilities,
   configFields,
   buildLaunch,

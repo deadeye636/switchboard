@@ -382,6 +382,8 @@ module.exports = {
   externalMcpTakes: null,
   // The capability matrix's answers for Hermes (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
+  // Spec 47 (#870): declines, the signal could not be verified in its store (docs/backend-formats.md, File edits, commits and pushes).
+  reportsChanges: false,
   capabilities: {
     fork: { state: 'no', note: 'no confirmed fork flag' },
     deleteSessions: { state: 'no', note: 'its history is in a database Switchboard may only read' },
@@ -406,6 +408,7 @@ module.exports = {
     task: { state: 'no', note: 'a task runs on a pipe, and Hermes has no pipe driver here' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and Hermes has no pipe driver here' },
     sessionFlow: 'no',
+    sessionChanges: 'no',
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
     resourceWrite: 'yes',

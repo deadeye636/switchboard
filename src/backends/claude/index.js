@@ -1219,6 +1219,8 @@ description:
   // derived: nearly every hook exists on every backend, several of them in order to decline, so
   // presence says a backend answered the question and not what it answered. `limited` carries the
   // note explaining which half is missing; `src/backends/capabilities.js` holds the catalog.
+  // Spec 47 (#870): the parser reads the session's edits, commits and pushes into `row.changes` (`./change-events.js`).
+  reportsChanges: true,
   capabilities: {
     fork: 'yes',
     deleteSessions: 'yes',
@@ -1253,6 +1255,7 @@ description:
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is claude-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is claude-native' },
     sessionFlow: { state: 'limited', note: 'a main lane and one lane per subagent, with steps, instruction files and context checkpoints; a background subagent never shows its end, risk marks are a built-in pattern list on the shell tools (heuristic) plus the permission mode and blocked or denied calls, and approvals are not read; the window comes from the session settings first, the model name is the fallback (spec 46)' },
+    sessionChanges: { state: 'yes', note: 'edits by file, commits and pushes from the shell output; a command whose output hides the git lines (piped through tail) yields no commit; a subagent is its own row' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.
