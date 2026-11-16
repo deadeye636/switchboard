@@ -25,12 +25,22 @@ shipped provider; hg/svn would be sibling files, registered with one line, no co
 | `capabilities` | `{ branch, staging, untracked, conflicts, state }` — what this VCS has |
 | `statusArgs(opts)` | `['--no-optional-locks','status','--porcelain=v2','--branch','-z', …]`; adds `-uno` when untracked counting is off |
 | `parse(raw, opts)` | pure porcelain-v2 parser → normalized summary (`src/vcs/parse-git-status.js`) |
-| `diffArgs(opts)` | `['--no-optional-locks','diff','--no-color', …('--cached' when `staged`), '--', path]` — one tracked file's diff (#285) |
-| `showArgs(opts)` | `['--no-optional-locks','show','<ref>:<path>']` — one version's raw content; `ref: ''` is the index (#287) |
+| `diffArgs(opts)` | `['--no-optional-locks','--literal-pathspecs','diff','--no-color', …('--cached' when `staged`), '--', path]` — one tracked file's diff (#285). `rev` (and optional `to`) diffs from a commit instead (#870); `rev` with `staged` throws |
+| `showArgs(opts)` | `['--no-optional-locks','show','<ref>:<path>']` — one version's raw content; `ref: ''` is the index (#287); `ref` may be a commit SHA (#870) |
+| `numstatArgs({from,to,paths})` | `['--no-optional-locks','--literal-pathspecs','diff','--numstat','-z','--no-renames','--no-color',from,[to],'--',…paths]` — per-file counts to a rev or (`to` null) the working tree (#870, spec 47) |
+| `logRangeArgs({from,to,max,firstParent})` | `log --no-color -z --format=%H%x00%at%x00%s -n<max> [--first-parent] from..to --` — NUL fields, so a commit message cannot forge a record (#870) |
+| `revExistsArgs(rev)`, `resolveCommitArgs(sha)`, `headArgs()`, `isAncestorArgs(a,b)` | `cat-file -e <rev>^{commit}`; `rev-parse --verify --quiet <sha>^{commit}` (prints the full SHA); `rev-parse HEAD`; `merge-base --is-ancestor a b` (#870) |
+| `revBeforeArgs(iso)`, `showCommitArgs(sha)` | `rev-list -1 --first-parent --before=<iso> HEAD`; `show -s -z --format=%H%x00%at%x00%s%x00%b <sha> --` (#870) |
+| `parseNumstat(raw)`, `parseLog(raw, fields)` | pure readers of the two outputs above (`src/vcs/parse-git-changes.js`) |
 | `detectState(cwd)` | in-progress op from `.git/` markers (MERGE_HEAD → merging, rebase-merge → rebasing, …) — filesystem only, no extra spawn |
 | `describeRepo(cwd)` | `{ root, mainRoot }`: the checkout's root, and the main repository's root when it is a linked worktree (git: the gitdir's `commondir`), else `null`. Filesystem only. For a `--separate-git-dir` repository nothing records the working tree, so `mainRoot` is the git directory itself (a bare repository gives `null`; `core.worktree` in that directory's `config` names the tree when present, #858). Optional: the session sidebar's Repository group (#821, spec 43) and the `vcs-describe` IPC behind it; a provider without it shows no repository row |
 | `probe()` | is the binary on PATH |
 | `netFree` | `true` — the status path must never hit the network (parity-asserted) |
+
+A revision handed to any #870 hook is untrusted (it comes out of a transcript): the argv builder throws unless it
+is `^[0-9a-f]{4,64}$` (`HEAD` only where the code itself passes it), and a time unless it is ISO 8601. A path
+always follows `--`, and the global `--literal-pathspecs` makes it a file name, not a pathspec. A provider
+without these hooks answers `null` for each (parity-asserted).
 
 `test/vcs-parity.test.js` requires every registered provider to answer the contract (even to decline) and
 asserts `netFree`. **Not the whole of it:** `diffArgs` and `showArgs` are in the hook table above and are

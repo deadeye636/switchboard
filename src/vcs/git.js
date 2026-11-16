@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { parseGitStatus } = require('./parse-git-status');
+const { parseNumstat, parseLog } = require('./parse-git-changes');
 
 // Walk up from cwd to the nearest repository. `.git` may be a DIRECTORY (normal repo) or a FILE
 // (worktree / submodule: `gitdir: <path>`), so existence — not directory-ness — is the test (#277 H2).
@@ -136,15 +137,105 @@ function parse(raw, opts) {
 // Argv for a single file's diff (#285). Run with `cwd` = the repo. `staged` picks the index-vs-HEAD
 // diff (a staged change), else the working-tree-vs-index diff. Untracked files have no tracked side
 // and are handled by the caller (read the file), not here.
-function diffArgs({ path, staged } = {}) {
-  return ['--no-optional-locks', 'diff', '--no-color', ...(staged ? ['--cached'] : []), '--', path];
+// `rev` (#870) diffs the file from that revision to the working tree, or to `to` when that is given too.
+// `--literal-pathspecs` (global, so before `diff`): the path is a file name, not a pathspec, so `*`, `?` and a
+// leading `:` in a name mean themselves. `rev` and `staged` do not combine (a rev diff has no index side).
+function diffArgs({ path, staged, rev, to } = {}) {
+  if (rev && staged) throw new TypeError('git: rev and staged do not combine');
+  if (rev) {
+    return ['--no-optional-locks', '--literal-pathspecs', 'diff', '--no-color', checkRev(rev, { head: true }),
+      ...(to ? [checkRev(to, { head: true })] : []), '--', path];
+  }
+  return ['--no-optional-locks', '--literal-pathspecs', 'diff', '--no-color', ...(staged ? ['--cached'] : []), '--', path];
 }
 
 // Argv to print ONE version of a file's content to stdout (#287, for the side-by-side diff window).
-// `ref` is 'HEAD' for the committed version or '' for the index (staged) version — `git show <ref>:<path>`.
-// The working-copy version is read from disk by the caller, not here.
+// `ref` is 'HEAD' for the committed version, '' for the index (staged) version, or (#870) a commit SHA —
+// `git show <ref>:<path>`. The working-copy version is read from disk by the caller, not here.
 function showArgs({ ref, path } = {}) {
-  return ['--no-optional-locks', 'show', `${ref || ''}:${path}`];
+  return ['--no-optional-locks', 'show', `${ref ? checkRev(ref, { head: true }) : ''}:${path}`];
+}
+
+// --- Session changes (#870, spec 47 section 4) ---
+//
+// Every revision here can come out of a transcript (a commit the CLI printed), so it is UNTRUSTED: it must be
+// a hex SHA before it reaches an argv, or the argv builder throws. `HEAD` is accepted only where the caller
+// is this code, via `{ head: true }`. A path always follows `--` (a path starting with `-` is then a path).
+
+const SHA_RE = /^[0-9a-f]{4,64}$/;
+// ISO 8601 date, optionally with time and zone. Starts with a digit, so `--before=<it>` can never be an option.
+const ISO_TIME_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:?\d{2})?$/;
+
+function checkRev(rev, { head = false } = {}) {
+  if (typeof rev === 'string' && (SHA_RE.test(rev) || (head && rev === 'HEAD'))) return rev;
+  throw new TypeError('git: not a commit SHA');
+}
+
+function checkTime(t) {
+  if (typeof t === 'string' && ISO_TIME_RE.test(t)) return t;
+  throw new TypeError('git: not an ISO time');
+}
+
+function checkPaths(paths) {
+  if (paths == null) return [];
+  if (!Array.isArray(paths)) throw new TypeError('git: paths must be an array');
+  for (const p of paths) {
+    if (typeof p !== 'string' || !p || p.includes('\0')) throw new TypeError('git: bad path');
+  }
+  return ['--', ...paths];
+}
+
+// Per-file added/deleted counts from `from` to `to`, or to the working tree when `to` is null. `-z` gives
+// NUL-separated records with unquoted names, `--no-renames` makes a rename a delete plus an add (spec 47
+// section 4). `--literal-pathspecs` (global): `paths` are file names, not pathspecs. Read with `parseNumstat`.
+function numstatArgs({ from, to = null, paths } = {}) {
+  return ['--no-optional-locks', '--literal-pathspecs', 'diff', '--numstat', '-z', '--no-renames', '--no-color',
+    checkRev(from, { head: true }), ...(to ? [checkRev(to, { head: true })] : []), ...checkPaths(paths)];
+}
+
+// Commits in `from..to` (`from` null: everything reachable from `to`, capped by `max`). `-z` plus NUL between
+// the fields: a commit message cannot contain NUL, so it cannot forge a record or a field. The output is a flat
+// NUL-separated list, three fields per commit (sha, author time, subject) — read with `parseLog(raw, 3)`. NOT
+// first-parent by default: a pushed range is the exact commit range the push carried, merged-in commits
+// included (`firstParent: true` for a caller that wants the branch's own line only).
+const LOG_FORMAT = '--format=%H%x00%at%x00%s';
+function logRangeArgs({ from = null, to, max = 200, firstParent = false } = {}) {
+  if (!Number.isInteger(max) || max < 1 || max > 10000) throw new TypeError('git: bad max');
+  const range = from ? `${checkRev(from)}..${checkRev(to, { head: true })}` : checkRev(to, { head: true });
+  return ['--no-optional-locks', 'log', '--no-color', '-z', LOG_FORMAT, `-n${max}`,
+    ...(firstParent ? ['--first-parent'] : []), range, '--'];
+}
+
+// Exit 0 when the commit exists in this repository, 128 when it does not (E2, E3).
+function revExistsArgs(rev) {
+  return ['--no-optional-locks', 'cat-file', '-e', `${checkRev(rev, { head: true })}^{commit}`];
+}
+
+function headArgs() {
+  return ['--no-optional-locks', 'rev-parse', 'HEAD'];
+}
+
+// The commit the session started on (E1): the newest first-parent commit at or before `isoTime`. Prints
+// nothing when there is none (the caller falls back to HEAD).
+function revBeforeArgs(isoTime) {
+  return ['--no-optional-locks', 'rev-list', '-1', '--first-parent', `--before=${checkTime(isoTime)}`, 'HEAD'];
+}
+
+// One commit's sha, author time, subject and body, NUL-separated like the log: read with `parseLog(raw, 4)`.
+function showCommitArgs(sha) {
+  return ['--no-optional-locks', 'show', '-s', '--no-color', '-z', '--format=%H%x00%at%x00%s%x00%b',
+    checkRev(sha), '--'];
+}
+
+// Resolves an untrusted (possibly abbreviated) SHA to the full one: prints it, exit 1 and nothing when it is
+// not a commit of this repository. The caller uses the printed full SHA from then on.
+function resolveCommitArgs(sha) {
+  return ['--no-optional-locks', 'rev-parse', '--verify', '--quiet', `${checkRev(sha)}^{commit}`];
+}
+
+// Exit 0 when `a` is an ancestor of `b`, 1 when not (a rewritten history, E3).
+function isAncestorArgs(a, b) {
+  return ['--no-optional-locks', 'merge-base', '--is-ancestor', checkRev(a, { head: true }), checkRev(b, { head: true })];
 }
 
 // Argv that forgets the checkouts whose directory is gone (#679). A deleted worktree leaves its entry under
@@ -320,6 +411,17 @@ module.exports = {
   worktreeStatusArgs,
   diffArgs,
   showArgs,
+  // Session changes (#870). A provider without them answers null for each.
+  numstatArgs,
+  logRangeArgs,
+  revExistsArgs,
+  headArgs,
+  revBeforeArgs,
+  showCommitArgs,
+  resolveCommitArgs,
+  isAncestorArgs,
+  parseNumstat,
+  parseLog,
   pruneWorktreesArgs,
   // App-owned worktrees (#805). A provider without them sets `worktree: null`, and the service refuses a
   // writing task in its folders with a sentence.

@@ -58,6 +58,33 @@ for (const p of providers) {
     assert.ok('reason' in r);
   });
 
+  // Session changes (#870): every provider answers each hook; one without it answers null.
+  test(`${p.id}: answers every session-changes hook (a function, or null to decline)`, () => {
+    for (const hook of ['numstatArgs', 'logRangeArgs', 'revExistsArgs', 'headArgs', 'revBeforeArgs',
+      'showCommitArgs', 'resolveCommitArgs', 'isAncestorArgs', 'parseNumstat', 'parseLog']) {
+      assert.ok(hook in p, `${hook} must be present, null when declined`);
+      assert.ok(p[hook] === null || typeof p[hook] === 'function', `${hook} is a function or null`);
+    }
+  });
+
+  test(`${p.id}: session-changes argv carry --no-optional-locks first and no network verb`, () => {
+    const sha = 'a1b2c3d4e5f6';
+    const argvs = [
+      p.numstatArgs && p.numstatArgs({ from: sha }),
+      p.logRangeArgs && p.logRangeArgs({ from: sha, to: 'HEAD' }),
+      p.revExistsArgs && p.revExistsArgs(sha),
+      p.headArgs && p.headArgs(),
+      p.revBeforeArgs && p.revBeforeArgs('2026-11-16T10:00:00Z'),
+      p.showCommitArgs && p.showCommitArgs(sha),
+      p.resolveCommitArgs && p.resolveCommitArgs(sha),
+      p.isAncestorArgs && p.isAncestorArgs(sha, 'HEAD'),
+    ].filter(Boolean);
+    for (const a of argvs) {
+      assert.strictEqual(a[0], '--no-optional-locks');
+      for (const verb of ['fetch', 'pull', 'push', 'clone', 'ls-remote']) assert.ok(!a.includes(verb), verb);
+    }
+  });
+
   test(`${p.id}: detect() is false for a plain non-repo temp dir`, () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vcs-parity-'));
     try {
