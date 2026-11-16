@@ -49,6 +49,10 @@ const CHOICES_NOT_ENUMERATED = new Set([
   // of that sentence would be a guess about prose, and a guess here either invents a dead value or hides a
   // real one.
   'localProvider',
+  // #878. Codex has no flag for the reasoning effort; it is the config key `model_reasoning_effort`, sent as
+  // `-c model_reasoning_effort=<level>`, so `--help` lists no values for it. The levels a model takes come
+  // from `codex debug models` instead (`src/backends/codex/models.js`), and the form narrows to those.
+  'effort',
 ]);
 
 /** The option DEFINITIONS in Codex' `Options:` block, each with the description lines that belong to it. */

@@ -81,6 +81,11 @@ const configFields = [
 // The tell was in the help text and it reads backwards: `--model`, `--provider` and `--toolsets` all say
 // "Applies to -z/--oneshot and --tui" precisely BECAUSE they are wired through the passthrough.
 // `--reasoning` omits that sentence because it is not. An absent restriction is not universality.
+//
+// Since 0.23.1 it is worse than a dead control (#878, measured): the TUI REFUSES the flag
+// (`_refuse_unforwarded_tui_flags`, exit 2, "No session was started."), so for a TUI user the launch itself
+// would fail. `_CHAT_PASSTHROUGH` still does not carry it; Hermes points at `agent.reasoning_effort` in its
+// config.yaml instead. `docs/backend-formats.md` ("Choosing a model and an effort at launch") has the details.
 
 /**
  * Is Hermes actually installed? The recon showed it ships its OWN venv + uv, so probing for a system

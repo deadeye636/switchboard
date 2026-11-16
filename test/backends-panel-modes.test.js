@@ -68,6 +68,8 @@ async function setup(backends, stored = {}, opts = {}) {
   Object.defineProperty(window, 'CSS', { value: { escape: (s) => String(s).replace(/([^\w-])/g, '\\$1') }, configurable: true });
   const ctxVm = dom.getInternalVMContext();
   vm.runInContext(fs.readFileSync(path.join(SRC, 'shared', 'backend-modes.js'), 'utf8'), ctxVm, { filename: 'backend-modes.js' });
+  // #878: backends-panel.js and dialogs.js build their model and effort controls through it.
+  vm.runInContext(fs.readFileSync(path.join(SRC, 'renderer', 'lib', 'model-choices.js'), 'utf8'), ctxVm, { filename: 'model-choices.js' });
   vm.runInContext(fs.readFileSync(PANEL, 'utf8'), ctxVm, { filename: PANEL });
   const root = window.document.getElementById('root');
   const settings = { backendDefaults: stored, ...(opts.enabled ? { backendEnabled: opts.enabled } : {}), ...(opts.pickerModes ? { pickerModeByBackend: opts.pickerModes } : {}) };
@@ -272,6 +274,8 @@ async function setupProject(backends, own = {}, globalOwn = {}) {
   Object.defineProperty(window, 'CSS', { value: { escape: (s) => String(s).replace(/([^\w-])/g, '\$1') }, configurable: true });
   const ctxVm = dom.getInternalVMContext();
   vm.runInContext(fs.readFileSync(path.join(SRC, 'shared', 'backend-modes.js'), 'utf8'), ctxVm, { filename: 'backend-modes.js' });
+  // #878: backends-panel.js and dialogs.js build their model and effort controls through it.
+  vm.runInContext(fs.readFileSync(path.join(SRC, 'renderer', 'lib', 'model-choices.js'), 'utf8'), ctxVm, { filename: 'model-choices.js' });
   vm.runInContext(fs.readFileSync(PANEL, 'utf8'), ctxVm, { filename: PANEL });
   const root = window.document.getElementById('root');
   let panes = null;

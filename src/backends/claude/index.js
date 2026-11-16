@@ -121,7 +121,17 @@ const configFields = [
     },
     default: 'default',
     description: 'Which tool calls Claude asks about before running them. Default sends nothing: the mode in your Claude settings applies, and without one Claude starts in auto mode (since Claude Code 2.1.284, where the model supports it; older versions ask each time).' },
-  { id: 'model', label: 'Model', type: 'text', default: '' },
+  { id: 'model', label: 'Model', type: 'text', default: '', modelDiscovery: true,
+    description: 'An alias (opus, fable, sonnet, haiku) or a model id. Empty = Claude\'s own default.' },
+  // #878. `--effort` applies to an interactive session too (its help carries no "only works with --print").
+  // `choicesPerModel`: the form narrows the levels to the ones the chosen model lists (`listModels` answers them
+  // per model, ./models.js); a model typed by hand gets the whole list. Measured: a level the model does not take
+  // is not refused — the session starts and runs — so the narrowing is about offering the truth, not a guard.
+  { id: 'effort', label: 'Effort', type: 'select',
+    choices: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
+    choiceLabels: { '': "Claude's default", low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' },
+    default: '', choicesPerModel: 'model',
+    description: 'How hard the model thinks before it answers. Only the levels the chosen model takes are offered. Empty = Claude\'s own setting.' },
   { id: 'worktree', label: 'Git worktree', type: 'toggle', default: false },
   // `requires`: this option only means anything while another one is on. Declared, so the generated UI
   // and the contract test both know it — an option that silently does nothing on its own is exactly the
@@ -204,6 +214,7 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   if (opts.model) {
     args.push('--model', String(opts.model));
   }
+  if (opts.effort) args.push('--effort', String(opts.effort));
   if (opts.worktree) {
     args.push('--worktree');
     if (opts.worktreeName) args.push(String(opts.worktreeName));
@@ -682,8 +693,19 @@ function transcriptPathFor(row) {
   return resolveJsonlPath(_roots[0], row);
 }
 
+// The models a launch form offers (#878), with the effort levels each takes: `./models.js` has the source and
+// why. The probe starts the CLI without a shell, which on Windows needs the native `claude.exe`; an npm
+// install's `claude.cmd` cannot be started that way, and then the cache and the aliases answer. The home
+// variable comes along, so an isolated instance asks the account it is isolated to.
+function listModels({ search } = {}) {
+  const exe = findOnPath('claude');
+  const startable = exe && (process.platform !== 'win32' || /\.(exe|com)$/i.test(exe)) ? exe : null;
+  return require('./models').listModels({ exe: startable, env: { ...process.env, ...(cliHomeEnv() || {}) }, search });
+}
+
 module.exports = {
   id: 'claude',
+  listModels,
   // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
   // backend, and a backend without a public changelog simply declares nothing.
   changelogSource,
@@ -1196,7 +1218,7 @@ description:
     moveProject: 'yes',
     transcriptHandoff: 'yes',
     lineage: 'yes',
-    modelList: 'no',
+    modelList: 'yes',
     endpoint: 'yes',
     projectTrust: 'yes',
     subagentSessions: 'yes',

@@ -51,6 +51,8 @@ function setup({ openResult = { ok: true } } = {}) {
 
   // settings.html loads the shared mode module before the panel (#761).
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'shared', 'backend-modes.js'), 'utf8'), dom.getInternalVMContext(), { filename: 'backend-modes.js' });
+  // #878: backends-panel.js and dialogs.js build their model and effort controls through it.
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'lib', 'model-choices.js'), 'utf8'), dom.getInternalVMContext(), { filename: 'model-choices.js' });
   vm.runInContext(fs.readFileSync(PANEL, 'utf8'), dom.getInternalVMContext(), { filename: PANEL });
 
   return { window, dom, openCalls, listCalls, root: window.document.getElementById('root') };

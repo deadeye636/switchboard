@@ -1226,6 +1226,56 @@ directory) and Pi 1.5.2 (no model call made).
 
 ---
 
+## Choosing a model and an effort at launch (#878)
+
+What each CLI offers BEFORE a session runs, for a launch form. Measured 2026-11-16 from help output, version output,
+installed files, Codex's catalog and the Claude `initialize` probe below. Two short turns were run, one per CLI, to see
+what a level the model does not list does (the last bullet but one); everything else needed no model call.
+
+- **Claude Code 2.1.323: no model list on the command line.** `claude --help` has no subcommand or flag that lists
+  models. `--model` takes "an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet') or a model's full name".
+  `--effort <level>` takes `low`, `medium`, `high`, `xhigh`, `max`, and lacks the "(only works with --print)" note of
+  the print-only flags, so it applies to an interactive session too. The levels a MODEL takes are narrower and come
+  only with the runtime's `initialize` list (previous section): a form that offers the five fixed levels for a
+  hand-typed model cannot know which of them the model accepts. Getting that list without a turn means starting
+  `claude -p --input-format stream-json`, sending `initialize` and closing — the probe measured below, which
+  `src/backends/claude/models.js` runs.
+- **Codex 0.167.0: `codex debug models` lists the catalog as JSON.** `--bundled` prints the catalog shipped in the
+  binary with no network call; without it the CLI refreshes the catalog first. Each entry has `slug`,
+  `display_name`, `visibility` (`list` or `hide`), `default_reasoning_level`, `supported_reasoning_levels` and
+  `context_window`, among others. The bundled catalog held 12 entries, 9 of them `list`, and the levels differ per
+  model (for example `gpt-5.5` stops at `xhigh`, the `*-luna` models at `max`, others go up to `ultra`; the default is
+  `low` or `medium`). The effort is the config key `model_reasoning_effort`, so a launch sends
+  `-c model_reasoning_effort=<level>` (`plan_mode_reasoning_effort` is a separate key). `codex --help` names neither;
+  the value set `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` was read from strings in the
+  binary, not from a schema.
+- **Hermes 0.23.1: `--reasoning` is now refused by the TUI, not dropped.** `_CHAT_PASSTHROUGH` in `main.py` still
+  does not carry `reasoning`; only the classic branch passes it on. `_refuse_unforwarded_tui_flags` in
+  `main_tui_launch.py` exits with code 2 and "Unsupported --tui options: --reasoning. No session was started.",
+  pointing at `hermes chat --cli` or `agent.reasoning_effort` in `config.yaml`. The TUI runs for `--tui`,
+  `HERMES_TUI=1`, or `display.interface: tui` with a TTY. `hermes chat --help` lists `none` … `ultra` for the flag.
+  So offering it would make a TUI user's launch fail outright, which is a stronger reason for the #537 decline.
+- **Claude: the `initialize` probe** (2.1.323, measured three times plain and twice with hooks off, a scratch
+  directory, stdin closed after the answer): `claude -p --input-format stream-json --output-format stream-json
+  --verbose`, one `{ type: 'control_request', request: { subtype: 'initialize' } }`. It answered after 1.9-2.3 s and
+  the process exited 0.9-1.8 s later, with no turn and **no transcript file**. **The user's `SessionStart` hooks
+  ran** (`system/hook_started` and `hook_response` lines) — a phantom session start for every hook the user has.
+  `--settings '{"disableAllHooks":true}'` stopped them (no hook lines, same list). `--bare` is no way out: it
+  reads no OAuth, and the list is the account's. The list held 14 entries: the five aliases and nine ids;
+  `claude-haiku-4-5-20251001` takes no effort, `claude-opus-4-6` and `claude-sonnet-4-6` stop at `max` with no
+  `xhigh`, the rest take `low` … `max`.
+- **A level the model does not take is not refused, by either CLI.** Claude: `--model claude-haiku-4-5-20251001
+  --effort high` started, `get_settings` answered `effortLevel: high`, and the turn ran on that model and succeeded.
+  Codex: `-m gpt-5.6-luna -c model_reasoning_effort=ultra` (the catalog lists `max` as luna's highest) ran the turn
+  and printed `reasoning effort: ultra`. So a wrong level costs no session; what the model then does with it is
+  not visible.
+- **Codex: the bundled catalog is not the account's.** `codex debug models` without `--bundled` refreshed in about
+  1 s and differed from the bundled one: `gpt-5.5` was gone and several default levels moved. `gpt-5.5`, still in
+  the bundled list, was refused at the turn: "The 'gpt-5.5' model is not supported when using Codex with a ChatGPT
+  account." The refreshed list is the one to offer, the bundled one a fallback when the refresh fails.
+
+---
+
 ## How full the context window is (#620)
 
 What each store says about the LAST turn's input and the window it ran against. Measured on real installs
@@ -1510,9 +1560,9 @@ which meant they were, in practice, not configurable from Switchboard.
 
 | Backend | Declared | Deliberately left out, and why |
 |---|---|---|
-| **Claude** | `permissionMode`, `model`, `worktree` (+`worktreeName`), `chrome`, `addDirs`, `restricted`, `autocompact`, `mcpEmulation`, `afkTimeoutSec` | `--permission-prompts` (print mode only — the flag #537 opened with), `--cloud` / `--environment` / `--teleport` (a session with no local transcript, so the scan cannot find, adopt or resume it), `--system-prompt-snapshot` (unmeasured), `--append-system-prompt` (#562 — `buildLaunch` honoured it with no field declaring it, left over from the schedule creator #246 removed; passing it turns `--system-prompt-snapshot` off, which is the flag right above it on this list, so declaring it would have shipped that unmeasured interaction through a text field. Pi's option of the same name is a different CLI with no snapshot to disturb). **`restricted` carries a warning that its label cannot**: it also ignores your settings files, which turns off Switchboard's attention hook, and it refuses `permissionMode: bypassPermissions` — that combination dies at spawn. |
-| **Codex** | `model`, `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` and `--dangerously-bypass-hook-trust` — their own help marks them dangerous. `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd), `--remote*` / app-server wiring, `--no-alt-screen` (Switchboard owns the PTY), `--approve-for-me` (#537 — unmeasured: nobody here has watched what its automatic review approves). |
-| **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-z`/`--oneshot` and `--usage-file` (non-interactive), `--continue` (picker/name rather than Switchboard's recorded id), `--no-restore-cwd` (resume semantics, not a launch default), `--dev`, anything that moves its session store or writes/manages resources. **`--reasoning`** is the interesting refusal (#537): it is a real flag, argparse accepts it, and the modern TUI then drops it — `_CHAT_PASSTHROUGH` in hermes' own `main.py` does not carry it, so `_launch_tui` never sees it. Its help omits the "Applies to -z/--oneshot and --tui" sentence that `--model`, `--provider` and `--toolsets` all carry, and that absence is the tell rather than a licence. `--in` is left out for a narrower reason than it looks: on a NEW session the cwd is already Switchboard's, but on a RESUME hermes restores the session's own recorded cwd unless told otherwise. **`checkpoints` was declared here and should not have been** (#548): `--checkpoints` is a flag of the `chat` subcommand, and bare `hermes` — what this app spawns — answers "unrecognized arguments", so every session launched with that toggle on died before the TUI started. `npm run hermes:help-check` now asks the CLI about every flag the descriptor can emit, so the next one fails there. |
+| **Claude** | `permissionMode`, `model` (with model discovery), `effort` (`--effort`, #878), `worktree` (+`worktreeName`), `chrome`, `addDirs`, `restricted`, `autocompact`, `mcpEmulation`, `afkTimeoutSec` | `--permission-prompts` (print mode only — the flag #537 opened with), `--cloud` / `--environment` / `--teleport` (a session with no local transcript, so the scan cannot find, adopt or resume it), `--system-prompt-snapshot` (unmeasured), `--append-system-prompt` (#562 — `buildLaunch` honoured it with no field declaring it, left over from the schedule creator #246 removed; passing it turns `--system-prompt-snapshot` off, which is the flag right above it on this list, so declaring it would have shipped that unmeasured interaction through a text field. Pi's option of the same name is a different CLI with no snapshot to disturb). **`restricted` carries a warning that its label cannot**: it also ignores your settings files, which turns off Switchboard's attention hook, and it refuses `permissionMode: bypassPermissions` — that combination dies at spawn. |
+| **Codex** | `model` (with model discovery), `effort` (`-c model_reasoning_effort`, #878), `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` and `--dangerously-bypass-hook-trust` — their own help marks them dangerous. `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd), `--remote*` / app-server wiring, `--no-alt-screen` (Switchboard owns the PTY), `--approve-for-me` (#537 — unmeasured: nobody here has watched what its automatic review approves). |
+| **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-z`/`--oneshot` and `--usage-file` (non-interactive), `--continue` (picker/name rather than Switchboard's recorded id), `--no-restore-cwd` (resume semantics, not a launch default), `--dev`, anything that moves its session store or writes/manages resources. **`--reasoning`** is the interesting refusal (#537): it is a real flag, argparse accepts it, and the modern TUI then drops it — `_CHAT_PASSTHROUGH` in hermes' own `main.py` does not carry it, so `_launch_tui` never sees it. Since 0.23.1 the TUI refuses it instead and starts no session (exit 2; "Choosing a model and an effort at launch (#878)" above). Its help omits the "Applies to -z/--oneshot and --tui" sentence that `--model`, `--provider` and `--toolsets` all carry, and that absence is the tell rather than a licence. `--in` is left out for a narrower reason than it looks: on a NEW session the cwd is already Switchboard's, but on a RESUME hermes restores the session's own recorded cwd unless told otherwise. **`checkpoints` was declared here and should not have been** (#548): `--checkpoints` is a flag of the `chat` subcommand, and bare `hermes` — what this app spawns — answers "unrecognized arguments", so every session launched with that toggle on died before the TUI started. `npm run hermes:help-check` now asks the CLI about every flag the descriptor can emit, so the next one fails there. |
 | **Pi** | `model` (with model discovery), `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles`, and four applied at spawn rather than in the argv: `conventionPrompts` (#569), `subagentTool` + `subagentAgentsDir` (#634), `resourcesFrom` (#632) | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json` and `--print` (non-interactive; `--mode rpc` is the transport of the separate `pi-native` backend, spec 30, not an option of this one), `--session-dir`/`--no-session` (they move or suppress the store we watch), arbitrary `--extension` paths (Switchboard passes only the extensions it generates per spawn: the live binding, the resources extension and, in `pi-native`, the runtime extension), and `--tui-mode` (#537 — `fullscreen` changes how the TUI drives the PTY Switchboard owns. Since Pi 1.0 fullscreen is Pi's own DEFAULT, so every session runs it unless the user's `tuiMode` setting says `regular`. Measured on 1.1.0 in a Switchboard terminal: it draws on the alternate screen, PageUp/PageDown reach Pi and page its history. ConPTY drops Pi's mouse-mode requests, so xterm would turn the wheel into cursor keys; Pi declares `altScreenWheel: 'sgr'` and the renderer writes SGR wheel reports instead, which do reach Pi (#775, `src/renderer/terminal/wheel-routing.js`). Resize and selection are still unwatched, so the flag stays out). Note `tools` **overrides Pi's own `defaultTools` setting**, which is what Pi falls back to when no `--tools` is given. |
 | **agy** | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` | `--dangerously-skip-permissions` (removes all tool approvals), `--project` / `--new-project` / `--agent` (agy's own project/agent selection, orthogonal to Switchboard's cwd), `--print` / `--prompt` and `--prompt-interactive` (non-standard launch modes), `--log-file` (diagnostic output path), `--continue` (latest conversation rather than Switchboard's recorded id), `--input-format` (#537 — print mode only, and it needs `--output-format stream-json` besides). |
 

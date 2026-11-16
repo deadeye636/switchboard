@@ -41,7 +41,10 @@ const configFields = [
     choiceLabels: Object.fromEntries(PERMISSION_MODES.map(c => [c, (claudePermission.choiceLabels || {})[c] || c])),
     default: 'default',
     description: 'Which tool calls Claude asks about before running them. Default sends nothing: the mode in your Claude settings applies, and without one Claude picks its own (auto mode on current versions, where the model supports it).' },
-  { id: 'model', label: 'Model', type: 'text', default: '' },
+  // Claude's own declarations (#878): the same model list and effort levels, stored once for both modes because
+  // the fields are identical (src/shared/backend-modes.js). `--effort` on the pipe: the running session's
+  // `get_settings` answered the level the launch sent (measured, docs/backend-formats.md).
+  ...['model', 'effort'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
   // The terminal backend's argv options, measured on the pipe (#685, Claude Code 2.1.283, `-p` with
   // stream-json both ways): each one starts and is honoured. `--worktree` moves the session into the worktree
   // (system/init reports its cwd), `--chrome` adds the claude-in-chrome MCP server, `--restricted` removes
@@ -145,6 +148,7 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   const mode = sentMode(opts);
   if (mode) args.push('--permission-mode', mode);
   if (opts.model) args.push('--model', String(opts.model));
+  if (opts.effort) args.push(`--effort=${opts.effort}`);
   // The flags the terminal backend sends for these options (#685), with a value joined to its flag as above
   // rather than a separate argv entry — both spellings were measured to start.
   if (opts.worktree) args.push(opts.worktreeName ? `--worktree=${opts.worktreeName}` : '--worktree');
@@ -370,6 +374,9 @@ module.exports = {
   // #803: the same CLI's plugins, as terminal Claude reads them.
   listPlugins: claude.listPlugins,
   listApps: claude.listApps,
+  // #878: the launch form's model list is the CLI's, one cache for both modes (`../claude/models.js`); a running
+  // session of this backend refreshes it whenever its picker lists the models.
+  listModels: claude.listModels,
   expandResource: claude.expandResource,
   resourceEditing: claude.resourceEditing,
   resourceScaffolds: claude.resourceScaffolds,

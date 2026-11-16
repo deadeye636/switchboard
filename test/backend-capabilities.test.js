@@ -28,7 +28,7 @@ const PINNED = {
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is claude-native
     sessionFlow: 'limited', // spec 46: main and subagent lanes, risk marks; a background agent's end and approvals not read
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
-    resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
+    resumeModel: 'yes', modelList: 'yes', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
     queuedTurn: 'yes', quota: 'yes',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'yes', planDirSetting: 'yes', projectConfig: 'yes',
@@ -44,7 +44,7 @@ const PINNED = {
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
     sessionFlow: 'limited', // spec 46: main plus child lanes, risk marks; approvals only as the guardian's verdict
     turnDigest: 'yes',   // #507: a bounded tail read of its rollout
-    resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'limited',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', resourcesFrom: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
@@ -125,7 +125,7 @@ const PINNED = {
     idleMaintenance: 'limited', // spec 45: the hit verdict is best effort
     sessionFlow: 'limited', // spec 46: read through its owner Claude
     turnDigest: 'yes',   // #507: Claude's reader, over the same store
-    resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'no',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'yes', planDirSetting: 'no', projectConfig: 'no',

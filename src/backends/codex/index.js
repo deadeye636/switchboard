@@ -76,8 +76,18 @@ function cliHomeEnv() {
 // danger-full-access` already lets a user turn the sandbox off deliberately; a one-click toggle that
 // removes approvals AND the sandbox at once is a different thing, and Switchboard is not that place.
 const configFields = [
-  { id: 'model', label: 'Model', type: 'text', default: '',
+  { id: 'model', label: 'Model', type: 'text', default: '', modelDiscovery: true,
     description: 'Model the agent should use. Empty = Codex\' own default.' },
+  // #878. Sent as the config override `model_reasoning_effort` (Codex has no flag for it). The catalog lists the
+  // levels each model takes (`./models.js`), and the form narrows to those (`choicesPerModel`). Measured: a level
+  // the model does not list is not refused — `ultra` on a model whose highest is `max` ran the turn.
+  // `none` and `minimal` are left out: the binary knows the words, but no model in the measured catalog (bundled or
+  // refreshed) listed either, so offering them would offer a level nothing takes. Add them when a model lists them.
+  { id: 'effort', label: 'Reasoning effort', type: 'select',
+    choices: ['', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+    choiceLabels: { '': 'Codex\' default', xhigh: 'Extra high' },
+    default: '', choicesPerModel: 'model',
+    description: 'How hard the model reasons before it answers. Only the levels the chosen model takes are offered. Empty = Codex\' own setting (config.toml, else the model\'s default).' },
   // #617 — the CLI dropped `untrusted` and `on-failure`. Measured against codex-cli 0.153.2 and 0.154.0:
   // `-a, --ask-for-approval` lists on-request and never and nothing else, so a session launched with
   // either of the old values dies at spawn ("invalid value 'untrusted' for --ask-for-approval", exit 2).
@@ -106,7 +116,7 @@ const configFields = [
   { id: 'addDirs', label: 'Additional directories', type: 'text', default: '',
     description: 'Comma-separated extra directories Codex may write to, alongside the project.' },
   { id: 'configOverrides', label: 'Config overrides', type: 'text', default: '',
-    description: 'Codex `-c key=value` overrides, comma-separated (e.g. reasoning.effort=high). Dotted paths address nested values.' },
+    description: 'Codex `-c key=value` overrides, comma-separated (e.g. plan_mode_reasoning_effort=high). Dotted paths address nested values.' },
   { id: 'diffTool', label: 'Offer the diff tool', type: 'toggle', default: false, appliesAt: 'spawn',
     description: 'Offers Switchboard\'s diff-review tool to the agent through a per-session MCP server passed to Codex with `-c`. It is an offer, not a redirect: the agent has to choose the tool, Codex\' own approval prompt still runs, and Switchboard never edits your files — an accepted change is applied by the agent\'s own tool.' },
   { id: 'discoveryTools', label: 'Offer the session discovery tools', type: 'toggle', default: false, appliesAt: 'spawn',
@@ -136,6 +146,7 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   }
 
   if (opts.model) args.push('-m', String(opts.model));
+  if (opts.effort) args.push('-c', `model_reasoning_effort=${opts.effort}`);
   if (opts.approvalMode) args.push('-a', String(opts.approvalMode));
   if (opts.sandbox) args.push('-s', String(opts.sandbox));
   if (opts.profile) args.push('--profile', String(opts.profile));
@@ -206,6 +217,9 @@ function liveState(ref) {
 
 module.exports = {
   id: 'codex',
+  // #878: the account's model catalog with the reasoning levels per model (`./models.js`).
+  // The home variable comes along, so an isolated instance neither asks nor writes the real one.
+  listModels: () => require('./models').listModels({ env: { ...process.env, ...(cliHomeEnv() || {}) } }),
   // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
   // backend, and a backend without a public changelog simply declares nothing.
   changelogSource,
@@ -328,7 +342,7 @@ description:
     moveProject: 'yes',
     transcriptHandoff: 'yes',
     lineage: { state: 'limited', note: 'only a forked session names its parent' },
-    modelList: 'no',
+    modelList: 'yes',
     endpoint: 'no',
     projectTrust: 'yes',
     subagentSessions: 'no',

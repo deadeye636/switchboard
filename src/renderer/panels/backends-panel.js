@@ -177,7 +177,9 @@
       // as what it is (#632). Without it the select falls back to its first choice, which reads as a choice
       // somebody made while the stored value is still the one a launch gets.
       const unknown = value !== undefined && value !== null && !choices.some(c => String(c) === String(value));
-      return `<select class="settings-select backend-default-input" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="select" id="${esc(name)}" ${dis}>
+      // A field whose levels depend on the chosen model (#878) is linked to that model's input; lib/model-choices.js
+      // narrows it once the backend's list is here.
+      return `<select class="settings-select backend-default-input" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="select" id="${esc(name)}"${window.modelChoices.selectAttrs(field, backendId)} ${dis}>
         ${choices.map(c => `<option value="${esc(c)}" ${String(value) === String(c) ? 'selected' : ''}>${esc(labels[c] || c)}</option>`).join('')}
         ${unknown ? `<option value="${esc(value)}" selected>${esc(`${value} (not available)`)}</option>` : ''}
       </select>`;
@@ -188,30 +190,10 @@
     }
     const type = field.type === 'number' ? 'number' : 'text';
     const cls = field.type === 'number' ? 'settings-input settings-input-compact' : 'settings-input';
-    const modelList = field.modelDiscovery ? ` list="${esc(name)}-models" data-model-discovery="${esc(backendId)}"` : '';
+    // The model list (and the levels it narrows, #878) is loaded on focus by lib/model-choices.js.
+    const modelList = window.modelChoices.inputAttrs(field, backendId, `${name}-models`);
     const datalist = field.modelDiscovery ? `<datalist id="${esc(name)}-models"></datalist>` : '';
     return `<input type="${type}" class="${cls} backend-default-input" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="${esc(field.type || 'text')}" id="${esc(name)}" value="${esc(value == null ? '' : value)}"${modelList} ${dis}>${datalist}`;
-  }
-
-  async function loadModelSuggestions(root, input) {
-    const backendId = input && input.dataset && input.dataset.modelDiscovery;
-    // `input.list` IS the datalist the browser resolved from the `list` attribute — no selector, so no
-    // question of escaping one. The fallback covers an input not (yet) in a document, where the browser
-    // has nothing to resolve against; `CSS.escape` because a field id is ours but not a promise.
-    const listId = input ? input.getAttribute('list') : null;
-    const list = (input && input.list)
-      || (listId ? root.querySelector('datalist#' + CSS.escape(listId)) : null);
-    if (!backendId || !list || !window.api?.backends?.listModels) return;
-    if (list.dataset.loaded === '1') return;
-    list.dataset.loaded = '1';
-    let result;
-    try { result = await window.api.backends.listModels(backendId, input.value || ''); } catch { return; }
-    if (!result || result.ok === false || !Array.isArray(result.models)) return;
-    list.innerHTML = result.models.map(m => {
-      const id = typeof m === 'string' ? m : (m.id || m.value || '');
-      const label = typeof m === 'string' ? '' : (m.label || '');
-      return id ? `<option value="${esc(id)}"${label && label !== id ? ` label="${esc(label)}"` : ''}></option>` : '';
-    }).join('');
   }
 
   // The last segment of a path, whichever separator wrote it. The settings window has no project
@@ -1832,9 +1814,7 @@
           readBackendEnvFromDom(page);
         }
       });
-      page.addEventListener('focusin', (e) => {
-        if (e.target.matches && e.target.matches('input[data-model-discovery]')) loadModelSuggestions(page, e.target);
-      });
+      window.modelChoices.bind(page);
       page.addEventListener('input', (e) => {
         recordDefault(e.target);
         recordPromptOverride(e.target);
@@ -1863,9 +1843,7 @@
       bindSourcePreviews(page, null, (bid) => backendModes.launchLayer(mergedDefaults(), byId.get(bid) || { id: bid }, byId));
     }
 
-    box.addEventListener('focusin', (e) => {
-      if (e.target.matches && e.target.matches('input[data-model-discovery]')) loadModelSuggestions(box, e.target);
-    });
+    window.modelChoices.bind(box);
 
     box.addEventListener('click', (e) => {
       const gear = e.target.closest('.backend-gear');

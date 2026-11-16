@@ -52,6 +52,8 @@ async function mountWith(backends, defaultLaunchTarget) {
 
   vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'shared', 'backend-modes.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'backend-modes.js' });
+  // #878: backends-panel.js and dialogs.js build their model and effort controls through it.
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'lib', 'model-choices.js'), 'utf8'), dom.getInternalVMContext(), { filename: 'model-choices.js' });
   vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'panels', 'backends-panel.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'backends-panel.js' });
 

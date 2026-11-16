@@ -1106,6 +1106,9 @@ const effortLabel = (level) => EFFORT_LABELS[level] || (String(level).charAt(0).
 function modelsFromResponse(response, { context, chosen } = {}) {
   const list = response && response.success !== false && response.data && response.data.models;
   if (!Array.isArray(list)) return [];
+  // The launch form's list is the same answer (#878): keep it for the next form opened, so a user of this mode
+  // never waits for the probe there. A failure here must not cost the picker its rows.
+  try { require('../claude/models').remember(response); } catch { /* the picker still answers */ }
   const running = String((context && context.modelId) || '').replace(/\[[^\]]*\]$/, '');
   const entries = list.filter((m) => m && typeof m.value === 'string' && m.value);
   const resolvedOf = (m) => (typeof m.resolvedModel === 'string' ? m.resolvedModel : '');
@@ -1119,9 +1122,8 @@ function modelsFromResponse(response, { context, chosen } = {}) {
   for (const m of entries) {
     if (m === fallback && defaultTwin) continue;
     const resolved = resolvedOf(m);
-    const levels = m.supportsEffort === true && Array.isArray(m.supportedEffortLevels)
-      ? m.supportedEffortLevels.filter((l) => typeof l === 'string' && l).map((l) => ({ value: l, label: effortLabel(l) }))
-      : [];
+    // The one reading of a row's levels, shared with the launch form's list (#878).
+    const levels = require('../claude/models').effortLevelsOf(m).map((l) => ({ value: l, label: effortLabel(l) }));
     out.push({
       value: m.value,
       label: typeof m.displayName === 'string' && m.displayName ? m.displayName : m.value,

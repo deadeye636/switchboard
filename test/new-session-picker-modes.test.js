@@ -50,6 +50,8 @@ function setup({ backends = registry(), defaultId = 'ow', globalSettings = null 
     listHandoffs: async () => [],
   };
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', 'shared', 'backend-modes.js'), 'utf8'), ctx, { filename: 'backend-modes.js' });
+  // #878: backends-panel.js and dialogs.js build their model and effort controls through it.
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'lib', 'model-choices.js'), 'utf8'), ctx, { filename: 'model-choices.js' });
   vm.runInContext(fs.readFileSync(path.join(REN, 'dialogs', 'dialogs.js'), 'utf8'), ctx, { filename: 'dialogs.js' });
   const call = (name) => vm.runInContext(name, ctx);
   const project = { projectPath: '/work/proj' };

@@ -128,36 +128,16 @@ async function resolveLaunchOptionsFor(project, backendId) {
   return options;
 }
 
+// The model list and the levels it narrows (#878) are lib/model-choices.js's, shared with the backend settings.
 function textControlHtml(id, field, value, backendId, disabled) {
   const dis = disabled ? 'disabled' : '';
-  const modelList = field.modelDiscovery ? ` list="${escapeHtml(id)}-models" data-model-discovery="${escapeHtml(backendId)}"` : '';
+  const modelList = window.modelChoices.inputAttrs(field, backendId, `${id}-models`);
   const datalist = field.modelDiscovery ? `<datalist id="${escapeHtml(id)}-models"></datalist>` : '';
   return `<input type="text" class="settings-input" id="${escapeHtml(id)}" value="${escapeHtml(value == null ? '' : String(value))}"${modelList} ${dis}>${datalist}`;
 }
 
 function bindModelDiscovery(root) {
-  root.querySelectorAll('input[data-model-discovery]').forEach(input => {
-    if (input.dataset.modelDiscoveryBound) return;
-    input.dataset.modelDiscoveryBound = '1';
-    input.addEventListener('focus', async () => {
-      const backendId = input.dataset.modelDiscovery;
-      // The browser already resolved the `list` attribute for us (see backends-panel.js, same pair):
-      // reading the property beats rebuilding an attribute selector nobody can escape correctly.
-      const listId = input.getAttribute('list');
-      const list = input.list || (listId ? root.querySelector('datalist#' + CSS.escape(listId)) : null);
-      if (!backendId || !list || !window.api?.backends?.listModels) return;
-      if (list.dataset.loaded === '1') return;
-      list.dataset.loaded = '1';
-      let result;
-      try { result = await window.api.backends.listModels(backendId, input.value || ''); } catch { return; }
-      if (!result || result.ok === false || !Array.isArray(result.models)) return;
-      list.innerHTML = result.models.map(m => {
-        const id = typeof m === 'string' ? m : (m.id || m.value || '');
-        const label = typeof m === 'string' ? '' : (m.label || '');
-        return id ? `<option value="${escapeHtml(id)}"${label && label !== id ? ` label="${escapeHtml(label)}"` : ''}></option>` : '';
-      }).join('');
-    });
-  });
+  window.modelChoices.bind(root);
 }
 
 /**
@@ -875,7 +855,7 @@ async function showGeneratedConfigDialog(project, backend, modes = null) {
       const opts = (f.choices || []).map(c =>
         `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String((f.choiceLabels || {})[c] || c))}</option>`
       ).join('');
-      control = `<select class="settings-select" id="${id}" disabled>${opts}</select>`;
+      control = `<select class="settings-select" id="${id}"${window.modelChoices.selectAttrs(f, backend.id)} disabled>${opts}</select>`;
     } else if (f.type === 'toggle') {
       control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''} disabled><span class="settings-toggle-slider"></span></label>`;
     } else {
@@ -1435,7 +1415,7 @@ async function showGeneratedResumeDialog(session, initialBackend) {
         const opts = choices.map(c =>
           `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String((f.choiceLabels || {})[c] || c))}</option>`
         ).join('');
-        control = `<select class="settings-select" id="${id}">${opts}</select>`;
+        control = `<select class="settings-select" id="${id}"${window.modelChoices.selectAttrs(f, b.id)}>${opts}</select>`;
       } else if (f.type === 'toggle') {
         control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`;
       } else {

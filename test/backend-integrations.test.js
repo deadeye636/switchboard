@@ -148,6 +148,8 @@ const ALLOWED_BINDINGS = {
   'src/renderer/lib/continuation-title.js': [],
   // #779 — reads a paste's HTML; no backend, no format of any CLI.
   'src/renderer/lib/rich-paste.js': [],
+  // #878 — the launch form's model list and levels per model; reads the rows main sends and the form's attributes.
+  'src/renderer/lib/model-choices.js': [],
   'src/renderer/panels/settings-panel.js': [],
   'src/renderer/panels/settings-tags.js': [],
   'src/renderer/panels/settings-maintenance.js': [],

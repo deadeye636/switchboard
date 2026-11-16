@@ -592,14 +592,17 @@ test('every choices exclusion carries its reason (#617)', () => {
       checked++;
     }
   }
-  // …and the derivation is only worth anything if it is looking at something. The four that exist today.
-  assert.equal(checked, 4, 'the exclusions that exist are the ones that were reasoned about');
-  assert.deepEqual(choiceExclusions('codex'), ['localProvider']);
+  // …and the derivation is only worth anything if it is looking at something. The six that exist today.
+  assert.equal(checked, 6, 'the exclusions that exist are the ones that were reasoned about');
+  // #878: Claude's `--effort` names its levels in a sentence, and Codex' effort is a `-c` config key with no
+  // flag of its own; both forms narrow the levels per model from the model list instead.
+  assert.deepEqual(choiceExclusions('claude'), ['effort']);
+  assert.deepEqual(choiceExclusions('codex'), ['localProvider', 'effort']);
   assert.deepEqual(choiceExclusions('pi'), ['thinking']);
   assert.deepEqual(choiceExclusions('agy'), ['mode', 'effort']);
-  // Claude and Hermes exclude nothing, and an empty list is an answer: Claude's one select is compared
-  // against commander's own `(choices: …)`, and Hermes declares no select at all.
-  for (const backend of ['claude', 'hermes']) {
+  // Hermes excludes nothing, and an empty list is an answer: it declares no select at all. Claude's permission
+  // mode is compared against commander's own `(choices: …)`.
+  for (const backend of ['hermes']) {
     assert.deepEqual(choiceExclusions(backend), [], `${backend} checks every enum it has`);
   }
 });

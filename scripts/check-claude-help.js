@@ -75,7 +75,6 @@ const AUDITED_EXCLUDED = new Set([
   '--disable-slash-commands',
   '--disallowed-tools',
   '--disallowedTools',
-  '--effort',
   '--exclude-dynamic-system-prompt-sections',
   '--fallback-model',
   '--file',
@@ -107,9 +106,14 @@ const AUDITED_EXCLUDED = new Set([
 // one (the field is gone, or the CLI has started declaring its values) is reported, so this cannot quietly
 // become a place to silence a finding.
 //
-// Empty, and that is an answer rather than an omission: Claude's `--permission-mode` prints commander's own
-// `(choices: …)` list, so every value the Permission mode field can send is compared against it.
-const CHOICES_NOT_ENUMERATED = new Set([]);
+// Claude's `--permission-mode` prints commander's own `(choices: …)` list, so every value the Permission mode
+// field can send is compared against it and is not on this list.
+const CHOICES_NOT_ENUMERATED = new Set([
+  // #878. `--effort`'s help is a sentence — "Effort level for the current session (low, medium, high, xhigh,
+  // max)" — with no commander `(choices: …)` list. The levels a MODEL takes come from the runtime's
+  // `initialize` answer instead (`src/backends/claude/models.js`), and the form narrows to those.
+  'effort',
+]);
 
 // A flag the CLI takes and does not list in `--help`, so the flag half of the audit would call it gone. Each
 // entry says where it is sent and how it was confirmed. Stale BOTH ways: one the help starts listing is
