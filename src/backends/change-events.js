@@ -120,6 +120,7 @@ function createAccumulator() {
     const ev = { ok: p.ok === true, summary: str(p.summary, MAX_SUMMARY_CHARS), position: num(p.position), at: num(p.at) };
     if (p.upToDate === true) ev.upToDate = true;
     if (p.force === true) ev.force = true;
+    if (typeof p.toSha === 'string' && SHA_RE.test(p.toSha)) ev.sha = p.toSha; // the pushed tip, from the ref line (#870)
     if (p.moved === true) ev.moved = true; // a partial push (one ref refused, another moved) still cuts a block
     if ((ev.ok && !ev.upToDate) || ev.moved) {
       const snap = [];

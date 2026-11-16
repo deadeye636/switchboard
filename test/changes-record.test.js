@@ -107,6 +107,16 @@ test('push snapshots give a block\'s counts as the difference of two snapshots',
   assert.deepEqual(rec.diffCounts(p1.files, []), [{ path: 'a.js', count: 1 }]);
 });
 
+test('a push keeps its pushed SHA when valid and drops a malformed one (#870)', () => {
+  const acc = createAccumulator();
+  acc.notePush({ ok: true, position: 1, toSha: '55c3c1f' });
+  acc.notePush({ ok: true, position: 2, toSha: 'not-hex' });
+  acc.notePush({ ok: true, position: 3 });
+  const row = rec.normalizeChanges(acc.toRow());
+  assert.deepEqual(row.pushes.map((p) => p.sha), ['55c3c1f', undefined, undefined]);
+  assert.equal(rec.normalizeChanges({ pushes: [{ ok: true, sha: 'x'.repeat(10) }] }).pushes[0].sha, undefined);
+});
+
 test('sumCounts adds lists per path (a lineage, a parent and its subagents)', () => {
   assert.deepEqual(rec.sumCounts([[['a', 1], ['b', 2]], [['a', 4]], new Map([['c', 1]])]), [['a', 5], ['b', 2], ['c', 1]]);
   assert.deepEqual(rec.sumCounts(null), []);

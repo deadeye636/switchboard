@@ -38,7 +38,8 @@ const { createLineCursor } = require('../change-events');
 // runtime-driven backend writes (./transport-marker.js). Existing rows were read without it.
 // 8 (#703): the row says whether a compaction came after the last usage record, as Claude's does (#698).
 // 9 (#870): emits the session changes aggregate.
-const PARSER_SCHEMA_VERSION = 9;
+// 10 (#870): push events carry the pushed SHA.
+const PARSER_SCHEMA_VERSION = 10;
 
 const FINGERPRINT_BYTES = 64;
 

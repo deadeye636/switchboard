@@ -76,7 +76,7 @@ const replaceBatch = db.transaction((sessionId, changes) => {
   }
   for (const p of changes.pushes) {
     stmts.eventInsert.run({
-      sessionId, kind: 'push', position: p.position, at: p.at, sha: null, subject: null, branch: null,
+      sessionId, kind: 'push', position: p.position, at: p.at, sha: p.sha || null, subject: null, branch: null,
       amend: 0, ok: flag(p.ok), moved: flag(p.moved), upToDate: flag(p.upToDate), force: flag(p.force),
       summary: p.summary, snapshot: snapshotJson(p.files), snapshotTruncated: flag(p.truncated),
     });
@@ -132,6 +132,7 @@ function getSessionChanges(sessionIds) {
         if (r.upToDate === 1) ev.upToDate = true;
         if (r.force === 1) ev.force = true;
         if (r.moved === 1) ev.moved = true;
+        if (r.sha) ev.sha = r.sha;
         if (r.snapshot) {
           try { ev.files = pairsOf(JSON.parse(r.snapshot)); } catch { ev.files = []; }
           if (r.snapshotTruncated === 1) ev.truncated = true;

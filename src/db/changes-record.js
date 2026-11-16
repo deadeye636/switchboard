@@ -97,6 +97,7 @@ function normalizeChanges(row) {
     if (p.upToDate === true) ev.upToDate = true;
     if (p.force === true) ev.force = true;
     if (p.moved === true) ev.moved = true;
+    if (typeof p.sha === 'string' && p.sha.length <= MAX_SHA_CHARS && SHA_RE.test(p.sha)) ev.sha = p.sha;
     if (Array.isArray(p.files)) {
       const snap = normalizeSnapshot(p.files);
       ev.files = snap.files;

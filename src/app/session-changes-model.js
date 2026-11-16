@@ -72,7 +72,7 @@ function buildTicks({ order, rows, entries, startedAt }) {
       if (!isCuttingPush(p)) return;
       list.push({
         id: `push:${sid}:${p.position !== null && p.position !== undefined ? p.position : 'i' + i}`, kind: 'push', sessionId: sid,
-        position: num(p.position), at: num(p.at), sha: null, fromSha: null, toSha: null, snapshot: p, event: p, seq: seq++,
+        position: num(p.position), at: num(p.at), sha: typeof p.sha === 'string' && p.sha ? p.sha : null, fromSha: null, toSha: null, snapshot: p, event: p, seq: seq++,
       });
     });
   }
@@ -249,7 +249,7 @@ function cutBetween(ctx, fromTick, toTick) {
 
 // --- SHAs a cut is measured between ---
 
-/** The commit a push carried as its tip: the newest lineage commit before it (push events record no SHA). */
+/** The fallback tip of a push that recorded no SHA (a new branch prints none): the newest lineage commit before it. */
 function pushTipSha(ctx, tick) {
   const pk = orderKey(ctx.idx, tick.sessionId, tick.position);
   let best = null;
@@ -267,10 +267,24 @@ function pushTipSha(ctx, tick) {
 
 /** The SHA a tick stands for: a start's baseline, a Clear's HEAD, a push's tip; else the nearest earlier tick's. */
 function shaOfTick(ctx, i) {
+  const s = sourcedShaOfTick(ctx, i);
+  return s ? s.sha : null;
+}
+
+/**
+ * The same, with where it came from: `trusted` when the app wrote it from version-control output (a start's baseline,
+ * a Clear's HEAD), false for one read out of a transcript (a push's SHA or tip), which must be resolved before use.
+ */
+function sourcedShaOfTick(ctx, i) {
   for (let j = i; j >= 0; j--) {
     const t = ctx.ticks[j];
-    const sha = t.kind === 'clear' ? t.toSha : t.kind === 'push' ? pushTipSha(ctx, t) : t.sha;
-    if (sha) return sha;
+    if (t.kind === 'push') {
+      const sha = t.sha || pushTipSha(ctx, t);
+      if (sha) return { sha, trusted: false };
+    } else {
+      const sha = t.kind === 'clear' ? t.toSha : t.sha;
+      if (sha) return { sha, trusted: true };
+    }
   }
   return null;
 }
@@ -406,9 +420,12 @@ function buildModel(input) {
   const planCut = (a, b) => {
     const id = cutId(a, b);
     if (plan.some((c) => c.id === id)) return id;
-    const fromSha = ticks.length ? shaOfTick(ctx, a) : null;
-    const toSha = b === null ? null : shaOfTick(ctx, b);
-    plan.push({ id, fromSha, toSha, working: b === null });
+    const from = ticks.length ? sourcedShaOfTick(ctx, a) : null;
+    const to = b === null ? null : sourcedShaOfTick(ctx, b);
+    plan.push({
+      id, fromSha: from ? from.sha : null, toSha: to ? to.sha : null, working: b === null,
+      fromTrusted: !!(from && from.trusted), toTrusted: !!(to && to.trusted),
+    });
     return id;
   };
 

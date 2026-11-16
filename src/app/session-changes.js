@@ -424,13 +424,14 @@ async function gitFacts(co, first) {
   const look = newLookup(MAX_RESOLVE);
   const cutLook = newLookup(MAX_CUT_RESOLVE);
   cutLook.memo = look.memo;
-  // A SHA from a stored entry came from HEAD output; a recorded one (a push tip) is resolved like any recorded SHA.
-  const full = async (sha) => (sha && FULL_SHA_RE.test(sha) ? sha : resolveSha(co, sha, cutLook));
+  // A cut end the app wrote from version-control output (a start's baseline, a Clear's HEAD) is used as it is; one read
+  // out of a transcript (a push) is resolved whatever its length (`core.abbrev=40` prints full ones).
+  const full = async (sha, trusted) => (trusted && sha && FULL_SHA_RE.test(sha) ? sha : resolveSha(co, sha, cutLook));
   const cuts = first.plan.cuts;
   const base = cuts[0] ? cuts[0].fromSha : null;
   let baseFull = null;
   if (base) {
-    baseFull = FULL_SHA_RE.test(base) ? base : null;
+    baseFull = cuts[0].fromTrusted && FULL_SHA_RE.test(base) ? base : null;
     if (baseFull) {
       const r = await run(co.provider, co.root, () => co.provider.revExistsArgs(baseFull), CAP_SMALL);
       if (!r.ok) { if (r.code === 128 || r.code === 1 || r.refused) facts.baselineGone = true; else facts.failed = true; }
@@ -449,7 +450,10 @@ async function gitFacts(co, first) {
   // The cut SHAs (push tips, numstat ranges) first, on their own budget: the marks below must not starve the blocks.
   const ends = new Map();
   for (const cut of cuts.slice(0, MAX_NUMSTAT_CUTS)) {
-    ends.set(cut.id, { from: await full(cut.fromSha), to: cut.working ? null : await full(cut.toSha) });
+    ends.set(cut.id, {
+      from: await full(cut.fromSha, cut.fromTrusted),
+      to: cut.working ? null : await full(cut.toSha, cut.toTrusted),
+    });
   }
   const matched = new Set();
   for (const raw of first.plan.shas.filter((s) => RECORDED_SHA_RE.test(s))) {
@@ -673,11 +677,13 @@ async function diff(sessionId, targetId) {
     return res && res.ok ? { ok: true, kind: 'file', text: res.text || '', note: res.note || null } : { ok: false, error: MSG.noDiff };
   }
   const cut = file.cut;
-  const from = cut ? (FULL_SHA_RE.test(cut.fromSha || '') ? cut.fromSha : await resolveSha(co, cut.fromSha, look)) : null;
+  // An end the app wrote from version-control output is used as it is; one out of a transcript (a push) is resolved.
+  const trustedOr = async (sha, trusted) => (trusted && sha && FULL_SHA_RE.test(sha) ? sha : resolveSha(co, sha, look));
+  const from = cut ? await trustedOr(cut.fromSha, cut.fromTrusted) : null;
   if (!from) return { ok: false, error: MSG.noDiff };
   let to = null;
   if (cut && !cut.working) {
-    to = FULL_SHA_RE.test(cut.toSha || '') ? cut.toSha : await resolveSha(co, cut.toSha, look);
+    to = await trustedOr(cut.toSha, cut.toTrusted);
     if (!to) return { ok: false, error: MSG.noDiff };
   }
   const r = await run(co.provider, co.root, () => co.provider.diffArgs({ path: file.key, rev: from, to }), CAP_DIFF);

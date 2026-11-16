@@ -85,16 +85,16 @@ test('commit then push in one result yields both', () => {
   const f = load('bash-commit-then-push.jsonl');
   assert.deepEqual(gitCommandsIn(f.command).map((c) => c.kind), ['commit', 'push']);
   assert.equal(commitFrom(f.output).sha, '9f3c2ab');
-  assert.deepEqual(pushFrom(f.output), { ok: true, summary: 'updated main' });
+  assert.deepEqual(pushFrom(f.output), { ok: true, summary: 'updated main', fromSha: '55c3c1f', toSha: '9f3c2ab' });
 });
 
 test('push outcomes: ok, new branch, up-to-date, force-with-lease, rejected', () => {
-  assert.deepEqual(pushFrom(load('bash-git-push-ok.jsonl').output), { ok: true, summary: 'updated main' });
+  assert.deepEqual(pushFrom(load('bash-git-push-ok.jsonl').output), { ok: true, summary: 'updated main', fromSha: '55c3c1f', toSha: '9f3c2ab' });
   assert.deepEqual(pushFrom(load('bash-git-push-new-branch.jsonl').output), { ok: true, summary: 'new branch feat/x' });
   assert.deepEqual(pushFrom(load('bash-git-push-uptodate.jsonl').output), { ok: true, summary: 'up-to-date', upToDate: true });
   const fwl = load('bash-git-push-force-with-lease.jsonl');
   assert.deepEqual(gitCommandsIn(fwl.command), [{ kind: 'push', force: true }]);
-  assert.deepEqual(pushFrom(fwl.output), { ok: true, summary: 'forced update feat/x' });
+  assert.deepEqual(pushFrom(fwl.output), { ok: true, summary: 'forced update feat/x', fromSha: '78e3ef3', toSha: '9e3e85b' });
   const rej = load('bash-git-push-rejected.jsonl');
   assert.deepEqual(pushFrom(rej.output), { ok: false, summary: 'rejected main (fetch first)' });
   assert.deepEqual(gitCommandsIn('git push origin main'), [{ kind: 'push', force: false }]);
@@ -143,7 +143,7 @@ test('input is bounded: a huge command and output stay fast and are cut', () => 
 test('a hook that prints 500 lines before the commit line does not hide the commit', () => {
   const noise = Array.from({ length: 500 }, (_, i) => `hook: checking file ${i}`).join('\n');
   assert.equal(commitFrom(`${noise}\n[main 9f3c2ab] fix: x\n 1 file changed`).sha, '9f3c2ab');
-  assert.deepEqual(pushFrom(`${noise}\n   55c3c1f..9f3c2ab  main -> main`), { ok: true, summary: 'updated main' });
+  assert.deepEqual(pushFrom(`${noise}\n   55c3c1f..9f3c2ab  main -> main`), { ok: true, summary: 'updated main', fromSha: '55c3c1f', toSha: '9f3c2ab' });
 });
 
 test('an output over the cap is read as its head half and its tail half', () => {
@@ -166,9 +166,26 @@ test('a localized commit line parses: any parenthesised label, a multi-word deta
 
 test('a partial push says ok:false and moved:true, and names the refused ref first', () => {
   const out = '   111aaaa..222bbbb  fix -> fix\n ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to \'u\'';
-  assert.deepEqual(pushFrom(out), { ok: false, summary: 'rejected main (fetch first) +1 more', moved: true });
+  assert.deepEqual(pushFrom(out), { ok: false, summary: 'rejected main (fetch first) +1 more', moved: true, fromSha: '111aaaa', toSha: '222bbbb' });
   assert.equal(pushFrom(load('bash-git-push-rejected.jsonl').output).moved, undefined); // nothing moved
   assert.equal(pushFrom(load('bash-git-push-ok.jsonl').output).moved, undefined);
+});
+
+test('push SHAs: the first moved ref decides; forced "...", new branch, deleted, up-to-date and a bad range give none (#870)', () => {
+  const sha = (o) => { const r = pushFrom(o); return [r.fromSha, r.toSha]; };
+  assert.deepEqual(sha('   1234567..89abcde  main -> main'), ['1234567', '89abcde']);
+  assert.deepEqual(sha(' + 1234567...89abcde feat/x -> feat/x (forced update)'), ['1234567', '89abcde']);
+  // several refs: the first one that moved, the ones after it are ignored
+  assert.deepEqual(sha(' * [new branch]      a -> a\n   1234567..89abcde  b -> b'), [undefined, undefined]);
+  assert.deepEqual(sha('   1234567..89abcde  a -> a\n   fedcba9..7654321  b -> b'), ['1234567', '89abcde']);
+  // up-to-date ref and a refused ref are not moved refs
+  assert.deepEqual(sha(' = [up to date]      a -> a\n   1234567..89abcde  b -> b'), ['1234567', '89abcde']);
+  assert.deepEqual(sha(' ! [rejected]        a -> a (fetch first)\n   1234567..89abcde  b -> b'), ['1234567', '89abcde']);
+  assert.deepEqual(sha(' - [deleted]         feat/x'), [undefined, undefined]);
+  assert.deepEqual(sha('Everything up-to-date'), [undefined, undefined]);
+  // not hex, too short: no SHA
+  assert.deepEqual(sha('   zzzzzzz..89abcde  main -> main'), [undefined, undefined]);
+  assert.deepEqual(sha('   123456..89abcde  main -> main'), [undefined, undefined]);
 });
 
 test('a deleted ref has no arrow and still reads', () => {

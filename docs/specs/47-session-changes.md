@@ -252,9 +252,13 @@ Mockup: docs/plans/870-session-changes/mockups/timeline.html (local). Recorded i
   SHA is filled later when a repository answers (or stays empty, as G7 allows). A fork first seen after it already
   worked therefore starts at first sight: its earlier own work is not counted (a known gap). Sidechain lines in a main
   file (old CLI versions) count in the main row; no child file doubles them.
-- **Push tips.** A push event records no SHA, so a pushed block's commit range is taken from the commits the lineage
-  recorded: its tip is the newest recorded commit before the push, its start the previous push's tip or the range's
-  baseline. A push with no recorded commit before it has no range of its own (its block shows counts, no `+/-`).
+- **Push tips.** The pushed SHA comes from the push output: git's ref line (`<old>..<new>`, forced `<old>...<new>`) of
+  the first ref that moved is read, and `<new>` is stored as the push event's `sha` (resolved like any recorded SHA,
+  accepted only when the full SHA starts with it; a full-length one is resolved too, only a SHA the app wrote from HEAD
+  output, a start's baseline or a Clear's HEAD, is used as it is). A pushed block's range is then `<previous push>..<this push>`, its
+  start the previous push's tip or the range's baseline. Refs after the first moved one (`+N more`) are ignored. Only a
+  push with no such SHA (a new branch or a deleted ref prints no range) falls back to the tip rule: the newest recorded
+  commit before the push. A push with neither has no range of its own (its block shows counts, no `+/-`).
 
 Owner decisions of 2026-11-16 (approved with the v1 mockup):
 

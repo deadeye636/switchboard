@@ -1620,7 +1620,9 @@ Git's output is not any CLI's; the same lines appear in every backend above (spe
   command, not in the output); `Everything up-to-date`; ` ! [rejected]        <src> -> <dst> (<reason>)` followed by
   `error: failed to push some refs to '<url>'`; a refusing pre-push hook prints its own text and then the same `error:
   failed to push some refs` line with no `[rejected]` line. A push of several refs is one line per ref; it succeeded
-  only if no ref line is `!` and there is no `error:`.
+  only if no ref line is `!` and there is no `error:`. The range of a ref line (`<old>..<new>`, forced `<old>...<new>`,
+  abbreviated hex) is read for the first ref that moved (#870): its `<new>` is the pushed SHA. `[new branch]`, `[deleted]`
+  and up-to-date refs print no range, and refs after the first moved one are ignored.
 - **What is not read (an under-report, never a wrong claim).** The push lines, `Everything up-to-date` and the failure
   texts are matched in git's English wording, so a localized git yields no push event; the commit line is read by its
   shape (the last word in the brackets is the SHA, a trailing parenthesised label such as a translated `(root-commit)` is

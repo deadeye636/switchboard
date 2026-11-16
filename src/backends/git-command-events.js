@@ -198,13 +198,17 @@ const REF_LINE = /^ ([ +*=!-]) (\[[^\]]+\]|\S+)\s+(\S+) -> (\S+)(?: \((.*)\))?\s
 // ` - [deleted]         feat/x` (`git push --delete`) has no arrow.
 const DELETED_LINE = /^ - \[deleted\]\s+(\S+)\s*$/;
 const PUSH_FAILED = /^(?:error: failed to push some refs|error: src refspec|fatal: .*(?:upstream branch|remote repository|unable to access|Authentication failed|does not appear to be a git repository))/;
+// The ref line's summary for a moved ref: `<old>..<new>` (fast-forward) or `<old>...<new>` (forced); abbreviated hex.
+const RANGE = /^([0-9a-f]{7,64})\.\.\.?([0-9a-f]{7,64})$/;
 const VERB = { '*': 'new branch', '+': 'forced update', '-': 'deleted', '=': 'up-to-date', '!': 'rejected', ' ': 'updated' };
 
 /**
  * What a `git push` printed: `{ ok, summary, upToDate?, moved? } | null` (`null` when the output holds no push result, for example
  * after `| tail`, or a localized git). `ok` is false when any ref was refused or git said it failed to push; `moved: true` says
  * that at least one ref still moved in such a push (a partial push), so it cuts a Split block. The summary names the refused
- * ref first and never carries the remote URL (it can hold a token or a path).
+ * ref first and never carries the remote URL (it can hold a token or a path). `fromSha` / `toSha` (#870) are the range the FIRST
+ * ref that moved printed (`<old>..<new>`, forced `<old>...<new>`); the refs after it (`+N more`) are ignored, and a new branch,
+ * a deletion or an up-to-date ref has none.
  */
 function pushFrom(output) {
   let refs = 0;
@@ -214,12 +218,13 @@ function pushFrom(output) {
   let upToDate = false;
   let first = null;
   let firstRefused = null;
+  let firstMoved = null;
   for (const line of linesOf(output)) {
     if (line === 'Everything up-to-date') { upToDate = true; continue; }
     if (PUSH_FAILED.test(line)) { failed = true; continue; }
     let ref = null;
     const m = REF_LINE.exec(line);
-    if (m) ref = { flag: m[1], dst: m[4], reason: m[5] };
+    if (m) ref = { flag: m[1], dst: m[4], reason: m[5], range: RANGE.exec(m[2]) };
     else {
       const d = DELETED_LINE.exec(line);
       if (d) ref = { flag: '-', dst: d[1], reason: undefined };
@@ -227,7 +232,10 @@ function pushFrom(output) {
     if (!ref) continue;
     refs++;
     if (ref.flag === '!') { refused++; if (!firstRefused) firstRefused = ref; }
-    else if (ref.flag !== '=') moved++;
+    else if (ref.flag !== '=') {
+      moved++;
+      if (!firstMoved) firstMoved = ref;
+    }
     if (!first) first = ref;
   }
   if (!refs && !upToDate && !failed) return null;
@@ -243,6 +251,8 @@ function pushFrom(output) {
   const result = { ok, summary: summary.slice(0, MAX_SUMMARY_CHARS) };
   if (!ok && moved > 0) result.moved = true;
   if (ok && !moved && (upToDate || refs)) result.upToDate = true;
+  // The first ref that moved decides the SHAs; a new branch, a deletion and an up-to-date ref print no range, so there are none.
+  if (firstMoved && firstMoved.range) { result.fromSha = firstMoved.range[1]; result.toSha = firstMoved.range[2]; }
   return result;
 }
 

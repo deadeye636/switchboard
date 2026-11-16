@@ -180,6 +180,27 @@ test('Split: blocks end at cutting pushes (a partial push cuts, failed and up-to
   assert.ok(cuts.some((c) => c.fromSha === '2222222' && c.toSha === null && c.working));
 });
 
+test('a push\'s recorded SHA is the block end; a push without one falls back to the newest commit before it (#870)', () => {
+  const rows = { S: row({
+    files: [file('a.js', 2, 300, day(10))],
+    commits: [commit('1111111', 50, day(8)), commit('2222222', 210, day(10))],
+    pushes: [
+      push(100, day(8, 30), [['a.js', 1]], { sha: '9999999' }), // pushed a commit this session did not record
+      push(300, day(10, 30), [['a.js', 2]]),                    // no sha (new branch): the tip rule
+    ],
+  }) };
+  const v = m.buildModel(input({ rows, request: { range: 'whole', view: 'split' } }));
+  const cuts = v.plan.cuts;
+  assert.ok(cuts.some((c) => c.toSha === '9999999' && !c.working));
+  assert.ok(cuts.some((c) => c.fromSha === '9999999' && c.toSha === '2222222' && !c.working));
+  assert.ok(cuts.some((c) => c.fromSha === '2222222' && c.toSha === null && c.working));
+  // A push's SHA or tip came out of a transcript: never trusted, so the app resolves it whatever its length.
+  for (const c of cuts) {
+    if (c.toSha === '9999999' || c.toSha === '2222222') assert.equal(c.toTrusted, false);
+    if (c.fromSha === '9999999' || c.fromSha === '2222222') assert.equal(c.fromTrusted, false);
+  }
+});
+
 test('D6: a parent, its /clear child and a subagent are one timeline; a Clear in the child cuts only the child', () => {
   const rows = {
     P: row({ files: [file('a.js', 3, 100, day(8)), file('p.js', 1, 50, day(8))], commits: [commit('aaaaaaa', 90, day(8))] }),

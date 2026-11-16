@@ -41,7 +41,8 @@ const { createLineCursor } = require('../change-events');
 //       — a stopped turn, a skill's text, a subagent's result, a plugin list (#713)
 //   v9: the row says whether a compaction came after the last usage report (#703), as Claude's does (#698)
 //   v10: emits the session changes aggregate (#870)
-const PARSER_SCHEMA_VERSION = 10;
+//   v11: push events carry the pushed SHA (#870)
+const PARSER_SCHEMA_VERSION = 11;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;

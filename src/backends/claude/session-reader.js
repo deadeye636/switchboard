@@ -41,7 +41,8 @@ const { createClaudeChangeExtractor, createLineCursor } = require('./change-even
 //        The older `type: 'message'` user shape no longer counts either: `isUsersPrompt` knows only `user`
 //        lines, and none of that shape was found in a real store.
 //   v14: the row emits the session changes aggregate (#870).
-const PARSER_SCHEMA_VERSION = 14; // v14: emits the session changes aggregate — #870
+//   v15: push events carry the pushed SHA (#870).
+const PARSER_SCHEMA_VERSION = 15; // v15: push events carry the pushed SHA — #870
 
 // A `!` LINE THE APP RAN, CARRIED INTO THE NEXT PROMPT (#786). Claude's terminal interface writes a shell escape
 // as user lines of their own — a caveat (`isMeta`), `<bash-input>`, then `<bash-stdout>` + `<bash-stderr>`
