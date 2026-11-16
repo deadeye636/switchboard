@@ -1,0 +1,2 @@
+{"type":"assistant","uuid":"u-n1","timestamp":"2026-01-01T12:00:12.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_n1","name":"NotebookEdit","input":{"notebook_path":"/work/<project>/analysis.ipynb","cell_id":"c1","new_source":"print(1)","edit_mode":"replace"}}]}}
+{"type":"user","uuid":"r-n1","timestamp":"2026-01-01T12:00:13.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"user","content":[{"tool_use_id":"toolu_n1","type":"tool_result","content":"Updated cell c1"}]}}

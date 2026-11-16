@@ -1,0 +1,13 @@
+{
+  "idx": 41,
+  "step_type": 132,
+  "status": 7,
+  "strings": [
+    "call_41",
+    "replace_file_content",
+    "$00000000-0000-4000-8000-000000000001",
+    "TargetFile",
+    "/work/<project>/src/foo.js",
+    "Could not successfully apply any edits. Please review the file and try smaller edits that you are more confident about.: chunk 0: target content not found in file"
+  ]
+}

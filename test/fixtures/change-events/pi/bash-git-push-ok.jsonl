@@ -1,0 +1,2 @@
+{"type":"message","id":"ap1","parentId":null,"timestamp":"2026-01-01T12:00:16.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_p1|fc_p1","name":"bash","arguments":{"command":"git push"}}],"timestamp":1767268800000}}
+{"type":"message","id":"rp1","parentId":"ap1","timestamp":"2026-01-01T12:00:17.000Z","message":{"role":"toolResult","toolCallId":"call_p1|fc_p1","toolName":"bash","content":[{"type":"text","text":"To https://example.invalid/<owner>/<repo>.git\n   55c3c1f..9f3c2ab  main -> main\n"}],"isError":false,"timestamp":1767268800000}}

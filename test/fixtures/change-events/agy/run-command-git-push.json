@@ -1,0 +1,18 @@
+{
+  "idx": 44,
+  "step_type": 132,
+  "status": 3,
+  "strings": [
+    "call_44",
+    "run_command",
+    "$00000000-0000-4000-8000-000000000001",
+    "CommandLine",
+    "git push",
+    "Cwd",
+    "/work/<project>",
+    "The command exited with code 0.",
+    "Output:",
+    "To https://example.invalid/<owner>/<repo>.git",
+    "   55c3c1f..9f3c2ab  main -> main"
+  ]
+}

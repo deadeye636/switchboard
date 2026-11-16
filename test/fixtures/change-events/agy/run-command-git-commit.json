@@ -1,0 +1,18 @@
+{
+  "idx": 43,
+  "step_type": 132,
+  "status": 3,
+  "strings": [
+    "call_43",
+    "run_command",
+    "$00000000-0000-4000-8000-000000000001",
+    "CommandLine",
+    "git commit src/foo.js -m \"fix: handle empty input\"",
+    "Cwd",
+    "/work/<project>",
+    "The command exited with code 0.",
+    "Output:",
+    "[main 9f3c2ab] fix: handle empty input",
+    " 1 file changed, 2 insertions(+), 1 deletion(-)"
+  ]
+}

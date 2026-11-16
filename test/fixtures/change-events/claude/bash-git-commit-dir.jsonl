@@ -1,0 +1,2 @@
+{"type":"assistant","uuid":"u-c8","timestamp":"2026-01-01T12:00:28.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_c8","name":"Bash","input":{"command":"git -C /work/<project> commit -m 'fix: other dir'","description":"Commit"}}]}}
+{"type":"user","uuid":"r-c8","timestamp":"2026-01-01T12:00:29.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"user","content":[{"tool_use_id":"toolu_c8","type":"tool_result","content":"[feature/x 7a8b9c0] fix: other dir\n 1 file changed, 1 insertion(+)"}]}}

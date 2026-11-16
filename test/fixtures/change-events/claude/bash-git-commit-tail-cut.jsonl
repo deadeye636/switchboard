@@ -1,0 +1,2 @@
+{"type":"assistant","uuid":"u-c7","timestamp":"2026-01-01T12:00:26.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_c7","name":"Bash","input":{"command":"git commit -q 2>&1 | tail -1","description":"Commit"}}]}}
+{"type":"user","uuid":"r-c7","timestamp":"2026-01-01T12:00:27.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"user","content":[{"tool_use_id":"toolu_c7","type":"tool_result","content":" 1 file changed, 2 insertions(+), 1 deletion(-)"}]}}

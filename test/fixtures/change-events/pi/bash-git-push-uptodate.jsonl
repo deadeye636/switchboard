@@ -1,0 +1,2 @@
+{"type":"message","id":"ap2","parentId":null,"timestamp":"2026-01-01T12:00:18.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_p2|fc_p2","name":"bash","arguments":{"command":"git push"}}],"timestamp":1767268800000}}
+{"type":"message","id":"rp2","parentId":"ap2","timestamp":"2026-01-01T12:00:19.000Z","message":{"role":"toolResult","toolCallId":"call_p2|fc_p2","toolName":"bash","content":[{"type":"text","text":"Everything up-to-date\n"}],"isError":false,"timestamp":1767268800000}}

@@ -1,0 +1,16 @@
+{
+  "idx": 40,
+  "step_type": 132,
+  "status": 3,
+  "strings": [
+    "call_40",
+    "replace_file_content",
+    "$00000000-0000-4000-8000-000000000001",
+    "TargetFile",
+    "/work/<project>/src/foo.js",
+    "StartLine",
+    "1",
+    "EndLine",
+    "3"
+  ]
+}

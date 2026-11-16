@@ -1478,6 +1478,153 @@ something that RUNS is a different feature with a different conversation.
 A settings file is editable (that is what the TOML and YAML validation is for) and never deletable: it
 is a file the CLI owns, and this app edits it rather than deciding whether it should exist.
 
+## File edits, commits and pushes (#870, spec 47)
+
+What each backend's transcript or store holds about a file the session changed, a shell command it ran, and the
+result of a `git commit` / `git push` in that command's output. Measured 2026-11-16 on local transcripts and stores,
+structure and key names only; the fixtures under `test/fixtures/change-events/<backend>/` are hand-built from those
+shapes with invented paths, SHAs and subjects (the folder's `README.md` lists each file and marks the synthetic
+ones). Nothing here was produced by a new turn.
+
+| Backend | Edit signal | Shell signal and where the output is | Ordering key | Decision |
+|---|---|---|---|---|
+| Claude (and claude-native, which writes Claude's transcript) | `tool_use` `Edit` / `Write` with `input.file_path`; `MultiEdit` (`file_path`) and `NotebookEdit` (`notebook_path`) are not in any local transcript and are taken from the CLI's tool list. Paired by `tool_use.id` = `tool_result.tool_use_id`; a failure has `is_error: true`; anything else (absent or `false`) is a success | `Bash` and `PowerShell`, both `input.command`; the output is the result's `content` string (a user line, `type: "user"`) | byte offset of the line | **yes** |
+| Codex | the patch text inside an `exec` script: `*** Add File:`, `*** Update File:`, `*** Delete File:`, `*** Move to:` name the files (relative to the turn's cwd). No pass/fail signal was observed | `tools.exec_command({ cmd, workdir })` inside the same `exec` script; the output is the parts of the `custom_tool_call_output`, after a `Script completed` header part. A command is tied to its output only when the script holds one command | byte offset of the line | **limited**: edits by patch only (no failure signal, no shell writes); commits and pushes only from a one-command script |
+| Pi (and pi-native) | `toolCall` `edit` (`arguments.path`, `arguments.edits[]`) and `write` (`arguments.path`); paired by `toolCall.id` = `toolResult.toolCallId`; failure is `isError: true` | `bash`, `arguments.command`; the output is `toolResult.content[].text` | byte offset of the line | **yes** |
+| Hermes | none verified: the only tool calls in the local store are `read_file` and `search_files` | none verified: no terminal call in the local store | `messages.id` | **no**: nothing to verify against (no edit or shell call exists locally), so no shape is claimed |
+| agy | `run_command`, `replace_file_content`, `write_to_file` steps name `TargetFile`; one `steps` row holds call, status and result together; `status` 7 is a failed edit with its error text | `run_command`: `CommandLine` and `Cwd` in a JSON string, then `The command exited with code N.`, `Output:` and the output lines, all readable strings of one protobuf blob | `steps.idx` | **limited**: edits, commits and pushes are readable, but only by scraping strings out of a protobuf blob with no schema; failed-command and rejected-push shapes are not observed |
+
+The decision is what the extractor may claim, not how hard it is to write. A `limited` backend declares what is
+missing in its capability row (spec 47, section 2).
+
+### Claude
+
+- **One line, one entry.** An edit is two lines: an assistant line with the `tool_use` block, and a later user line with
+  the `tool_result` block. Both sit in `message.content`. Count an edit when the result arrives and `is_error` is not `true`;
+  the call line alone proves nothing (permission denied, a stale read, a `PreToolUse` hook refusal and "string not
+  found" are all `is_error: true` results of a call that did run as far as the transcript is concerned).
+- **Error texts seen**, all with `is_error: true` and the text wrapped in `<tool_use_error>…</tool_use_error>` or
+  starting `Permission for this action was denied`: `String to replace not found in file.`, `Found N matches of the
+  string to replace…`, `File has not been read yet. Read it first before writing to it.`, `File has been modified
+  since read…`, `No changes to make: old_string and new_string are exactly the same.`, a `PreToolUse:<tool> hook
+  error: …` and `InputValidationError`. A `toolUseResult` sibling key on the user line is a string on error and
+  absent on a plain `Edit` / `Write` success, so it is no signal either way.
+- **A duplicate line type.** Subagent files carry `type: "api-request-blob"` lines whose `message` repeats a
+  `tool_result` block. Read only `type: "user"` and `type: "assistant"`, or a result is counted twice
+  (`api-request-blob.jsonl`).
+- **Subagents are told apart by file.** A subagent's lines live in `<session-id>/subagents/agent-<id>.jsonl`, every
+  line has `isSidechain: true` and an `agentId`. In the local transcripts no `isSidechain` line sits in a parent's own
+  file, and a subagent's edits never appear in the parent's file; the parent holds only the `Agent` call and its result.
+  A parent's group that wants a subagent's edits has to read the child file (spec 47, E4); it cannot double-count.
+- **Two shell tools.** `Bash` and `PowerShell` both carry `input.command`; a PowerShell result has `\r\n` in it
+  (`powershell-git-commit.jsonl`).
+- **A non-zero exit sets `is_error` and starts the content with `Exit code N`.** That does not make the commit
+  absent: `git commit …; git push` with a refused push is an error result whose content still holds the
+  `[branch sha] subject` line (`bash-commit-ok-push-refused.jsonl`). Decide a commit by its output line, never by
+  `is_error`.
+- **The command may hide its own output.** `git commit … | tail -1` leaves only ` 1 file changed…`; there is no SHA
+  line, so the commit is not seen (`bash-git-commit-tail-cut.jsonl`). A known under-report, not a wrong claim.
+
+### Codex
+
+- **Everything is one tool.** Current rollouts wrap every tool use in `response_item` `custom_tool_call` named
+  `exec`; `input` is JavaScript source (see "Agents, approvals and compaction in the rollout"), and the result is a
+  `custom_tool_call_output` whose `output` is a list of `input_text` parts. The first part is
+  `Script completed\nWall time N seconds\nOutput:\n`; later parts are what the script passed to `text(…)`, in call order
+  of `text`, not of the commands.
+- **A patch** is `tools.apply_patch(patch)` with `patch` a string whose lines are the apply-patch grammar; every
+  local one was `const patch = "<json string>";`. The result part is `{}`. The `*** … File:` lines are the only
+  statement of which files changed; a shell write (`sed -i`, redirection) is not attributable.
+- **No failure signal for a patch was observed.** Every local `custom_tool_call_output` starts `Script completed`,
+  including the shell commands whose command failed (the exit code, when present, is inside the printed output).
+  `apply-patch-failed.jsonl` is therefore **assumed**, not measured: a script that throws would read
+  `Script failed`. The extractor must count a patch only when its result starts `Script completed`, and
+  that is still an over-count risk the capability row names.
+- **Commands.** A command is `tools.exec_command({ cmd, workdir, … })` (JSON or a JavaScript literal; `shellCallsOf` in
+  `src/backends/codex/flow-flags.js` already reads it). The output of one command is `r.output`, which the script
+  must print with `text(r.output)` for it to be in the transcript. With two commands in one script the printed parts
+  carry no command id (`exec-two-commands.jsonl`): pair by order only when the script has exactly one command.
+- **No `git commit` or `git push` exists in the local rollouts** (checked across every local rollout), so the Codex
+  git fixtures are synthetic and built from git's own output. The older shape, `function_call` `shell` with
+  `arguments.command` as an argv list and a string `function_call_output` starting `Exit code: N`, is covered by the
+  existing flow fixture and by `function-call-shell-commit.jsonl` (synthetic).
+- A rollout of a spawned agent is a separate file (see the section above); its edits are not in the parent's.
+
+### Pi
+
+- Entries are `type: "message"` with `id` and `parentId`. A call is an assistant message whose content holds a
+  `toolCall` block (`id`, `name`, `arguments`); the result is a message with `role: "toolResult"`, `toolCallId` equal to
+  that `id` exactly (the compound `call_…|fc_…` string, matched by every result checked), `toolName`, `content[].text`
+  and `isError`.
+- `edit` arguments are `{ path, edits: [{ oldText, newText }] }`; its ok result also has `details.diff`,
+  `details.patch` and `details.firstChangedLine`. `write` arguments are `{ path, content }`. `bash` arguments are
+  `{ command }`; a non-zero exit is `isError: true` and the text ends with `Command exited with code N` after two
+  blank lines. As in Claude, a chained command can leave the commit line in an error result
+  (`bash-git-commit-ok-later-step-failed.jsonl`).
+- Edit failure texts seen: `Found N occurrences of the text in <path>. The text must be unique…`. Pi has a
+  `subagent` tool; whether a delegated agent's edits are in the parent's transcript was not examined.
+- **A transcript is a tree** (`parentId`, `src/backends/pi/active-branch.js`). A file edit on a branch the user later
+  left still happened on disk, so the extractor attributes by what the session did, not by what the active branch
+  shows; the parser's own active-branch walk must not decide it.
+
+### Hermes
+
+`messages` rows: an assistant row carries `tool_calls` (a JSON list in the OpenAI function shape,
+`function.name`, `function.arguments` a JSON string); each result is a `tool` row with `tool_call_id` and `tool_name`
+and the result in `content`. The local store holds only `read_file` and `search_files`, so no edit tool name, path field,
+error shape or shell tool was ever seen. The `messages` table also has `active`, `compacted` and `effect_disposition`
+columns, all unset locally, whose meaning for a replayed row is not established. `messages.id` is the ordering key a
+reader would use. Decision `no` until a store with edit and terminal calls is available
+(`read-file-tool-rows.json` records the one shape that was seen).
+
+### agy
+
+- One `steps` row (`idx` integer primary key, `step_type` 132, `status`, `step_payload` blob) holds the whole tool use:
+  `call_<n>`, the tool name, a JSON argument string and, for `run_command`, the result. There is no separate result
+  row to pair. `status` 3 is a completed step; 7 was seen on failed `replace_file_content` steps with the error text
+  `Could not successfully apply any edits… chunk 0: target content not found in file`; 6 was seen on `run_command`
+  steps and what it means was not established, so only 3 counts as success.
+- Tools that write: `replace_file_content` and `write_to_file` (both `TargetFile`; `write_to_file` also `Overwrite`,
+  `CodeContent`) and `edit_file` (`Path`, once). `run_command` has `CommandLine`, `Cwd`.
+- A command result reads `The command exited with code N.` then `Output:` then the output lines, each its own readable
+  string. Local data held commits and pushes with exit 0 and no failed commit or rejected push; non-zero exits
+  (`The command exited with code 1.`) exist for other commands, and `run-command-exit1.json` puts that wording on a
+  commit whose output was not seen (synthetic). The paths are absolute as the model spelled them.
+- The fixtures are lists of the readable strings of one step, not protobuf: the real row is binary and is not committed.
+  The app's agy reader already extracts embedded strings from these blobs; this section adds nothing to how.
+- `invoke_subagent` and `manage_subagents` steps exist; where a subagent's own steps are stored was not examined.
+
+### Git output grammar
+
+Git's output is not any CLI's; the same lines appear in every backend above (spec 47 gives them one reader).
+
+- **Commit success:** `[<branch> <sha>] <subject>` as the first line git itself prints, then ` N file(s) changed, …`.
+  Variants: `[<branch> (root-commit) <sha>] …` for a first commit; an amend prints the same bracket line followed by
+  ` Date: …`. The SHA is abbreviated, 7 to 9 hexadecimal characters were seen. The branch may contain `/`. A detached
+  head prints `[detached HEAD <sha>]` (git's own wording; not in any local transcript). Output of a pre-commit step
+  or a trailing `git log --oneline` may add lines before or after, so the bracket line is searched for, not assumed
+  to be first.
+- **Commit that is not a commit:** a hook refusal prints the hook's text and no bracket line; `nothing to commit,
+  working tree clean` and `no changes added to commit` print no bracket line; `Exit code 128` / `fatal:` likewise.
+- **Push, per ref:** `   <old>..<new>  <src> -> <dst>` an update; ` * [new branch]      <src> -> <dst>`;
+  ` + <old>...<new> <src> -> <dst> (forced update)` (what `--force-with-lease` and `--force` print; the flag is in the
+  command, not in the output); `Everything up-to-date`; ` ! [rejected]        <src> -> <dst> (<reason>)` followed by
+  `error: failed to push some refs to '<url>'`; a refusing pre-push hook prints its own text and then the same `error:
+  failed to push some refs` line with no `[rejected]` line. A push of several refs is one line per ref; it succeeded
+  only if no ref line is `!` and there is no `error:`.
+- **Rejected push was not observed** in any local result; its fixtures follow git's documented output and are marked
+  synthetic. The local data has the ok, new-branch, up-to-date, forced-update and hook-refused pushes.
+
+### Position and the push snapshot
+
+- File backends: the byte offset of the **start of the line that carries the result** (the user line for Claude, the
+  `custom_tool_call_output` line for Codex, the `toolResult` line for Pi). The result line is the one at which an edit
+  or commit is known to have happened, and a parallel call's result can arrive after another call's, so the call line
+  is not a usable ordering point. Store backends: the row id (`messages.id`, `steps.idx`), which is monotone.
+- A push's per-file counts (spec 47 D4) need nothing from the transcript beyond that position: they are the
+  accumulator's totals at the moment the push result is read. No backend needs an extra field.
+- A fixture file holds its lines in file order, so a test derives the offsets itself.
+
 ## Terminal page-key ownership
 
 Bare PageUp/PageDown are not generic terminal-scroll shortcuts when a full-screen TUI owns the visible

@@ -1,0 +1,18 @@
+{
+  "idx": 45,
+  "step_type": 132,
+  "status": 3,
+  "strings": [
+    "call_45",
+    "run_command",
+    "$00000000-0000-4000-8000-000000000001",
+    "CommandLine",
+    "git commit -m 'fix: x'",
+    "Cwd",
+    "/work/<project>",
+    "The command exited with code 1.",
+    "Output:",
+    "On branch main",
+    "nothing to commit, working tree clean"
+  ]
+}

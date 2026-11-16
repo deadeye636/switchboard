@@ -1,0 +1,2 @@
+{"type":"assistant","uuid":"u-c5","timestamp":"2026-01-01T12:00:22.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_c5","name":"Bash","input":{"command":"git commit -m 'fix: nothing'","description":"Commit"}}]}}
+{"type":"user","uuid":"r-c5","timestamp":"2026-01-01T12:00:23.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"user","content":[{"tool_use_id":"toolu_c5","type":"tool_result","content":"Exit code 1\nOn branch main\nnothing to commit, working tree clean","is_error":true}]}}

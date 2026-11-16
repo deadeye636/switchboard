@@ -1,0 +1,2 @@
+{"timestamp":"2026-01-01T12:00:18.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call_f1","arguments":"{\"command\":[\"bash\",\"-lc\",\"git commit -m 'fix: handle empty input'\"],\"workdir\":\"/work/<project>\"}"}}
+{"timestamp":"2026-01-01T12:00:19.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_f1","output":"Exit code: 0\nWall time: 0.2 seconds\nOutput:\n[main 9f3c2ab] fix: handle empty input\n 1 file changed, 2 insertions(+), 1 deletion(-)\n"}}

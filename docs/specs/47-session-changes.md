@@ -74,19 +74,27 @@ baseline and the "since" filter all compare positions and nothing else.
 
 ### 2. Which backends can answer
 
-First pass, from what the readers already extract. Every row is **verified against a real transcript in T1** before the
-extractor is written, and a signal that cannot be verified becomes an honest `no` (the descriptor rule in
-`.claude/rules/backends.md`), never a guess.
+Decided by T1, **verified against real transcripts and stores** (measured 2026-11-16; the shapes, the output grammar and the
+fixtures are in `docs/backend-formats.md`, "File edits, commits and pushes", and `test/fixtures/change-events/`). A
+signal that cannot be verified is an honest `no` (the descriptor rule in `.claude/rules/backends.md`), never a guess.
 
-| Backend | Edits | Commits / pushes | Position |
-|---|---|---|---|
-| Claude (and claude-native, which reads Claude's rows) | `Edit`, `Write`, `MultiEdit`, `NotebookEdit` calls with a file path, counted on a non-error result | `Bash` call + its result | byte offset |
-| Codex | patch calls (the patch text names its files) and shell-command writes | shell call + its output | byte offset |
-| Pi (and pi-native) | its edit / write tools | its bash tool + result | byte offset |
-| Hermes | candidate: `tool_calls` in its message rows; decided by T1 | same | message row id |
-| agy | **no**: no verified signal in its `.db`; it answers `reportsChanges: false` and the group says so | no | none |
+| Backend | Edits | Commits / pushes | Position | Decision |
+|---|---|---|---|---|
+| Claude (and claude-native, which reads Claude's rows) | `Edit`, `Write` (`file_path`) counted unless the result has `is_error: true`; `MultiEdit` and `NotebookEdit` are not in any local transcript (names from the CLI, synthetic fixtures) | `Bash` and `PowerShell` call + its result; a commit is read from its `[branch sha] subject` line, not from `is_error` | byte offset of the result line | **yes** |
+| Codex | the apply-patch text inside an `exec` script names its files; no failure signal was observed, and a shell write is not attributable | `tools.exec_command` inside the same script; its output is tied to the command only when the script holds one command; no commit or push exists in the local rollouts (synthetic fixtures) | byte offset of the output line | **limited**: edits by patch only (over-count risk), commits and pushes from one-command scripts only |
+| Pi (and pi-native) | `edit` and `write` (`path`), result `isError` | `bash` tool, `arguments.command` + result text | byte offset of the result line | **yes** |
+| Hermes | no edit or shell call exists in the local store (only `read_file` and `search_files`), so no shape is verified | same | `messages.id` | **no** |
+| agy | `replace_file_content`, `write_to_file` (`TargetFile`); call, status and result are in one `steps` row; `status` 7 is a failed edit | `run_command` (`CommandLine`) with `The command exited with code N.` and the output lines in the same row | `steps.idx` | **limited**: readable only by scraping strings out of a protobuf blob; no failed commit or rejected push seen |
 
-A session of a backend that does not report shows the group with one sentence ("This CLI does not report which files it
+The first pass of this table said agy was `no` (no verified signal). T1 found one: agy's tool steps carry the tool name, the
+JSON arguments and the command result as readable strings, so agy is `limited`, not `no`. Whether the extractor is built for
+agy is the owner's call at T6 (the plan defaulted it to `reportsChanges: false`).
+
+A subagent of a Claude session writes its own file (`isSidechain: true`, an `agentId` on every line) and its edits never
+appear in the parent's, so they are told apart by file and cannot be counted twice (E4). Pi's transcript is a tree; a file
+edit on a branch the user left still happened on disk, so the extractor does not follow the active branch.
+
+A session of a backend that does not report (Hermes) shows the group with one sentence ("This CLI does not report which files it
 changed.") and no figure. The group is not hidden, so the user is not left wondering where it went (hiding is the user's
 choice, spec 43 #835).
 
@@ -215,6 +223,18 @@ Mockup: docs/plans/870-session-changes/mockups/timeline.html (local). Recorded i
 - **D5. Clear hides nothing.** Clear only sets an entry and moves "Since last review". Any wider range still shows
   what was cleared.
 
+Owner decisions of 2026-11-16 (approved with the v1 mockup):
+
+- **V1. Closed header figure.** Always counts "Since last review", whatever range is picked inside. A closed group reads
+  the database only, and "what is new since I looked" is the figure that drives the next action.
+- **V2. The review log is the Clear entries.** Every Clear is an entry on the timeline and keeps the data O2 asked for
+  (time, from/to SHA, transcript position). Reopening review N is the range from Clear N-1 to Clear N, read-only. There is
+  no separate review list in Details.
+- **V3. "Today" snaps.** It starts at the first entry of today, or at the first edit of today when no entry falls on it
+  (a derived tick, not stored).
+- **V4. Range and view are kept per session** in app state, not as a setting. A new session starts with "Since last
+  review" and "All".
+
 The sidebar group carries the range select and the All / Split toggle above its rows (existing select and
 `.ssb-issue-toggle` styling, reflex 8). Details carries the same two controls in its header and a timeline strip with
 one tick per entry, the range highlighted.
@@ -308,7 +328,7 @@ brought back to the owner before the sequence-number fallback is used.
 - A tool that edits a file indirectly (a code generator, `sed -i` in a shell) is an edit git sees and the transcript
   extractor may not. v1 counts only the edit tools and `Write`-like calls; shell-made writes are not attributed (a known
   under-report, not a wrong claim).
-- agy answers nothing; Hermes depends on T1.
+- Hermes answers nothing (T1: no edit or shell call exists in its local store); agy and Codex answer in part (section 2).
 
 ## Files (planned)
 

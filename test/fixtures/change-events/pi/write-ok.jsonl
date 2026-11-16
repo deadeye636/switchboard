@@ -1,0 +1,2 @@
+{"type":"message","id":"aw1","parentId":null,"timestamp":"2026-01-01T12:00:04.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_w1|fc_w1","name":"write","arguments":{"path":"/work/<project>/src/new.js","content":"x\n"}}],"timestamp":1767268800000}}
+{"type":"message","id":"rw1","parentId":"aw1","timestamp":"2026-01-01T12:00:05.000Z","message":{"role":"toolResult","toolCallId":"call_w1|fc_w1","toolName":"write","content":[{"type":"text","text":"Successfully wrote to /work/<project>/src/new.js"}],"isError":false,"timestamp":1767268800000}}

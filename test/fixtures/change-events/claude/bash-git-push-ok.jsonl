@@ -1,0 +1,2 @@
+{"type":"assistant","uuid":"u-p1","timestamp":"2026-01-01T12:00:34.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_p1","name":"Bash","input":{"command":"git push origin main","description":"Commit"}}]}}
+{"type":"user","uuid":"r-p1","timestamp":"2026-01-01T12:00:35.000Z","sessionId":"s-1","cwd":"/work/<project>","message":{"role":"user","content":[{"tool_use_id":"toolu_p1","type":"tool_result","content":"To https://example.invalid/<owner>/<repo>.git\n   55c3c1f..9f3c2ab  main -> main"}]}}

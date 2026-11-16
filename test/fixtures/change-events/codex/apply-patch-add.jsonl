@@ -1,0 +1,2 @@
+{"timestamp":"2026-01-01T12:00:00.000Z","type":"response_item","payload":{"type":"custom_tool_call","status":"completed","call_id":"call_a1","name":"exec","input":"const patch = \"*** Begin Patch\\n*** Add File: src/new.js\\n+console.log(1);\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n"}}
+{"timestamp":"2026-01-01T12:00:01.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_a1","output":[{"type":"input_text","text":"Script completed\nWall time 0.3 seconds\nOutput:\n"},{"type":"input_text","text":"{}"}]}}
