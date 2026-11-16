@@ -25,7 +25,7 @@ const { resolveRegisterRow } = require('../projects/register-lookup');
 const LEGACY_SESSION_BACKEND = 'claude';
 
 let getMainWindow, log, notifyViewWindows;
-let upsertCachedSessions, deleteCachedSession, replaceSessionMetrics;
+let upsertCachedSessions, deleteCachedSession, replaceSessionMetrics, replaceSessionChanges;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries, deleteCachedFolder, getFolderLineage;
 let getMeta, setName, getProjectMeta, getProjectStates, getProjectTombstones;
 
@@ -38,6 +38,7 @@ function init(ctx) {
   upsertCachedSessions = ctx.db.upsertCachedSessions;
   deleteCachedSession = ctx.db.deleteCachedSession;
   replaceSessionMetrics = ctx.db.replaceSessionMetrics;
+  replaceSessionChanges = ctx.db.replaceSessionChanges;
   deleteSearchFolder = ctx.db.deleteSearchFolder;
   deleteSearchSession = ctx.db.deleteSearchSession;
   upsertSearchEntries = ctx.db.upsertSearchEntries;
@@ -304,6 +305,11 @@ function applyIndexResults({ sessions = [], wipeFolders = [], deleteIds = [], me
         // must not clobber a backend whose metrics live elsewhere.
         replaceSessionMetrics(s.sessionId, s.dailyMetrics);
       }
+    }
+    // What the session changed (#870): only a row that CARRIES `changes` replaces the stored rows. An absent key means the
+    // parser did not report this time, and the stored rows stay.
+    for (const s of sessions) {
+      if (s.changes && typeof replaceSessionChanges === 'function') replaceSessionChanges(s.sessionId, s.changes);
     }
     // FTS is delete + full-document reinsert (external-content protocol — see db.js).
     for (const s of sessions) deleteSearchSession(s.sessionId);

@@ -200,7 +200,7 @@ const {
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
   isCachePopulated, getAllCached, getCachedByFolder, getFolderLineage, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
-  deleteCachedSession, deleteCachedFolder, setSessionLineage, replaceSessionMetrics,
+  deleteCachedSession, deleteCachedFolder, setSessionLineage, replaceSessionMetrics, replaceSessionChanges, deleteChangesStateForSession,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
@@ -497,7 +497,7 @@ sessionCache.init({
   // NOTE: this db object is an explicit allow-list — a function session-cache.js reads via ctx.db.*
   // but that is missing here is `undefined` at runtime (see test/main-ctx-db-wiring.test.js).
   db: {
-    deleteCachedFolder, getCachedByFolder, getFolderLineage, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
+    deleteCachedFolder, getCachedByFolder, getFolderLineage, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics, replaceSessionChanges,
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
     getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects,
@@ -621,6 +621,8 @@ projects.init({
     // reply can't reverse-resurrect a session removeProject/deleteProjectSessions just deleted.
     deleteCachedSession: (id) => { try { indexWorker.noteDeleted(id); } catch {} return deleteCachedSession(id); },
     deleteSearchSession,
+    // A DELIBERATE session delete drops the user's change-tracking rows too (#870); the source-gone delete does not.
+    deleteChangesStateForSession,
     getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
     renameProjectRefs, deleteProjectRefs, setFolderMeta, toggleProjectFavorite,
     getCachedByProjectPath, getBackendsByProjectPath,
@@ -765,6 +767,7 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
           indexWorker.noteDeleted(row.sessionId);
           deleteCachedSession(row.sessionId);
           deleteSearchSession(row.sessionId);
+          deleteChangesStateForSession(row.sessionId); // a deliberate delete: the user's change-tracking rows go too (#870)
           removed++;
         }
       } catch (dbErr) {

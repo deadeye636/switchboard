@@ -18,6 +18,8 @@
 //   stats-store.js    — the Stats screen's aggregates (SQL in stats-queries.js).
 //   timeline-store.js — the per-session timeline: what happened, and when (shape + retention in
 //                       timeline-record.js, which is testable because it opens nothing).
+//   changes-store.js  — what a session changed: derived rows, the lineage timeline, the picked view (#870; shape in
+//                       changes-record.js).
 //   worktree-store.js — directories seen to be a git worktree outside the layout, and their repository (#757).
 //
 // `./connection` is required FIRST and that is load-bearing, not style: it resolves DATA_DIR and opens the
@@ -61,6 +63,7 @@ const searchStore = require('./search-store');
 const timelineStore = require('./timeline-store');
 const worktreeStore = require('./worktree-store');
 const maintenanceStore = require('./maintenance-store');
+const changesStore = require('./changes-store');
 // The handoff library's old table, and only the two calls that empty it (#468). Its statements are
 // prepared inside its functions, so its position here is tidiness rather than an ordering constraint.
 const legacyHandoffs = require('./legacy-handoffs');
@@ -181,6 +184,14 @@ module.exports = {
   deleteTimelineForSession: timelineStore.deleteTimelineForSession,
   deleteTimelineForProject: timelineStore.deleteTimelineForProject,
   rekeyTimeline: timelineStore.rekeyTimeline,
+  // --- what a session changed: derived rows, the lineage timeline, the picked view (changes-store.js, #870) ---
+  replaceSessionChanges: changesStore.replaceSessionChanges,
+  getSessionChanges: changesStore.getSessionChanges,
+  addChangeEntry: changesStore.addEntry,
+  listChangeEntries: changesStore.listEntries,
+  getChangesView: changesStore.getChangesView,
+  setChangesView: changesStore.setChangesView,
+  deleteChangesStateForSession: changesStore.deleteChangesStateForSession,
   // --- the stats aggregates (stats-store.js) ---
   getDailyActivity: statsStore.getDailyActivity,
   getDailyMetrics: statsStore.getDailyMetrics,

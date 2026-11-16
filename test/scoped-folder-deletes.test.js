@@ -113,3 +113,42 @@ test('the session-cache scan paths still scope their own folder deletes', () => 
   }
   assert.deepStrictEqual(unscoped, [], 'the scanner must never issue an unscoped folder delete either');
 });
+
+// Session changes (#870): the user's own rows (timeline entries, the picked view) are not the index's to delete. A folder
+// wipe and the source-gone delete both run on an ordinary rescan, so neither may reach them; only a deliberate delete does.
+function bodyOf(src, name) {
+  const from = src.indexOf(`function ${name}(`);
+  assert.ok(from !== -1, `${name} must exist`);
+  const rest = src.slice(from + 1);
+  const next = rest.indexOf('\nfunction ');
+  return rest.slice(0, next === -1 ? rest.length : next);
+}
+
+test('a folder wipe and the source-gone delete never touch the change-tracking user state', () => {
+  const { stripComments } = require('./helpers/strip-comments');
+  const store = stripComments(read('src/db/session-store.js'));
+  const userState = /deleteChangesStateForSession|entryDelete|viewClear|session_change_entry|changesView/;
+  assert.doesNotMatch(bodyOf(store, 'deleteCachedFolder'), userState,
+    'deleteCachedFolder runs on every cold-scan rebuild; it must not delete timeline entries or the picked view');
+  assert.doesNotMatch(bodyOf(store, 'deleteCachedSession'), userState,
+    'deleteCachedSession is also the source-gone delete; it may drop the DERIVED rows, never the user state');
+  assert.match(bodyOf(store, 'deleteCachedSession'), /deleteDerivedForSession/,
+    'the derived rows go with the cache row, or they are orphaned');
+  assert.match(bodyOf(store, 'deleteCachedFolder'), /session_change_file[\s\S]*session_change_event[\s\S]*session_change_meta/,
+    'a folder wipe drops the DERIVED rows by the same backend-scoped sub-select as the metrics, or a reparse that reports nothing leaves stale ones');
+});
+
+test('the deliberate history delete drops the user state per session, and the scan sink wires the derived write', () => {
+  const { stripComments } = require('./helpers/strip-comments');
+  const projects = read('src/projects/projects.js');
+  assert.match(bodyOf(projects, 'deleteProjectSessions'), /deleteChangesStateForSession/,
+    'deleteProjectSessions deletes history on purpose; the user state for those sessions goes with it');
+  const main = read('src/main.js');
+  assert.match(main, /replaceSessionChanges/, 'main.js must forward replaceSessionChanges to the index writes');
+  assert.doesNotMatch(stripComments(read('src/db/project-refs.js')), /changesStore|entryDelete|viewClear/,
+    'project-refs has no per-project statement for change-tracking state: the deliberate deletes drop it per session');
+  // removeProject's purge and the worktree delete drop it per session too.
+  assert.match(bodyOf(projects, 'removeProject'), /deleteChangesStateForSession/, 'removeProject purges the user state of the rows it purges');
+  assert.match(main, /deleteSearchSession\(row\.sessionId\);\s*deleteChangesStateForSession\(row\.sessionId\)/,
+    'the worktree delete drops the user state of the sessions it deletes');
+});

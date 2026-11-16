@@ -18,6 +18,7 @@
 
 const { db } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
+const changesStore = require('./changes-store');
 // The one canonical form for a project path (#245). Pure string work — no fs, no db.
 const { normPath } = require('../session/derive-project-path');
 
@@ -427,6 +428,9 @@ function getCachedSession(sessionId) {
 function deleteCachedSession(sessionId) {
   runWithBusyRetry(() => {
     stmts.metricsDeleteBySession.run(sessionId);
+    // What the scan derived about the session's edits goes with it (#870). The user's own rows for it (timeline
+    // entries, picked view) do NOT: this is also the source-gone delete, and only a deliberate one drops those.
+    changesStore.deleteDerivedForSession(sessionId);
     stmts.cacheDeleteSession.run(sessionId);
   });
 }
@@ -438,10 +442,15 @@ function deleteCachedFolder(folder, scope) {
   const metricsSql = 'DELETE FROM session_metrics WHERE sessionId IN'
     + ' (SELECT sessionId FROM session_cache WHERE folder = ?' + c.sql + ')';
   const cacheSql = 'DELETE FROM session_cache WHERE folder = ?' + c.sql;
+  // The derived change rows (#870), by the same backend-scoped sub-select as the metrics: a wiped session whose
+  // reparse reports nothing would otherwise keep stale rows. User state (entries, view) is deliberately not here.
+  const changeSqls = ['session_change_file', 'session_change_event', 'session_change_meta'].map((t) =>
+    `DELETE FROM ${t} WHERE sessionId IN (SELECT sessionId FROM session_cache WHERE folder = ?${c.sql})`);
   runWithBusyRetry(() => {
     // Delete metrics first — the metrics statement sub-selects on session_cache, so it must run
     // before the session_cache rows for this folder are gone. The session TIMELINE is deliberately not
     // here — see the note above deleteCachedSession: this runs on a rebuild, not on a deletion.
+    for (const sql of changeSqls) prepScoped(sql).run(folder, ...c.params);
     if (!scope) {
       stmts.metricsDeleteByFolder.run(folder);
       stmts.cacheDeleteFolder.run(folder);

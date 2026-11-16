@@ -606,6 +606,101 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_maintenance_turn_session ON maintenance_turn (session_id);
     `);
   },
+  // Session changes (#870, spec 47 section 3). Five appended entries: three DERIVED tables the scan replaces whole per
+  // session, one USER-STATE table, one USER-STATE column. Derived rows go with a folder wipe (backend-scoped) and the source-gone delete; user state is
+  // never touched by a folder wipe or a source-gone delete (`src/db/changes-store.js`, `.claude/rules/db.md`).
+  //
+  // session_change_file: one row per session and file, the scan's per-file aggregate (derived).
+  //   edits = successful edits counted, firstPosition / lastPosition = the ordering key of the first / last edit (a byte
+  //   offset or a message id, comparable only inside ONE session id, spec 47 D6), lastAt = time of the last edit (ms).
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_change_file (
+        sessionId TEXT NOT NULL,
+        path TEXT NOT NULL,
+        edits INTEGER NOT NULL,
+        firstPosition INTEGER,
+        lastPosition INTEGER,
+        lastAt INTEGER,
+        PRIMARY KEY (sessionId, path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_change_file_path ON session_change_file (path);
+    `);
+  },
+  // session_change_event: the session's commits and pushes (derived), insertion order = transcript order.
+  //   kind = 'commit' | 'push'; position / at as above. Commit: sha, subject, branch, amend. Push: ok (it succeeded), moved
+  //   (a ref moved, also for a partial push), upToDate ("Everything up-to-date"), force, summary (one line).
+  //   snapshot = JSON [[path, count], ...], the per-file edit counts at a push's position (D4, capped), NULL when the
+  //   parser gave none; snapshotTruncated = the list lost files to the cap.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_change_event (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sessionId TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        position INTEGER,
+        at INTEGER,
+        sha TEXT,
+        subject TEXT,
+        branch TEXT,
+        amend INTEGER NOT NULL DEFAULT 0,
+        ok INTEGER NOT NULL DEFAULT 0,
+        moved INTEGER NOT NULL DEFAULT 0,
+        upToDate INTEGER NOT NULL DEFAULT 0,
+        force INTEGER NOT NULL DEFAULT 0,
+        summary TEXT,
+        snapshot TEXT,
+        snapshotTruncated INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_change_event_session ON session_change_event (sessionId);
+    `);
+  },
+  // session_change_meta: the one session-level fact the aggregate rows cannot carry (derived): truncated = the parser cut
+  // files, commits or pushes at a cap, so the group says so. A row exists for every session the scan reported `changes` for.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_change_meta (
+        sessionId TEXT PRIMARY KEY,
+        truncated INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+  },
+  // session_change_entry: the timeline of a lineage (USER STATE, D1). One chain per lineage: its start (the baseline,
+  // E1), every Clear in the app, every `/clear` typed in the CLI. Push entries are NOT stored here: a push is already an
+  // event row with its snapshot, and a mirror would be a second copy that goes stale on a rescan.
+  //   lineageId = the lineage's root session id; sessionId = the one session the entry belongs to (a position is
+  //   comparable only inside it, D6); kind = 'start' | 'clear' | 'cli-clear'; position / at as above; sha = HEAD at that
+  //   moment; fromSha / toSha = the commit range a Clear reviewed (V2); fromPosition = the position the review began at;
+  //   files = JSON [[path, count], ...] edit counts at that position (D4, the base of "since last review"), filesTruncated
+  //   = capped; repoRoot = the repository the shas belong to; how = how a `start` baseline was found.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_change_entry (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lineageId TEXT NOT NULL,
+        sessionId TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        position INTEGER,
+        at INTEGER,
+        sha TEXT,
+        fromSha TEXT,
+        toSha TEXT,
+        fromPosition INTEGER,
+        files TEXT,
+        filesTruncated INTEGER NOT NULL DEFAULT 0,
+        repoRoot TEXT,
+        how TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_change_entry_lineage ON session_change_entry (lineageId);
+      CREATE INDEX IF NOT EXISTS idx_session_change_entry_session ON session_change_entry (sessionId);
+    `);
+  },
+  // The range and view picked for a session's Changes group (V4), a JSON object `{ range, view, pickFrom, pickTo }`: a
+  // USER's choice, so it sits in session_meta beside the name and the star (like `opener`), not in a new table. NULL = the
+  // default ("Since last review", "All"); nothing is backfilled.
+  (db) => {
+    try { db.exec('ALTER TABLE session_meta ADD COLUMN changesView TEXT'); } catch {}
+  },
 ];
 
 /**

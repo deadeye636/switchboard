@@ -48,6 +48,26 @@ const SHIPPED = [
   '6ba2dd5bdb74', // [15] session_cache.lineageKind
   'a07b8d654f86', // [16] idx_session_cache_projectPath (#224)
   '58e4b4cfb89b', // [17] drops settingsOpenMode from the global blob (#365)
+  // [18]-[31] shipped unpinned; pinned here because the list is indexed by position and #870's entries follow them.
+  '8db2af7bad52', // [18]
+  '9d9a9e151cd7', // [19]
+  'dbe240cbee08', // [20]
+  '5c7e3b92fb20', // [21]
+  '918adf880fc1', // [22]
+  'daa44516b2c4', // [23]
+  '9080b9016207', // [24]
+  'a4c6e36cda92', // [25]
+  '2750d5f3be52', // [26]
+  '6364ae315019', // [27]
+  'cf7025f60288', // [28]
+  '14cbdaad1478', // [29]
+  '0b289ebe3b64', // [30]
+  '4f082c4c42eb', // [31] maintenance_turn (#827)
+  '44f1bbaea4e6', // [32] session_change_file (#870)
+  'fbd4bbf09bbd', // [33] session_change_event (#870)
+  '81c20833b9b3', // [34] session_change_meta (#870)
+  '683ef41e3e67', // [35] session_change_entry (#870)
+  'ec67fb1550b4', // [36] session_meta.changesView (#870)
 ];
 
 function fingerprint(fn) {

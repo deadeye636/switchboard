@@ -60,6 +60,8 @@ const deleteProjectRefsTx = db.transaction((projectPath) => {
   // session_cache, so it runs while those rows are still there: a hard project delete drops the cache
   // separately, and the order between the two is not guaranteed from here.
   timelineStore.stmts.deleteForProject.run(projectPath);
+  // The user's change-tracking rows (#870) are keyed on session id and dropped per session by the deliberate deletes
+  // (`deleteProjectSessions`, `removeProject`, the worktree delete), which still know the ids; not here.
 });
 
 function deleteProjectRefs(projectPath) {

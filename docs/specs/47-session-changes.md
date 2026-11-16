@@ -111,26 +111,31 @@ test loads a module that opens the database):
 |---|---|---|---|
 | `session_change_file` | one row per session and path: edit count, first / last position, last time | the scan | derived, replaced whole per session |
 | `session_change_event` | the session's commits (SHA, subject, position, time) and pushes (outcome, position, time) | the scan | derived, replaced whole per session |
-| `session_change_baseline` | the baseline: SHA, position, time, repository root, how it was set | the app (first sight, Clear) | user state |
-| `session_change_review` | one row per Clear: time, from / to SHA, from / to position, totals, the per-file counts at that time (capped JSON) | the app | user state, newest per session kept |
+| `session_change_meta` | the session-level `truncated` flag | the scan | derived, replaced whole per session |
+| `session_change_entry` | one row per timeline entry of a lineage (`start` = the baseline with SHA, repository root and how it was found; `clear` / `cli-clear` with from / to SHA, the position and the per-file counts at that time, capped JSON). Pushes are not stored here: they are the event rows | the app | user state |
+| `session_meta.changesView` | the range and view picked for a session (V4) | the app | user state |
+
+(As built in T3. The first design named a baseline and a review table; the timeline entry replaced both, V2.)
 
 Rules:
 
-- **Derived vs user state.** The two derived tables are replaced in one transaction when a parsed row carries `changes`
-  (like `replaceSessionMetrics`, and only when it changed since the last emission, tracked in the parser's retained
-  state). A folder wipe + reinsert therefore costs nothing that matters. Baseline and review rows are the user's and are
-  **not** touched by a wipe or by the "source gone" delete; they go with the session's deliberate delete and with the
-  project's (`project-refs.js`, `test/scoped-folder-deletes.test.js`).
-- **Caps** are named constants in `changes-record.js` (files per session, commit and push events per session, review
-  entries per session, bytes of a review's file list). A row over a cap says `truncated` and the group says so.
+- **Derived vs user state.** The derived tables are replaced in one transaction by `replaceSessionChanges` when a parsed
+  row carries `changes`. **The write contract:** a full (non-incremental) parse of a reporting backend always emits
+  `changes`, empty included; an incremental parse emits the cumulative aggregate whenever it moved;
+  `replaceSessionChanges` is whole-session; absent `changes` = keep. That is why a folder wipe (backend-scoped, like the
+  metrics) and the "source gone" delete drop the derived rows with the cache rows: the reparse writes them again. Entry
+  and view rows are the user's and are **not** touched by a wipe or by the "source gone" delete; they go with a deliberate
+  delete, per session (`deleteProjectSessions`, `removeProject`, the worktree delete; `test/scoped-folder-deletes.test.js`).
+- **Caps** are named constants in `changes-record.js` (files per session, commit and push events per session, timeline
+  entries per lineage, bytes of a snapshot's file list). A row over a cap says `truncated` and the group says so.
 - **A re-key** (`/clear`, resume under a new id) moves nothing in the derived tables: each session id keeps its own
   rows. The timeline follows the lineage (`src/session/session-lineage.js`), so a `/clear` child continues its
   parent's timeline instead of starting a fresh one (D1). A fork is a new timeline of its own.
 - **Push snapshots (D4).** Each push event row also stores the per-file edit counts at that position (capped JSON, the
-  same shape as `session_change_review.files`). A Split block's counts are the difference of two snapshots; no
+  same shape as `session_change_entry.files`). A Split block's counts are the difference of two snapshots; no
   per-edit table.
 - **Counts since the baseline** are a subtraction, not a second table: total edits of a file minus the edits it had when
-  the last review was taken (`session_change_review.files`). A file is "touched since" when its last position is greater
+  the last review was taken (`session_change_entry.files`). A file is "touched since" when its last position is greater
   than the baseline position. Determinism of the parser is what keeps this stable across a rescan; a parser bump that
   changes what counts as an edit is a known cause of a one-off skew (stated, not hidden).
 - **Subagents** of a Claude session are separate rows (`parentSessionId`). See E4.
@@ -175,11 +180,12 @@ rather than `0` when there is nothing.
 Clear sets an entry and moves "Since last review"; it hides nothing (D5). With the range "Whole session" everything
 stays visible after a Clear.
 
-Clear writes, in one transaction: a `session_change_review` row (the totals and the per-file counts of what was shown),
-then moves the baseline to the current `HEAD` and the transcript's current position. It runs no git write. It is one
-click, no confirmation (nothing is lost: the review is logged), and a toast says what was cleared. The review log is
-listed in Details; opening an entry is read-only and shows that review's commits (`from..to`), its files with the counts
-it had, and the committed part of its diff. Uncommitted content of a past review is not reconstructible and the entry
+Clear writes one `session_change_entry` row of kind `clear`: the session and transcript position it was made at, the
+current `HEAD` (`toSha`), the previous review point (`fromSha`) and the per-file counts at that position. That row IS the
+review log entry (V2) and the new "Since last review" start. It runs no git write. It is one click, no confirmation
+(nothing is lost: the entry stays), and a toast says what was cleared. Reopening a review is the range from the previous
+entry to that Clear on the Details timeline; it is read-only and shows that range's commits (`from..to`), its files with
+the counts they had, and the committed part of its diff. Uncommitted content of a past review is not reconstructible and the entry
 says so.
 
 ### 6. Renderer
@@ -244,7 +250,8 @@ Owner decisions of 2026-11-16 (approved with the v1 mockup):
   the database only, and "what is new since I looked" is the figure that drives the next action.
 - **V2. The review log is the Clear entries.** Every Clear is an entry on the timeline and keeps the data O2 asked for
   (time, from/to SHA, transcript position). Reopening review N is the range from Clear N-1 to Clear N, read-only. There is
-  no separate review list in Details.
+  no separate review list in Details. A Clear's range starts at the PREVIOUS entry's session id and position (D6: a
+  position is comparable only inside one session); the stored `fromPosition` is informational only.
 - **V3. "Today" snaps.** It starts at the first entry of today, or at the first edit of today when no entry falls on it
   (a derived tick, not stored).
 - **V4. Range and view are kept per session** in app state, not as a setting. A new session starts with "Since last

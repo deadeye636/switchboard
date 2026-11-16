@@ -576,6 +576,8 @@ function removeProject(projectPath, { quiet = false } = {}) {
     for (const r of rows) {
       try { ctx.db.deleteCachedSession(r.sessionId); } catch { /* best effort */ }
       try { ctx.db.deleteSearchSession(r.sessionId); } catch { /* best effort */ }
+      // A deliberate removal drops the user's change-tracking rows too (#870), per session, while the ids are known.
+      try { if (ctx.db.deleteChangesStateForSession) ctx.db.deleteChangesStateForSession(r.sessionId); } catch { /* best effort */ }
     }
     // The per-project settings blob is keyed on the path too, and it was written by whichever surface the
     // user typed into — so both spellings, or a removal at the registered one leaves the sidebar's blob
@@ -1488,6 +1490,9 @@ function deleteProjectSessions(projectPath, backendIds, { quiet = false } = {}) 
       for (const r of mine) {
         try { ctx.db.deleteCachedSession(r.sessionId); } catch { /* best effort */ }
         try { ctx.db.deleteSearchSession(r.sessionId); } catch { /* best effort */ }
+        // The history was deleted on purpose, so the user's change-tracking rows for it go too (#870). Per session, here:
+        // `pruneProjectIfGone` finds no cache rows left to sub-select on.
+        try { if (ctx.db.deleteChangesStateForSession) ctx.db.deleteChangesStateForSession(r.sessionId); } catch { /* best effort */ }
       }
     }
 
