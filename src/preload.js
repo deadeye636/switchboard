@@ -311,6 +311,17 @@ contextBridge.exposeInMainWorld('api', {
   sessionChangesView: (sessionId, value) => (value === undefined
     ? ipcRenderer.invoke('session-changes-view-get', sessionId)
     : ipcRenderer.invoke('session-changes-view-set', sessionId, value)),
+  // The Changes group follows while it is open and shown (spec 47 section 4). Main answers a status move of the session's
+  // checkout and a scan write with `session-changes-updated` { sessionId }; the group then asks `sessionChanges` again.
+  // Main also follows the session's folder with the poller while it is followed: the group never calls `vcsFollow` for it.
+  // `onSessionChangesUpdated` returns its unsubscribe.
+  sessionChangesFollow: (sessionId) => ipcRenderer.send('session-changes-follow', sessionId),
+  sessionChangesUnfollow: (sessionId) => ipcRenderer.send('session-changes-unfollow', sessionId),
+  onSessionChangesUpdated: (cb) => {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('session-changes-updated', listener);
+    return () => ipcRenderer.removeListener('session-changes-updated', listener);
+  },
   // Export of the Flow (T17): a session id and a format in, `{ ok, canceled, error, name }` out (the file's base name, never a path). `opts.backendLabel` is the name the sidebar badge shows, handed over by the view.
   exportSessionFlow: (sessionId, format, opts) => ipcRenderer.invoke('flow-export', { sessionId, format, backendLabel: opts && opts.backendLabel }),
   // For the one class of fact main cannot see: something that happened in the UI. Main still writes it,

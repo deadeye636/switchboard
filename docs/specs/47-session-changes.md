@@ -164,10 +164,12 @@ Paths from a transcript are untrusted input: each is resolved against the sessio
 `src/app/path-containment.js` (real paths, reflex 13) before it is used; a path outside the checkout is listed as
 "outside this checkout" without a diff and is never passed to git.
 
-**Triggers.** The group subscribes to `onVcsStatusChanged` exactly as the Repository group does (spec 43 #858) and reads
-again when the push for the session's directory changes branch, counts, files or ahead / behind, when the scan notice for
-that session says its `changes` moved, and on the reload button. `vcsFollow` reports a folder when its Repository **or**
-Changes group is open and shown (the poller's watch list is unchanged in kind). A closed or hidden group, a closed
+**Triggers.** The group listens to main's `session-changes-updated` for its session and reads again when main sees the
+poller's status for the session's directory change branch, counts, files or ahead / behind (the first status of a
+folder nobody polled before counts as a change, because the opening read had no untracked files), when the scan notice for
+that session says its `changes` moved, and on the reload button. While a session is followed
+(`session-changes-follow`), main follows its folder with the poller itself, so the poller polls it when the Repository
+**or** the Changes group is open and shown and the renderer reports nothing extra. A closed or hidden group, a closed
 sidebar and a destroyed tab end the subscription. One refresh in flight per session; a push during it marks it dirty and
 runs one more.
 

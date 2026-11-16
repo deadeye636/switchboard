@@ -24,7 +24,7 @@ const { resolveRegisterRow } = require('../projects/register-lookup');
 // descriptor here; NOT a `|| 'claude'` rescue of a live value (see CLAUDE.md).
 const LEGACY_SESSION_BACKEND = 'claude';
 
-let getMainWindow, log, notifyViewWindows;
+let getMainWindow, log, notifyViewWindows, onSessionChangesWritten;
 let upsertCachedSessions, deleteCachedSession, replaceSessionMetrics, replaceSessionChanges;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries, deleteCachedFolder, getFolderLineage;
 let getMeta, setName, getProjectMeta, getProjectStates, getProjectTombstones;
@@ -35,6 +35,8 @@ function init(ctx) {
   // #382 — optional: absent in every test that wires this module, and in any build with no detached
   // windows the answer is the empty list either way.
   notifyViewWindows = ctx.notifyViewWindows;
+  // #870 — optional too: who follows a session's changes (the session sidebar's Changes group).
+  onSessionChangesWritten = ctx.onSessionChangesWritten;
   upsertCachedSessions = ctx.db.upsertCachedSessions;
   deleteCachedSession = ctx.db.deleteCachedSession;
   replaceSessionMetrics = ctx.db.replaceSessionMetrics;
@@ -308,8 +310,14 @@ function applyIndexResults({ sessions = [], wipeFolders = [], deleteIds = [], me
     }
     // What the session changed (#870): only a row that CARRIES `changes` replaces the stored rows. An absent key means the
     // parser did not report this time, and the stored rows stay.
+    const changesWritten = [];
     for (const s of sessions) {
-      if (s.changes && typeof replaceSessionChanges === 'function') replaceSessionChanges(s.sessionId, s.changes);
+      if (s.changes && typeof replaceSessionChanges === 'function') { replaceSessionChanges(s.sessionId, s.changes); changesWritten.push(s.sessionId); }
+    }
+    // An open Changes group asks again: the follow module sends `session-changes-updated` to the windows that follow. That
+    // is the one channel the Changes follow adds; `projects-changed` does not fit (global, and sent only when the index moved).
+    if (changesWritten.length && typeof onSessionChangesWritten === 'function') {
+      try { onSessionChangesWritten(changesWritten); } catch { /* a notice is never worth a scan */ }
     }
     // FTS is delete + full-document reinsert (external-content protocol — see db.js).
     for (const s of sessions) deleteSearchSession(s.sessionId);

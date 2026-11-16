@@ -360,7 +360,19 @@ async function describeCwd(cwd, { fresh = false } = {}) {
   };
 }
 
+// In-process listeners of a fresh status (#870): the session Changes follow asks whether the status of its checkout moved.
+// Called on every poll result, like the renderer push; the listener decides whether anything changed.
+const statusListeners = new Set();
+function onStatus(fn) {
+  if (typeof fn !== 'function') return () => {};
+  statusListeners.add(fn);
+  return () => { statusListeners.delete(fn); };
+}
+
 function pushStatus(cwd, summary) {
+  for (const fn of [...statusListeners]) {
+    try { fn(cwd, summary); } catch (e) { ctx && ctx.log && ctx.log.debug && ctx.log.debug('[vcs] status listener error', e); }
+  }
   // The main window and every detached one: a detached window's session sidebar follows the poller as well (#858).
   // `getDetachedWindows` arrives through ctx like the other modules'; without it only the main window hears.
   const main = ctx && ctx.getMainWindow && ctx.getMainWindow();
@@ -370,16 +382,41 @@ function pushStatus(cwd, summary) {
   }
 }
 
-// Directories the session sidebars follow (#858): window id -> cwds of its open Repository groups. They are polled
-// whether or not the version-control chip is on, the way an open changes window's directory is kept.
+// Directories the session sidebars follow (#858): window id -> subscriber -> cwds of its open groups. A window's
+// Repository group reports as 'repository'; main's own subscribers (the session Changes follow, `followFolder`, #870)
+// sit under the id `INTERNAL` with a key each. So two groups of one folder share one follow and ending one does not end
+// the other. They are polled whether or not the version-control chip is on, the way an open changes window's directory
+// is kept.
 const followedByWindow = new Map();
 const followWatched = new Set();   // window ids whose `destroyed` is already listened to
 let rendererCwds = [];   // what the last `vcs-watch` reported (the chip's directories)
+const DEFAULT_SUBSCRIBER = 'repository';
+const INTERNAL = 'main-internal';   // not a webContents id: main's own subscribers never go with a window
+
+/** Follow one folder for a main-side subscriber (`key`), or release it with `cwd` null. Polled like a window's follow. */
+function followFolder(key, cwd) {
+  if (typeof key !== 'string' || !key) return;
+  setFollow(INTERNAL, key, typeof cwd === 'string' && cwd ? [cwd] : []);
+  rewatch();
+}
 
 function followedCwds() {
   const out = new Set();
-  for (const list of followedByWindow.values()) for (const c of list) out.add(c);
+  for (const subs of followedByWindow.values()) for (const list of subs.values()) for (const c of list) out.add(c);
   return [...out];
+}
+
+// One subscriber's whole list for one window, replaced on every change; an empty list ends it, and a window with no
+// subscriber left leaves the map (so the heartbeat stops with the last follower).
+function setFollow(id, subscriber, list) {
+  let subs = followedByWindow.get(id);
+  if (list.length) {
+    if (!subs) { subs = new Map(); followedByWindow.set(id, subs); }
+    subs.set(subscriber, list);
+  } else if (subs) {
+    subs.delete(subscriber);
+    if (!subs.size) followedByWindow.delete(id);
+  }
 }
 
 // The poller's watch list: the chip's directories when the chip is on, plus the open changes windows' and the
@@ -465,6 +502,9 @@ function destroyAllVcsWindows() {
   diffWindows.clear();
 }
 
+// The heartbeat runs while the chip is on or any group (Repository or Changes) of any window is followed.
+function pollWanted() { return readConfig().enabled || followedByWindow.size > 0; }
+
 function init(context) {
   ctx = context;
   stopped = false;
@@ -479,7 +519,7 @@ function init(context) {
   });
   // 1s heartbeat: cheap, and the actual poll cadence is governed by each cwd's nextDue.
   heartbeat = setInterval(measured('vcs:heartbeat', () => {
-    try { if (readConfig().enabled || followedByWindow.size) scheduler.tick(); } catch (e) { ctx.log && ctx.log.debug && ctx.log.debug('[vcs] tick error', e); }
+    try { if (pollWanted()) scheduler.tick(); } catch (e) { ctx.log && ctx.log.debug && ctx.log.debug('[vcs] tick error', e); }
   }), 1000);
   if (heartbeat.unref) heartbeat.unref();
 }
@@ -504,6 +544,7 @@ function registerIpc(ipc) {
   ipc.on('vcs-follow', (event, cwds) => {
     const sender = event && event.sender;
     const id = sender && sender.id != null ? sender.id : 'main';
+    const who = DEFAULT_SUBSCRIBER;
     const list = (Array.isArray(cwds) ? cwds : []).filter((c) => typeof c === 'string' && c);
     if (list.length) {
       if (!followWatched.has(id) && sender && typeof sender.once === 'function') {
@@ -517,8 +558,8 @@ function registerIpc(ipc) {
           });
         }
       }
-      followedByWindow.set(id, list);
-    } else followedByWindow.delete(id);
+    }
+    setFollow(id, who, list);
     rewatch();
   });
 
@@ -635,4 +676,4 @@ function registerIpc(ipc) {
   });
 }
 
-module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, readUntrackedDiff, readWorkingFile, fileVersions, _readConfig: readConfig, _scheduler: () => scheduler, _push: pushStatus };
+module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, readUntrackedDiff, readWorkingFile, fileVersions, _readConfig: readConfig, _scheduler: () => scheduler, _push: pushStatus, onStatus, followFolder, _followedCwds: followedCwds, _pollWanted: pollWanted };

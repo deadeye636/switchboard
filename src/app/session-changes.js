@@ -70,11 +70,15 @@ const noCommitsAt = new Map();  // lineageId -> when a fork's baseline last foun
 const NO_COMMITS_RETRY_MS = 5 * 60 * 1000;
 
 function init(context) {
+  for (const sessionId of [...followed.keys()]) releaseFolder(sessionId);   // through the OLD ctx, which holds them
   ctx = context || {};
   inflight.clear();
   lastGood.clear();
   targets.clear();
   timelineInit.clear();
+  followed.clear();
+  wiredSenders.clear();
+  if (offVcsStatus) { offVcsStatus(); offVcsStatus = null; }
 }
 
 const quitting = () => !!(ctx && typeof ctx.getAppQuitting === 'function' && ctx.getAppQuitting());
@@ -756,6 +760,121 @@ function setView(sessionId, value) {
   return { ok: true };
 }
 
+// --- following: what makes an open group read again (spec 47 section 4, "Triggers") ---
+//
+// No timer. A followed session is read again when (a) the poller's status for ITS checkout moved (a status that reads
+// the same as the last one is dropped here: the poller reports every poll) or (b) a scan wrote `changes` for a session of
+// its lineage. Either way main only sends `session-changes-updated` { sessionId } to the windows that follow it; the
+// window asks `session-changes-state` again, so one refresh runs per trigger and nothing else. The subscription is the
+// window's: it ends on unfollow, on the window's `destroyed` and on a main-frame navigation, and the last one for a
+// session calls `forget` and releases the folder. Following a session also makes main follow its folder with the poller
+// (`ctx.followFolder`, one key per session), so the group never reports a folder itself and two groups cannot overwrite
+// each other's list.
+
+const CHANGED_CHANNEL = 'session-changes-updated';
+const followed = new Map();        // sessionId -> { cwd, sig, subs: Map<senderKey, sender> }
+const wiredSenders = new Set();    // senderKeys whose `destroyed` / `did-start-navigation` listeners are on: added once, gone with the window
+let offVcsStatus = null;
+const folderKey = (sessionId) => 'changes:' + sessionId;
+function releaseFolder(sessionId) {
+  if (ctx && typeof ctx.followFolder === 'function') { try { ctx.followFolder(folderKey(sessionId), null); } catch { /* best effort */ } }
+}
+
+const senderKeyOf = (sender) => (sender && sender.id != null ? sender.id : 'main');
+
+const statusSig = (summary) => { try { return summary ? JSON.stringify(summary) : null; } catch { return null; } };
+
+function statusOf(cwd) {
+  try { return typeof ctx.getVcsStatus === 'function' ? statusSig(ctx.getVcsStatus(cwd)) : null; } catch { return null; }
+}
+
+function notifyFollowers(sessionId) {
+  const f = followed.get(sessionId);
+  if (!f || quitting()) return;
+  for (const [key, sender] of [...f.subs]) {
+    if (!sender || (typeof sender.isDestroyed === 'function' && sender.isDestroyed())) { dropSub(sessionId, key); continue; }
+    try { sender.send(CHANGED_CHANNEL, { sessionId }); } catch { dropSub(sessionId, key); }
+  }
+}
+
+function onVcsStatus(cwd, summary) {
+  if (quitting()) return;
+  const sig = statusSig(summary);
+  for (const [sessionId, f] of [...followed]) {
+    if (f.cwd !== cwd || sig === f.sig) continue;
+    // null -> first status notifies too: a folder followed for the first time had no cached status, so the opening read
+    // had no untracked files and no "new" marks; this re-ask is the one that adds them.
+    f.sig = sig;
+    notifyFollowers(sessionId);
+  }
+}
+
+function dropSub(sessionId, key) {
+  const f = followed.get(sessionId);
+  if (!f || !f.subs.delete(key)) return;
+  if (f.subs.size) return;
+  followed.delete(sessionId);
+  forget(sessionId);
+  releaseFolder(sessionId);
+  if (!followed.size && offVcsStatus) { offVcsStatus(); offVcsStatus = null; }
+}
+
+// A navigation ends the window's subscriptions but keeps its listeners (the same page object follows again after the
+// reload); `destroyed` ends both. Re-wiring on every reload would pile up listeners.
+function dropWindow(key, { destroyed = false } = {}) {
+  for (const sessionId of [...followed.keys()]) dropSub(sessionId, key);
+  if (destroyed) wiredSenders.delete(key);
+}
+
+/** A window follows a session's answer. `sender` is the window's webContents (or a stand-in with `id`, `send`, `once`). */
+function follow(sessionId, sender) {
+  if (typeof sessionId !== 'string' || !sessionId || !sender || quitting()) return { ok: false };
+  const row = ctx.getCachedSession(sessionId);
+  if (!row) return { ok: false };
+  const key = senderKeyOf(sender);
+  let f = followed.get(sessionId);
+  if (!f) {
+    f = { cwd: row.projectPath || '', sig: statusOf(row.projectPath || ''), subs: new Map() };
+    followed.set(sessionId, f);
+    // The poller polls this folder while the session is followed, chip or no chip; the status signature above and the
+    // push compare use this same string.
+    if (f.cwd && typeof ctx.followFolder === 'function') { try { ctx.followFolder(folderKey(sessionId), f.cwd); } catch { /* best effort */ } }
+  }
+  f.subs.set(key, sender);
+  if (!offVcsStatus && typeof ctx.onVcsStatus === 'function') offVcsStatus = ctx.onVcsStatus(onVcsStatus) || null;
+  if (!wiredSenders.has(key) && typeof sender.once === 'function') {
+    wiredSenders.add(key);
+    sender.once('destroyed', () => dropWindow(key, { destroyed: true }));
+    // A reload builds the sidebars anew, so what the old page followed is stale when the navigation starts.
+    if (typeof sender.on === 'function') {
+      sender.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) dropWindow(key); });
+    }
+  }
+  return { ok: true };
+}
+
+function unfollow(sessionId, sender) {
+  if (typeof sessionId !== 'string' || !sessionId) return;
+  dropSub(sessionId, senderKeyOf(sender));
+}
+
+/**
+ * The scan wrote `changes` for these sessions (`applyIndexResults`): a followed session whose lineage or subagents are
+ * among them is asked about again. A closed group follows nothing, so it costs nothing here.
+ */
+function noteScanWrite(sessionIds) {
+  if (!followed.size || !Array.isArray(sessionIds) || !sessionIds.length || quitting()) return;
+  const wrote = new Set(sessionIds);
+  for (const sessionId of [...followed.keys()]) {
+    let ids = [sessionId];
+    try {
+      const lin = lineageOf(sessionId);
+      if (lin) ids = [...lin.order, ...subagentsOf(lin.order).map((s) => s.sessionId)];
+    } catch { /* the session itself still counts */ }
+    if (ids.some((id) => wrote.has(id))) notifyFollowers(sessionId);
+  }
+}
+
 const optsOf = (o) => (o && typeof o === 'object' ? {
   range: o.range, view: o.view, pickFrom: o.pickFrom, pickTo: o.pickTo, fresh: o.fresh === true,
 } : {});
@@ -769,10 +888,15 @@ function registerIpc(ipc) {
   ipc.handle('session-changes-entries', (_e, sessionId, opts) => entries(sessionId, optsOf(opts)));
   ipc.handle('session-changes-view-get', (_e, sessionId) => getView(sessionId));
   ipc.handle('session-changes-view-set', (_e, sessionId, value) => setView(sessionId, value));
+  // The Changes group follows while it is open and shown (spec 47 section 4); fire-and-forget like `vcs-follow`.
+  ipc.on('session-changes-follow', (e, sessionId) => { follow(sessionId, e && e.sender); });
+  ipc.on('session-changes-unfollow', (e, sessionId) => { unfollow(sessionId, e && e.sender); });
 }
 
 module.exports = {
-  init, registerIpc, summary, state, details, entries, diff, clear, getView, setView, forget,
+  init, registerIpc, summary, state, details, entries, diff, clear, getView, setView, forget, follow, unfollow, noteScanWrite,
   SPAWN_BOUND: 2 + 2 + 2 * (MAX_CUT_RESOLVE + MAX_RESOLVE) + MAX_NUMSTAT_CUTS,
   _lineageOf: (id) => lineageOf(id),
+  _followedSessions: () => [...followed.keys()],
+  _hasTargets: (id) => targets.has(id),
 };

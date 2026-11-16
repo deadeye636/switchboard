@@ -495,6 +495,8 @@ sessionCache.init({
   // reason everything else here is: session-cache is loaded in `node --test`, and detach.js needs
   // Electron's BrowserWindow before it can answer.
   notifyViewWindows: (kind, channel, ...args) => detach.notifyViewWindows(kind, channel, ...args),
+  // A scan wrote `changes` for these sessions (#870): an open Changes group asks again. Late-bound, the module is wired below.
+  onSessionChangesWritten: (ids) => sessionChanges.noteScanWrite(ids),
   // NOTE: this db object is an explicit allow-list — a function session-cache.js reads via ctx.db.*
   // but that is missing here is `undefined` at runtime (see test/main-ctx-db-wiring.test.js).
   db: {
@@ -2440,6 +2442,8 @@ sessionChanges.init({
   getCachedSession, getFolderLineage, getCachedByParent, getCachedByProjectPath,
   store: { getSessionChanges, addChangeEntry, setChangeStartSha, listChangeEntries, getChangesView, setChangesView },
   getVcsStatus: (cwd) => { const s = vcsPoll._scheduler(); return s ? s.getCached(cwd) : null; },
+  onVcsStatus: (fn) => vcsPoll.onStatus(fn),
+  followFolder: (key, cwd) => vcsPoll.followFolder(key, cwd),
   getAppQuitting: () => appQuitting,
   log,
 });

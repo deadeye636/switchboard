@@ -66,7 +66,13 @@ number of calls per refresh (`SPAWN_BOUND`: only the commits an answer shows are
 accepted only when the full SHA starts with it; a transcript path on a foreign share is answered "outside" lexically
 (`network-path.js`) and every other one is checked with `path-containment.js` before any use; a diff is asked by a
 content-derived row id from a recent answer, and an unknown id is refused. What is kept per session is capped, and
-`forget(sessionId)` drops it. The model is pure: ranges, All and Split, snapshot differences and the states of the spec.
+`forget(sessionId)` drops it. An open group FOLLOWS (`session-changes-follow` / `-unfollow`, fire-and-forget; main sends
+`session-changes-updated` { sessionId } to the windows that follow when the poller's status for the session's checkout
+moved (`vcs.js` `onStatus`; an unchanged status sends nothing) or a scan wrote `changes` in its lineage
+(`applyIndexResults` -> `noteScanWrite`); the window asks again. No timer; a destroyed window, a navigation and the last
+unfollow end it, call `forget` and release the folder. Following also makes main follow the session's folder with the poller
+itself (`ctx.followFolder`, key `changes:<sessionId>`, a main-side subscriber of `vcs.js`'s follow union beside the windows'
+Repository lists), so the renderer never calls `vcsFollow` for it). The model is pure: ranges, All and Split, snapshot differences and the states of the spec.
 `summary` reads the database only (the header figure)),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the

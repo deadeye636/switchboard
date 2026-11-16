@@ -137,3 +137,68 @@ test('getCached returns the last summary or null', async () => {
   await flush();
   assert.ok(s.getCached('repoC'));
 });
+
+// The follow union (#858, #870): a window's Repository group (`vcs-follow`) and main's own subscribers (`followFolder`,
+// one key per followed session's Changes group) each hold a list of their own; the poller follows the union, and ending
+// one does not end the other.
+test('follow union: two subscribers on one folder share one follow, and the heartbeat runs until the last ends', () => {
+  const vcsApp = require('../src/app/vcs');
+  vcsApp.init({ getSetting: () => ({ vcsChipEnabled: false }), log: { debug() {} } });
+  try {
+    const handlers = new Map();
+    vcsApp.registerIpc({ on: (ch, fn) => handlers.set(ch, fn), handle() {} });
+    const follow = handlers.get('vcs-follow');
+    const ev = { sender: { id: 7 } };
+    assert.equal(vcsApp._pollWanted(), false);
+
+    follow(ev, ['repoA']);                        // the Repository group
+    vcsApp.followFolder('changes:S1', 'repoA');   // two sessions' Changes groups
+    vcsApp.followFolder('changes:S2', 'repoB');
+    assert.deepEqual(vcsApp._followedCwds().sort(), ['repoA', 'repoB']);
+    assert.equal(vcsApp._pollWanted(), true);
+    assert.ok(vcsApp._scheduler()._state.has('repoA') && vcsApp._scheduler()._state.has('repoB'));
+
+    vcsApp.followFolder('changes:S2', null);      // one Changes group ends: the others' folders stay
+    assert.deepEqual(vcsApp._followedCwds(), ['repoA']);
+    assert.equal(vcsApp._pollWanted(), true);
+    assert.ok(!vcsApp._scheduler()._state.has('repoB'));
+
+    follow(ev, []);                               // the Repository group ends: S1 still holds repoA
+    assert.deepEqual(vcsApp._followedCwds(), ['repoA']);
+    vcsApp.followFolder('changes:S1', null);      // the last one ends: nothing followed, the heartbeat has no reason
+    assert.deepEqual(vcsApp._followedCwds(), []);
+    assert.equal(vcsApp._pollWanted(), false);
+    assert.equal(vcsApp._scheduler()._state.size, 0);
+  } finally { vcsApp.stop(); }
+});
+
+test('follow union: a window that goes takes its own list, not main\'s subscribers; another window keeps its own', () => {
+  const vcsApp = require('../src/app/vcs');
+  vcsApp.init({ getSetting: () => ({ vcsChipEnabled: false }), log: { debug() {} } });
+  try {
+    const handlers = new Map();
+    vcsApp.registerIpc({ on: (ch, fn) => handlers.set(ch, fn), handle() {} });
+    const follow = handlers.get('vcs-follow');
+    const gone = {};
+    const w1 = { sender: { id: 1, once: (ev, fn) => { gone.fn = fn; } } };
+    follow(w1, ['repoA']);
+    vcsApp.followFolder('changes:S1', 'repoC');
+    follow({ sender: { id: 2 } }, ['repoB']);
+    gone.fn();   // window 1 destroyed
+    assert.deepEqual(vcsApp._followedCwds().sort(), ['repoB', 'repoC']);
+    assert.equal(vcsApp._pollWanted(), true);
+  } finally { vcsApp.stop(); }
+});
+
+test('onStatus: an in-process listener hears each pushed status and can stop listening', () => {
+  const vcsApp = require('../src/app/vcs');
+  vcsApp.init({ log: { debug() {} } });
+  try {
+    const heard = [];
+    const off = vcsApp.onStatus((cwd, summary) => heard.push([cwd, summary.branch]));
+    vcsApp._push('repoA', { branch: 'main' });
+    off();
+    vcsApp._push('repoA', { branch: 'dev' });
+    assert.deepEqual(heard, [['repoA', 'main']]);
+  } finally { vcsApp.stop(); }
+});

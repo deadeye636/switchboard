@@ -14,7 +14,9 @@ test.after(() => { for (const r of roots) fs.rmSync(r, { recursive: true, force:
 
 function registered() {
   const handlers = new Map();
-  sc.registerIpc({ handle: (ch, fn) => handlers.set(ch, fn), on: () => { throw new Error('no on() expected'); } });
+  const listened = [];
+  sc.registerIpc({ handle: (ch, fn) => handlers.set(ch, fn), on: (ch) => { listened.push(ch); } });
+  handlers.listened = listened;   // fire-and-forget channels (`ipc.on`): the follow pair, tested in session-changes-follow
   return handlers;
 }
 
@@ -53,6 +55,9 @@ test('every preload binding exists and invokes a channel the module registers', 
     }
   }
   assert.deepEqual([...handlers.keys()].sort(), Object.values(BINDINGS).flat().sort());
+  // The follow pair is fire-and-forget (`ipc.on`), like `vcs-follow`; the push comes back as `session-changes-updated`.
+  assert.deepEqual([...handlers.listened].sort(), ['session-changes-follow', 'session-changes-unfollow']);
+  for (const ch of ['session-changes-follow', 'session-changes-unfollow', 'session-changes-updated']) assert.ok(preload.includes(`'${ch}'`), `preload names ${ch}`);
 });
 
 test('the module is wired from main.js and adds no handler there', () => {
