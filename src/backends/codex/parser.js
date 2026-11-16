@@ -40,7 +40,8 @@ const { createLineCursor } = require('../change-events');
 //   v8: injected context no longer counts as a user turn or prompt, and four more injected kinds are known
 //       — a stopped turn, a skill's text, a subagent's result, a plugin list (#713)
 //   v9: the row says whether a compaction came after the last usage report (#703), as Claude's does (#698)
-const PARSER_SCHEMA_VERSION = 9;
+//   v10: emits the session changes aggregate (#870)
+const PARSER_SCHEMA_VERSION = 10;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;

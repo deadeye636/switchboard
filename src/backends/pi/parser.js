@@ -37,7 +37,8 @@ const { createLineCursor } = require('../change-events');
 // 7 (#568): the row carries `transport` — whether the session was ever driven over RPC, from the marker entry the
 // runtime-driven backend writes (./transport-marker.js). Existing rows were read without it.
 // 8 (#703): the row says whether a compaction came after the last usage record, as Claude's does (#698).
-const PARSER_SCHEMA_VERSION = 8;
+// 9 (#870): emits the session changes aggregate.
+const PARSER_SCHEMA_VERSION = 9;
 
 const FINGERPRINT_BYTES = 64;
 
