@@ -84,3 +84,12 @@ test('the parse leaves pull no electron / index-writes / backends-registry into 
     execFileSync(process.execPath, ['-e', script, abs('src/backends/claude/folder-parse.js'), abs('src/backends/parse.js')], { stdio: 'pipe' });
   }, 'a parse leaf dragged electron / index-writes / the backends registry into its require graph');
 });
+
+// #870 T2: the change-event core is shared by the parsers that run in the index worker, so it must stay Electron-free,
+// database-free and registry-free.
+for (const mod of ['src/backends/change-events.js', 'src/backends/git-command-events.js', 'src/db/changes-record.js']) {
+  test(`${mod} requires cleanly in a worker context`, async () => {
+    const r = await requireInWorker(abs(mod));
+    assert.equal(r.ok, true, `require('${mod}') threw in a worker: ${r.error}`);
+  });
+}

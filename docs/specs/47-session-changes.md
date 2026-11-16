@@ -58,7 +58,10 @@ No backend id and no transcript format leaves its folder. The pieces:
   from `flow-patterns.js`, so `a && git commit -m "x" && git push` and `git -C <dir> commit` work and quoted text is data),
   reads the new commit's SHA and subject from the commit's output (`[branch abc1234] subject`), and the push outcome from
   the push output (a ref update line, `Everything up-to-date`, `! [rejected]`, `error:`). A commit whose output carries no
-  SHA (a hook failed, nothing to commit) is not a commit.
+  SHA (a hook failed, nothing to commit) is not a commit. Push results are read from git's English output; a localized
+  git yields no push event, which is an under-report, not a wrong claim. The commit line is read by its shape, so a
+  localized `(root-commit)` label still parses. `git push --porcelain` and `git commit -q` print nothing it reads. An
+  output over 64 KB is read as its head and its tail half.
 - **`<backend>/change-events.js`** (per backend, in its folder): how THAT backend finds a file edit (its tool names and
   fields), a shell command and the result that belongs to it. The parser calls it per transcript entry. It hands the shell
   command and its output to `git-command-events.js` and the edit paths to the accumulator.
@@ -222,6 +225,18 @@ Mockup: docs/plans/870-session-changes/mockups/timeline.html (local). Recorded i
   "What the scan stores"); a block's counts are the difference of two snapshots. No per-edit rows. Caps as for reviews.
 - **D5. Clear hides nothing.** Clear only sets an entry and moves "Since last review". Any wider range still shows
   what was cleared.
+
+- **D6. Positions compare only within one session id.** (Planner decision at T2, from the verifier's findings.) A
+  `position` is a byte offset of one transcript (or one store's row id), so two sessions' positions say nothing about each
+  other. A lineage is ordered by its entries, each entry belongs to exactly one session (a parent and its `/clear` child
+  run one after the other). For a range, the boundary entry's own session is cut by position (the difference of two
+  snapshots, D4); a session of the lineage wholly between the boundaries is included whole; one wholly outside is
+  excluded (`rangeSessions` in `src/db/changes-record.js`). A **subagent** session is atomic: included whole when its last
+  activity time falls inside the range, otherwise excluded. This is an approximation, stated: a subagent's edits are not in
+  the parent's push snapshots, so they cannot be cut by position. `touchedSince` / `eventsSince` take
+  `{ sessionId, position }` and never compare positions of two sessions. A push snapshot that was cut by a cap carries
+  `truncated`, and a file missing from such a snapshot is unknown in a difference (never its full total).
+  A partial push (one ref refused, another moved) still ends a Split block (`moved`).
 
 Owner decisions of 2026-11-16 (approved with the v1 mockup):
 

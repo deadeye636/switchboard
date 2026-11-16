@@ -1612,6 +1612,13 @@ Git's output is not any CLI's; the same lines appear in every backend above (spe
   `error: failed to push some refs to '<url>'`; a refusing pre-push hook prints its own text and then the same `error:
   failed to push some refs` line with no `[rejected]` line. A push of several refs is one line per ref; it succeeded
   only if no ref line is `!` and there is no `error:`.
+- **What is not read (an under-report, never a wrong claim).** The push lines, `Everything up-to-date` and the failure
+  texts are matched in git's English wording, so a localized git yields no push event; the commit line is read by its
+  shape (the last word in the brackets is the SHA, a trailing parenthesised label such as a translated `(root-commit)` is
+  dropped), so a localized commit still parses. `git push --porcelain` prints a different format and `git commit -q`
+  prints no bracket line: neither is read. A deleted ref prints ` - [deleted]         <ref>` with no arrow and is read.
+  A push that moved one ref and had another refused is `ok: false, moved: true`. An output over 64 KB is read as its head
+  and its tail half, because a hook prints before the commit line and a push prints its ref lines last.
 - **Rejected push was not observed** in any local result; its fixtures follow git's documented output and are marked
   synthetic. The local data has the ok, new-branch, up-to-date, forced-update and hook-refused pushes.
 
