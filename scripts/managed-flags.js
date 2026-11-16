@@ -216,6 +216,21 @@ function managedFlags(backend, opts) {
 const declaredFlags = (backend) => managedFlags(backend, { undeclaredOptions: false });
 
 /**
+ * A CLI's `--help` text as it reads, without terminal escape sequences (#638). Every help check reads the whole
+ * text through this before it looks for anything, because the line it looks for FIRST (an `options:` heading, a
+ * usage block) is as likely to be coloured as a flag is: Hermes 0.23.1 wraps both in ANSI escapes, its section
+ * heading stopped matching, and the audit reported every flag the app sends as removed. OSC sequences (a
+ * hyperlink) and every CSI sequence over the full ECMA-48 parameter range (colon colours, `?`/`>` private
+ * modes, cursor and erase codes) go, the same three passes `scripts/probe-program-status.js` makes.
+ */
+function plainHelp(text) {
+  return String(text == null ? '' : text)
+    .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b[@-Z\\-_]/g, '');
+}
+
+/**
  * The flags one help line DEFINES. A definition sits at the left of its line and ends where the
  * description begins (a run of two or more spaces); anything after that is prose, and prose naming a
  * flag is not the CLI advertising it.
@@ -523,6 +538,6 @@ function auditFlags({ backend, groups, excluded, alsoSent }) {
 }
 
 module.exports = {
-  managedFlags, declaredFlags, definitionFlags, auditFlags, flagsIn, probeValue,
+  managedFlags, declaredFlags, definitionFlags, auditFlags, flagsIn, probeValue, plainHelp,
   optionBlocks, possibleValues, selectChoiceArgs, auditChoices,
 };

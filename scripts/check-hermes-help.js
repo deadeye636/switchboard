@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const hermes = require('../src/backends/hermes');
-const { optionBlocks, auditFlags, auditChoices } = require('./managed-flags');
+const { optionBlocks, auditFlags, auditChoices, plainHelp } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 // `hermes --checkpoints` is why: the flag was missing from the CLI and missing from the hand-written list
@@ -81,7 +81,7 @@ function main() {
 
   let help;
   try {
-    help = execFileSync(exe, ['--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024 });
+    help = plainHelp(execFileSync(exe, ['--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024 }));
   } catch (err) {
     console.error('Could not run hermes --help:', err && err.message ? err.message : err);
     process.exit(2);

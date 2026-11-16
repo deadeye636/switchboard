@@ -621,3 +621,35 @@ test('a value the CLI retired is DECLARED by the backend, never spelled by the c
     }
   }
 });
+
+// #638: Hermes 0.23.1 colours its whole `--help` — the `options:` heading as much as each flag — and the audit,
+// which looks for that heading first, read nothing and reported every flag the app sends as removed. Every
+// help check reads the text through `plainHelp` before it looks for anything.
+test('a coloured help reads like a plain one (#638)', () => {
+  const { plainHelp } = require('../scripts/managed-flags');
+  const ESC = String.fromCharCode(27);
+  const coloured = [
+    `${ESC}[1;34moptions:${ESC}[0m`,
+    `  ${ESC}[32m-m${ESC}[0m, ${ESC}[1;36m--model${ESC}[0m ${ESC}[1;33mMODEL${ESC}[0m     Model to use`,
+    `  ${ESC}[36m--yolo${ESC}[0m${ESC}[K   Bypass approvals`,
+  ].join('\n');
+  const plain = plainHelp(coloured);
+  assert.ok(!plain.includes(ESC), 'no escape sequence survives, colour or otherwise');
+  assert.match(plain, /^options:$/m, 'the section heading a check looks for first is found again');
+  const blocks = optionBlocks(plain.split('\n').slice(1));
+  assert.deepEqual(blocks.map(b => b.flags), [['-m', '--model'], ['--yolo']]);
+  assert.equal(plainHelp(null), '');
+  // The full parameter range and OSC: colon colours, a private mode, a hyperlink around a flag.
+  assert.equal(plainHelp(`${ESC}[38:2:1:2:3m--a${ESC}[4:3m ${ESC}[>4;2m--b${ESC}[?25l`), '--a --b');
+  assert.equal(plainHelp(`${ESC}]8;;https://example.invalid${ESC}\\--link${ESC}]8;;${ESC}\\`), '--link');
+  assert.equal(plainHelp('--model [x] a[1mb'), '--model [x] a[1mb', 'text without an escape is left alone');
+});
+
+test('every help check reads the CLI help through plainHelp (#638)', () => {
+  for (const name of ['claude', 'codex', 'hermes', 'pi', 'agy']) {
+    // Stripped: a call named only in a comment must not count (test/helpers/strip-comments.js, CLAUDE.md reflex 14).
+    const { stripComments } = require('./helpers/strip-comments');
+    const src = stripComments(require('fs').readFileSync(require('path').join(__dirname, '..', 'scripts', `check-${name}-help.js`), 'utf8'));
+    assert.match(src, /plainHelp\(/, `scripts/check-${name}-help.js reads its help through plainHelp`);
+  }
+});

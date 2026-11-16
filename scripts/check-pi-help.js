@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const pi = require('../src/backends/pi');
-const { optionBlocks, auditFlags, auditChoices } = require('./managed-flags');
+const { optionBlocks, auditFlags, auditChoices, plainHelp } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 // The derivation found one Pi flag the hand-written list had on the wrong side: `--extension`, which
@@ -48,6 +48,10 @@ const AUDITED_EXCLUDED = new Set([
   '--verbose',
   '--help',
   '--version',
+  // #638. "Disable built-in MCP support: no servers connect and no MCP tools". A candidate toggle, but how it
+  // meets the servers this app hands Pi through its resources extension (`mcpServers`, #633) is not measured,
+  // and a switch that silently turns those off as well would be a control that lies.
+  '--no-mcp',
 ]);
 
 // A select field whose CLI writes its accepted values in PROSE rather than declaring them, so there is
@@ -102,7 +106,7 @@ function main() {
   if (!exe) { console.error('Pi executable not found on PATH.'); process.exit(2); }
   const launch = piCommand(exe);
   let help;
-  try { help = execFileSync(launch.command, [...launch.args, '--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024 }); }
+  try { help = plainHelp(execFileSync(launch.command, [...launch.args, '--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024 })); }
   catch (err) { console.error('Could not run pi --help:', err?.message || err); process.exit(2); }
 
   const commands = extractCommands(help);

@@ -6,7 +6,7 @@ const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const claude = require('../src/backends/claude');
 const claudeNative = require('../src/backends/claude-native');
-const { optionBlocks, auditFlags, auditChoices, managedFlags } = require('./managed-flags');
+const { optionBlocks, auditFlags, auditChoices, managedFlags, plainHelp } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 // It covers `buildLaunch` (every option, every launch shape) and `buildLiveBinding`'s `--settings`.
@@ -72,6 +72,8 @@ const AUDITED_EXCLUDED = new Set([
   '--continue',
   '--debug',
   '--debug-file',
+  // #638. Opens the session in the Claude Desktop app instead of the terminal; Switchboard is the surface here.
+  '--desktop',
   '--disable-slash-commands',
   '--disallowed-tools',
   '--disallowedTools',
@@ -162,7 +164,7 @@ function main() {
 
   let help;
   try {
-    help = execFileSync(exe, ['--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024 });
+    help = plainHelp(execFileSync(exe, ['--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024 }));
   } catch (err) {
     console.error('Could not run claude --help:', err && err.message ? err.message : err);
     process.exit(2);

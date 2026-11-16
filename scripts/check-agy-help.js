@@ -5,7 +5,7 @@ const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const agy = require('../src/backends/agy');
-const { optionBlocks, auditFlags, auditChoices } = require('./managed-flags');
+const { optionBlocks, auditFlags, auditChoices, plainHelp } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 
@@ -28,6 +28,13 @@ const AUDITED_EXCLUDED = new Set([
   '--prompt-interactive',
   // #537. Starts agy's remote-control connection; Switchboard owns and monitors its local PTY instead.
   '--remote-control',
+  // #638. "Run this session's conversations using remote agents": the conversations then live in a remote
+  // project, not in the local store this app scans, so a session started with it would never show up here.
+  '--remote-agent',
+  // #638. "Settings for this session only, never saved: a JSON object of settings.json keys". Nothing this app
+  // offers needs it today; it is the likely channel if Switchboard ever has to inject a per-session setting
+  // into agy (as Claude's per-spawn `--settings` file does), and would be adopted then, measured.
+  '--settings',
 ]);
 
 // A select field whose CLI writes its accepted values in PROSE rather than declaring them, so there is
@@ -75,7 +82,7 @@ function main() {
   if (!exe) { console.error('agy executable not found on PATH.'); process.exit(2); }
   const res = spawnSync(exe, ['--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024, windowsHide: true });
   if (res.error) { console.error('Could not run agy --help:', res.error.message || res.error); process.exit(2); }
-  const help = `${res.stdout || ''}\n${res.stderr || ''}`;
+  const help = plainHelp(`${res.stdout || ''}\n${res.stderr || ''}`);
 
   const commands = extractCommands(help);
   const missingCommands = [...REQUIRED_COMMANDS].filter(c => !commands.has(c));

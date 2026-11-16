@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const codex = require('../src/backends/codex');
-const { optionBlocks, auditFlags, auditChoices } = require('./managed-flags');
+const { optionBlocks, auditFlags, auditChoices, plainHelp } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 // Codex is the backend that shows why the derivation reads the help's own spellings: buildLaunch sends the
@@ -36,6 +36,14 @@ const AUDITED_EXCLUDED = new Set([
   '--no-alt-screen',
   '--help',
   '--version',
+  // #638. "Run the session in a new managed Git worktree": Codex moves the session into a checkout of its own,
+  // which changes the directory the session is grouped and resumed under. Not measured here; offering it, as
+  // Claude and Hermes offer theirs, is a feature of its own with a real launch behind it.
+  '--worktree',
+  // #638. "Run without the shared background server, even if it is already running": it changes how Codex
+  // runs a session (the app-server daemon, #759), not what the session does, and nobody has measured a session
+  // under it here.
+  '--no-daemon',
 ]);
 
 // A select field whose CLI writes its accepted values in PROSE rather than declaring them, so there is
@@ -92,7 +100,7 @@ function main() {
   if (!exe) { console.error('Codex executable not found on PATH.'); process.exit(2); }
   const launch = codexCommand(exe);
   let help;
-  try { help = execFileSync(launch.command, [...launch.args, '--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024 }); }
+  try { help = plainHelp(execFileSync(launch.command, [...launch.args, '--help'], { encoding: 'utf8', maxBuffer: 1024 * 1024 })); }
   catch (err) { console.error('Could not run codex --help:', err?.message || err); process.exit(2); }
 
   const commands = extractCommands(help);
