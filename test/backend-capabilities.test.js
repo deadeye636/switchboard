@@ -44,7 +44,7 @@ const PINNED = {
     task: 'no',     // spec 41: no pipe driver
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
     sessionFlow: 'limited', // spec 46: main plus child lanes, risk marks; approvals only as the guardian's verdict
-    sessionChanges: 'no', // spec 47: declined for now
+    sessionChanges: 'limited', // spec 47: edits from apply-patch text only; commits and pushes only from one-command scripts
     turnDigest: 'yes',   // #507: a bounded tail read of its rollout
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',

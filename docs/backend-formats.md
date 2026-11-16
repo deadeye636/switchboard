@@ -1489,7 +1489,7 @@ ones). Nothing here was produced by a new turn.
 | Backend | Edit signal | Shell signal and where the output is | Ordering key | Decision |
 |---|---|---|---|---|
 | Claude (and claude-native, which writes Claude's transcript) | `tool_use` `Edit` / `Write` with `input.file_path`; `MultiEdit` (`file_path`) and `NotebookEdit` (`notebook_path`) are not in any local transcript and are taken from the CLI's tool list. Paired by `tool_use.id` = `tool_result.tool_use_id`; a failure has `is_error: true`; anything else (absent or `false`) is a success | `Bash` and `PowerShell`, both `input.command`; the output is the result's `content` string (a user line, `type: "user"`) | byte offset of the line | **yes** |
-| Codex | the patch text inside an `exec` script: `*** Add File:`, `*** Update File:`, `*** Delete File:`, `*** Move to:` name the files (relative to the turn's cwd). No pass/fail signal was observed | `tools.exec_command({ cmd, workdir })` inside the same `exec` script; the output is the parts of the `custom_tool_call_output`, after a `Script completed` header part. A command is tied to its output only when the script holds one command | byte offset of the line | **limited**: edits by patch only (no failure signal, no shell writes); commits and pushes only from a one-command script |
+| Codex | the patch text inside an `exec` script: `*** Add File:`, `*** Update File:`, `*** Delete File:`, `*** Move to:` name the files (relative to the turn's cwd). A failed patch answers `Script failed` (measured); success is `Script completed` | `tools.exec_command({ cmd, workdir })` inside the same `exec` script; the output is the parts of the `custom_tool_call_output`, after a `Script completed` header part. A command is tied to its output only when the script holds one command | byte offset of the line | **limited**: edits by patch text only (no shell writes); a script that catches a failed patch itself still reports success; commits and pushes only from a one-command script |
 | Pi (and pi-native) | `toolCall` `edit` (`arguments.path`, `arguments.edits[]`) and `write` (`arguments.path`); paired by `toolCall.id` = `toolResult.toolCallId`; failure is `isError: true` | `bash`, `arguments.command`; the output is `toolResult.content[].text` | byte offset of the line | **yes** |
 | Hermes | none verified: the only tool calls in the local store are `read_file` and `search_files` | none verified: no terminal call in the local store | `messages.id` | **no**: nothing to verify against (no edit or shell call exists locally), so no shape is claimed |
 | agy | `run_command`, `replace_file_content`, `write_to_file` steps name `TargetFile`; one `steps` row holds call, status and result together; `status` 7 is a failed edit with its error text | `run_command`: `CommandLine` and `Cwd` in a JSON string, then `The command exited with code N.`, `Output:` and the output lines, all readable strings of one protobuf blob | `steps.idx` | **limited**: edits, commits and pushes are readable, but only by scraping strings out of a protobuf blob with no schema; failed-command and rejected-push shapes are not observed |
@@ -1535,11 +1535,18 @@ missing in its capability row (spec 47, section 2).
 - **A patch** is `tools.apply_patch(patch)` with `patch` a string whose lines are the apply-patch grammar; every
   local one was `const patch = "<json string>";`. The result part is `{}`. The `*** … File:` lines are the only
   statement of which files changed; a shell write (`sed -i`, redirection) is not attributable.
-- **No failure signal for a patch was observed.** Every local `custom_tool_call_output` starts `Script completed`,
-  including the shell commands whose command failed (the exit code, when present, is inside the printed output).
-  `apply-patch-failed.jsonl` is therefore **assumed**, not measured: a script that throws would read
-  `Script failed`. The extractor must count a patch only when its result starts `Script completed`, and
-  that is still an over-count risk the capability row names.
+- **A failed patch is `Script failed`, measured.** A local rollout holds a `tools.apply_patch` that could not write a file;
+  its `custom_tool_call_output` starts `Script failed`, followed by an `Error:` line that names the cause (a failed file
+  write). A shell command whose command failed still starts `Script completed`: the exit code, when present, is inside the
+  printed output. `apply-patch-failed.jsonl` keeps that header with an invented path and cause. The extractor counts an edit
+  only on a positive signal (`Script completed` for a script, `Exit code: 0` for a function call), so a refusal or an output
+  with no signal counts nothing. The remaining over-count: a script that catches the failed patch itself and carries on still
+  reports `Script completed`, and the capability row names it. A patch marker counts only at the start of a REAL line of the
+  patch (the string literal is unescaped first, so a patch that adds escaped patch text as content names nothing extra) and
+  only where the patch is an argument: `tools.apply_patch(...)` with a string literal (or a variable initialised with one), or a
+  call named `apply_patch`, or a call whose command word is `apply_patch` (optionally after a lone `cd <dir> &&`; the paths
+  stay as written, relative to that directory, and are not rebased). A refusal in words (`patch rejected`, `aborted`) as the
+  first output line of a function call is not a success; a completed script's own printed text is never read for it.
 - **Commands.** A command is `tools.exec_command({ cmd, workdir, … })` (JSON or a JavaScript literal; `shellCallsOf` in
   `src/backends/codex/flow-flags.js` already reads it). The output of one command is `r.output`, which the script
   must print with `text(r.output)` for it to be in the transcript. With two commands in one script the printed parts

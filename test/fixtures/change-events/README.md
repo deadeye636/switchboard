@@ -41,7 +41,7 @@ git's own output. Everything else follows a measured shape.
 | File | Shape |
 |---|---|
 | `apply-patch-add.jsonl`, `apply-patch-update-delete.jsonl`, `apply-patch-move.jsonl` | `exec` script calling `tools.apply_patch(patch)`; `*** Add File:`, `*** Update File:` + `*** Delete File:`, `*** Update File:` + `*** Move to:` (the move is **synthetic**); output `Script completed` + `{}` |
-| `apply-patch-failed.jsonl` | **Synthetic and assumed.** No patch failure was observed; output starts `Script failed` |
+| `apply-patch-failed.jsonl` | A failed patch: the output starts `Script failed` (header shape measured on a local rollout; path and error text invented) |
 | `exec-git-commit.jsonl`, `exec-git-push-ok.jsonl` | **Synthetic.** `tools.exec_command({ cmd, workdir })` + `text(r.output)`; no commit or push exists in the local rollouts |
 | `exec-git-commit-failed.jsonl`, `exec-git-push-rejected.jsonl` | **Synthetic.** `Script completed` over a failed command: the header gives no exit code |
 | `exec-two-commands.jsonl` | **Synthetic.** two `exec_command` calls in one script, two printed parts: no way to pair by id |

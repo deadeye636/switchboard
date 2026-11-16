@@ -154,8 +154,34 @@ function createAccumulator() {
   };
 }
 
+/**
+ * A cursor over the lines of a Buffer, for the byte offset of the n-th non-empty line (the same lines
+ * `text.split('\n').filter(Boolean)` yields). `base` is the file offset of the buffer's first byte. It walks the raw
+ * bytes with `indexOf(0x0A)` and only as far as the last line asked for, and never re-encodes a line.
+ */
+function createLineCursor(buf, base) {
+  let pos = 0;
+  let line = -1;
+  let start = 0;
+  const cursor = {
+    index: 0,
+    offset() {
+      while (line < cursor.index) {
+        while (pos < buf.length && buf[pos] === 0x0A) pos++;
+        start = pos;
+        let end = buf.indexOf(0x0A, pos);
+        if (end === -1) end = buf.length;
+        pos = end;
+        line++;
+      }
+      return base + start;
+    },
+  };
+  return cursor;
+}
+
 module.exports = {
-  createAccumulator,
+  createAccumulator, createLineCursor,
   MAX_FILES, MAX_COMMITS, MAX_PUSHES, MAX_SNAPSHOT_FILES, MAX_PENDING,
   MAX_PATH_CHARS, MAX_SUBJECT_CHARS, MAX_BRANCH_CHARS, MAX_SUMMARY_CHARS, SHA_RE,
 };

@@ -349,5 +349,5 @@ function verdictFlags(v) {
 
 module.exports = {
   shellCallsOf, callFlags, modeFlag, accessDeniedFlag, guardianRequestOf, guardianVerdictOf, matchVerdicts, verdictFlags,
-  readObjectLiteral, SHELL_NAMES, SCRIPT_TOOL,
+  readObjectLiteral, looksPowerShell, SHELL_NAMES, SCRIPT_TOOL,
 };

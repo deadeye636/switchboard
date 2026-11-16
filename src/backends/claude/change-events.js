@@ -13,7 +13,7 @@
 // `position` is the byte offset of the RESULT line (the line that proves the call ran), given by the caller's cursor, and it
 // is asked for only when a result settles a call this extractor is waiting for.
 
-const { createAccumulator, MAX_PENDING } = require('../change-events');
+const { createAccumulator, createLineCursor, MAX_PENDING } = require('../change-events');
 const { gitCommandsIn, commitFrom, pushFrom } = require('../git-command-events');
 
 const EDIT_PATH_FIELD = { Edit: 'file_path', Write: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
@@ -108,30 +108,6 @@ function createClaudeChangeExtractor() {
   };
 }
 
-/**
- * A cursor over the lines of a Buffer, for the byte offset of the n-th non-empty line (the same lines
- * `text.split('\n').filter(Boolean)` yields). `base` is the file offset of the buffer's first byte. It walks the raw
- * bytes with `indexOf(0x0A)` and only as far as the last line asked for, and never re-encodes a line.
- */
-function createLineCursor(buf, base) {
-  let pos = 0;
-  let line = -1;
-  let start = 0;
-  const cursor = {
-    index: 0,
-    offset() {
-      while (line < cursor.index) {
-        while (pos < buf.length && buf[pos] === 0x0A) pos++;
-        start = pos;
-        let end = buf.indexOf(0x0A, pos);
-        if (end === -1) end = buf.length;
-        pos = end;
-        line++;
-      }
-      return base + start;
-    },
-  };
-  return cursor;
-}
+// `createLineCursor` lives in the shared core (`../change-events.js`); it is re-exported here for the callers that import it from this file.
 
 module.exports = { createClaudeChangeExtractor, createLineCursor };

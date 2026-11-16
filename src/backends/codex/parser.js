@@ -25,6 +25,8 @@ const crypto = require('crypto');
 const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 const { threadName } = require('./thread-names');
 const { isTurnEvent } = require('./state');
+const { createCodexChangeExtractor } = require('./change-events');
+const { createLineCursor } = require('../change-events');
 
 // Bump on ANY behavioural change to this parser — persisted parse-state keyed on it is then dropped,
 // and (since #152) every session this parser already wrote is re-read, so a change like v3 below
@@ -96,6 +98,12 @@ function createParseState() {
     dailyMetrics: {},                                   // "date|hour|model" -> bucket
     lastCumulative: { input: 0, output: 0, cacheRead: 0 },
     lastBucket: null,                                   // {date, hour} of the last entry seen (LOCAL)
+
+    // The session's edits, commits and pushes (#870, spec 47). NOT a plain object: the state is retained in memory between
+    // reads (backends/parse.js), never written out, and an incremental read carries this accumulator on. `changesSent` is
+    // the revision the last emitted row carried (-1: none yet).
+    changes: createCodexChangeExtractor(),
+    changesSent: -1,
   };
 }
 
@@ -286,12 +294,14 @@ function applyEntry(st, entry) {
 }
 
 /** Fold a raw line. A malformed line (truncated live write) is skipped, not fatal. */
-function applyLine(st, line) {
+function applyLine(st, line, cursor) {
   const s = line.trim();
   if (!s) return;
   let entry;
   try { entry = JSON.parse(s); } catch { return; }
   applyEntry(st, entry);
+  // With a `cursor` (the byte offsets of the lines being read) the line also feeds the change extractor (#870).
+  if (cursor && entry && typeof entry === 'object') st.changes.feed(entry, cursor);
 }
 
 function fingerprintAt(fd, offset) {
@@ -315,14 +325,13 @@ function readFrom(filePath, st, startOffset) {
     const len = size - startOffset;
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, startOffset);
-    const chunk = buf.toString('utf8');
-
-    // Only consume up to the last newline; anything after it is an incomplete line.
-    const lastNl = chunk.lastIndexOf('\n');
-    const consumable = lastNl >= 0 ? chunk.slice(0, lastNl + 1) : '';
-    const consumedBytes = Buffer.byteLength(consumable, 'utf8');
-
-    for (const line of consumable.split('\n')) applyLine(st, line);
+    // Only consume up to the last newline; anything after it is an incomplete line. Found on the raw bytes, so the
+    // consumed length is the file's own and the change extractor's byte offsets (#870) need no re-encoding.
+    const consumedBytes = buf.lastIndexOf(0x0A) + 1;
+    const consumed = buf.subarray(0, consumedBytes);
+    const lines = consumed.toString('utf8').split('\n').filter(Boolean);
+    const cursor = createLineCursor(consumed, startOffset);
+    for (let i = 0; i < lines.length; i++) { cursor.index = i; applyLine(st, lines[i], cursor); }
 
     const offset = startOffset + consumedBytes;
     return { offset, fingerprint: fingerprintAt(fd, offset), size };
@@ -332,7 +341,7 @@ function readFrom(filePath, st, startOffset) {
 }
 
 /** Build the normalised row session-cache consumes (same shape as read-session-file's). */
-function buildRow(st, filePath, opts = {}) {
+function buildRow(st, filePath, opts = {}, fullParse = true) {
   // An internal subagent's rollout is a transcript, but never a session: it has an id, a cwd and
   // messages, so everything downstream would happily list it beside the session it was spawned for (#492).
   if (st.internal) return null;
@@ -350,6 +359,10 @@ function buildRow(st, filePath, opts = {}) {
   const summary = threadName(st.sessionId) || prompt;
   let stat;
   try { stat = fs.statSync(filePath); } catch { return null; }
+  // The cumulative changes aggregate (#870): always on a full parse (empty included, so a session that lost its edits is
+  // replaced), on an incremental one when something new was found, or when the caller has no stored row (`forceChanges`).
+  const changes = fullParse || opts.forceChanges === true || st.changes.revision !== st.changesSent ? st.changes.toRow() : undefined;
+  if (changes) st.changesSent = st.changes.revision;
   const activeMinutes = st.startedAt && st.lastEntryAt
     ? Math.max(0, Math.round((new Date(st.lastEntryAt) - new Date(st.startedAt)) / 60000))
     : 0;
@@ -385,6 +398,7 @@ function buildRow(st, filePath, opts = {}) {
     compactedSinceLastTurn: !!st.compactedSinceLastTurn,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
     dailyMetrics: Object.values(st.dailyMetrics),
+    ...(changes ? { changes } : {}),
   };
 }
 
@@ -393,7 +407,7 @@ function parseSession(handle, opts = {}) {
   if (!handle || handle.kind !== 'file' || !handle.path) return null;
   const st = createParseState();
   try { readFrom(handle.path, st, 0); } catch { return null; }
-  return buildRow(st, handle.path, opts);
+  return buildRow(st, handle.path, opts, true);
 }
 
 /**
@@ -427,16 +441,18 @@ function parseSessionIncremental(handle, opts = {}, prev = null) {
       st = { ...prev.state };
       st.usageTotals = { ...prev.state.usageTotals };
       st.textParts = prev.state.textParts.slice();
+      // `changes` stays the accumulator the previous state held: it is this file's retained state.
       startOffset = prev.offset;
     }
   }
+  const resumed = !!st;
   if (!st) { st = createParseState(); startOffset = 0; }
 
   let res;
   try { res = readFrom(filePath, st, startOffset); } catch { return { row: null, parseState: null }; }
 
   return {
-    row: buildRow(st, filePath, opts),
+    row: buildRow(st, filePath, opts, !resumed),
     // "There is no session here, and there never will be" — told apart from a row that is merely not
     // ready yet (a header-only file still being written), because the scan may only forget a file it
     // has already indexed on the first answer. See the `internal` note in backends/parse.js.

@@ -121,7 +121,10 @@ function parseBackendSessions(b, { handles, cachedByFile, cachedById, force = fa
     if (isFile && typeof b.parseSessionIncremental === 'function') {
       const prev = _axisBReadState.get(h.path) || null;
       let res;
-      try { res = b.parseSessionIncremental(h, {}, prev); } catch { res = null; }
+      // `forceChanges`: no stored row for this file, or one an older parser wrote. The retained memo's "already sent" says
+      // nothing about the database, so the reader emits the cumulative `changes` whether or not it moved (#870).
+      const forceChanges = !hit || !parserCurrent(hit);
+      try { res = b.parseSessionIncremental(h, { forceChanges }, prev); } catch { res = null; }
       row = res ? res.row : null;
       if (res && res.parseState) {
         _axisBReadState.set(h.path, res.parseState);
