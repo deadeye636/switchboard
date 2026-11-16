@@ -188,6 +188,7 @@ module.exports = {
   replaceSessionChanges: changesStore.replaceSessionChanges,
   getSessionChanges: changesStore.getSessionChanges,
   addChangeEntry: changesStore.addEntry,
+  setChangeStartSha: changesStore.setStartSha,
   listChangeEntries: changesStore.listEntries,
   getChangesView: changesStore.getChangesView,
   setChangesView: changesStore.setChangesView,

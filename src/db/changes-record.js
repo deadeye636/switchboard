@@ -245,7 +245,28 @@ function subagentInRange(sub, from, to) {
   return (lo === null || at >= lo) && (hi === null || at <= hi);
 }
 
+const CHANGES_VIEWS = Object.freeze(['all', 'split']);
+// A push tick's key (`push:<sessionId>:<position>`, or `i<index>` for a push without a position), as the model names it.
+const PUSH_TICK_RE = /^push:[^\u0000-\u001f]{1,200}:(?:\d{1,16}|i\d{1,4})$/;
+
+/**
+ * V4: the range and view kept for a session, cleaned for storage. A pick end is a stored entry's id (a positive integer)
+ * or a push tick's key (a short validated string), so a pick that ends at a push is kept as it was made. `null` for a
+ * value that is not an object.
+ */
+function cleanChangesView(v) {
+  if (!v || typeof v !== 'object') return null;
+  const end = (n) => (Number.isInteger(n) && n > 0 ? n : typeof n === 'string' && n.length <= 256 && PUSH_TICK_RE.test(n) ? n : null);
+  return {
+    range: typeof v.range === 'string' ? v.range.slice(0, 32) : null,
+    view: CHANGES_VIEWS.includes(v.view) ? v.view : null,
+    pickFrom: end(v.pickFrom),
+    pickTo: end(v.pickTo),
+  };
+}
+
 module.exports = {
+  cleanChangesView,
   normalizeChanges, normalizeSnapshot, isEmptyChanges, isCuttingPush, makeEntry, isEntryKind,
   pairsOf, countsOf, diffCounts, sumCounts, touchedSince, eventsSince, rangeSessions, subagentInRange,
   ENTRY_KINDS, MAX_TIMELINE_ENTRIES, MAX_SNAPSHOT_BYTES, MAX_SHA_CHARS,

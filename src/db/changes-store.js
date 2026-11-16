@@ -23,7 +23,7 @@
 const { db } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
 const {
-  normalizeChanges, normalizeSnapshot, makeEntry, pairsOf, MAX_TIMELINE_ENTRIES,
+  normalizeChanges, normalizeSnapshot, makeEntry, pairsOf, cleanChangesView, MAX_TIMELINE_ENTRIES,
 } = require('./changes-record');
 
 const stmts = {
@@ -49,6 +49,9 @@ const stmts = {
   // Insertion order, not time: the chain is the order the entries were made in, and a clock step must not reorder it.
   entryList: db.prepare('SELECT * FROM session_change_entry WHERE lineageId = ? ORDER BY id ASC'),
   entryDeleteSession: db.prepare('DELETE FROM session_change_entry WHERE sessionId = ?'),
+  // A start stored without a SHA (a fork first seen, no repository answered yet) gets its SHA once, never replaced.
+  entrySetStartSha: db.prepare(`UPDATE session_change_entry SET sha = ?, repoRoot = COALESCE(repoRoot, ?)
+    WHERE id = ? AND kind = 'start' AND sha IS NULL`),
   // No per-project statement: every deliberate delete drops a session's user state by id (`deleteChangesStateForSession`,
   // called from `deleteProjectSessions` and `removeProject` in projects.js and from the worktree delete in main.js).
 
@@ -163,6 +166,17 @@ const addEntryTx = db.transaction((row, lineageId) => {
 });
 
 /**
+ * Fill the SHA of a `start` entry that was stored without one (a fork's start is stored the first time the fork is seen,
+ * from the database alone; its baseline commit is found later, when a repository answers). Never replaces a SHA.
+ * Returns true when a row changed.
+ */
+function setStartSha(id, sha, repoRoot) {
+  if (!Number.isInteger(id) || typeof sha !== 'string' || !/^[0-9a-f]{40,64}$/.test(sha)) return false;
+  const root = typeof repoRoot === 'string' ? repoRoot.slice(0, 1024) : null;
+  return runWithBusyRetry(() => stmts.entrySetStartSha.run(sha, root, id)).changes === 1;
+}
+
+/**
  * Add one entry (`start`, `clear` or `cli-clear`; a push is an event and is refused here) to a lineage's timeline.
  * `fields` are `makeEntry`'s; `extra` carries what only a `start` baseline has: `{ repoRoot, how }`. At the cap the oldest
  * entry that is not the start falls out. Returns the stored entry (with its `id`) or null.
@@ -197,20 +211,11 @@ function listEntries(lineageId) {
 
 // --- the range and view picked per session (user state, in session_meta) ---
 
-const VIEWS = ['all', 'split'];
+// The cleaning is `cleanChangesView` in changes-record.js (pure, so a test reaches it): a pick end is an entry id or a
+// push tick's key.
+const cleanView = cleanChangesView;
 
-function cleanView(v) {
-  if (!v || typeof v !== 'object') return null;
-  const id = (n) => (Number.isInteger(n) && n > 0 ? n : null);
-  return {
-    range: typeof v.range === 'string' ? v.range.slice(0, 32) : null,
-    view: VIEWS.includes(v.view) ? v.view : null,
-    pickFrom: id(v.pickFrom),
-    pickTo: id(v.pickTo),
-  };
-}
-
-/** `{ range, view, pickFrom, pickTo }` or null (= the default: "Since last review", "All"). */
+/** `{ range, view, pickFrom, pickTo }` or null (= the default: "Since last review", "All"). A pick end is an entry id or a push tick key. */
 function getChangesView(sessionId) {
   const r = stmts.viewGet.get(sessionId);
   if (!r || !r.changesView) return null;
@@ -246,5 +251,5 @@ function deleteChangesStateForSession(sessionId) {
 module.exports = {
   stmts,
   replaceSessionChanges, getSessionChanges, deleteDerivedForSession,
-  addEntry, listEntries, getChangesView, setChangesView, deleteChangesStateForSession,
+  addEntry, setStartSha, listEntries, getChangesView, setChangesView, deleteChangesStateForSession,
 };

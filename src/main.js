@@ -201,6 +201,7 @@ const {
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
   isCachePopulated, getAllCached, getCachedByFolder, getFolderLineage, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, setSessionLineage, replaceSessionMetrics, replaceSessionChanges, deleteChangesStateForSession,
+  getSessionChanges, addChangeEntry, setChangeStartSha, listChangeEntries, getChangesView, setChangesView,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
@@ -2431,6 +2432,18 @@ processUsage.registerIpc(ipcMain);
 const flowRead = require('./app/session-flow');
 flowRead.init({ getCachedSession, getSetting, liveWindowOf: (id) => agentRpc.liveWindowOf(id), getAppQuitting: () => appQuitting, log });
 flowRead.registerIpc(ipcMain);
+
+// What a session changed since the last review (#870, spec 47): the derived rows, the lineage timeline and the version
+// control reads behind the session sidebar's Changes group and its Details window.
+const sessionChanges = require('./app/session-changes');
+sessionChanges.init({
+  getCachedSession, getFolderLineage, getCachedByParent, getCachedByProjectPath,
+  store: { getSessionChanges, addChangeEntry, setChangeStartSha, listChangeEntries, getChangesView, setChangesView },
+  getVcsStatus: (cwd) => { const s = vcsPoll._scheduler(); return s ? s.getCached(cwd) : null; },
+  getAppQuitting: () => appQuitting,
+  log,
+});
+sessionChanges.registerIpc(ipcMain);
 const flowExport = require('./app/flow-export');
 flowExport.init({ BrowserWindow, dialog, getParentWindow: (sender) => BrowserWindow.fromWebContents(sender) || mainWindow, getAppVersion: () => app.getVersion(), log });
 flowExport.registerIpc(ipcMain);

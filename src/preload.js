@@ -299,6 +299,18 @@ contextBridge.exposeInMainWorld('api', {
   getSessionFlow: (sessionId) => ipcRenderer.invoke('get-session-flow', sessionId),
   cancelSessionFlow: (sessionId) => ipcRenderer.invoke('cancel-session-flow', sessionId),
   getSessionFlowStatus: (sessionId) => ipcRenderer.invoke('get-session-flow-status', sessionId),
+  // What a session changed since the last review (#870, spec 47). A session id in, never a path; a diff is asked by the
+  // id of a row (`f:…` / `c:…`) from a recent answer. `opts` is `{ range, view, pickFrom, pickTo, fresh }`.
+  sessionChangesSummary: (sessionId) => ipcRenderer.invoke('session-changes-summary', sessionId),
+  sessionChanges: (sessionId, opts) => ipcRenderer.invoke('session-changes-state', sessionId, opts),
+  sessionChangesDetails: (sessionId, opts) => ipcRenderer.invoke('session-changes-details', sessionId, opts),
+  sessionChangesDiff: (sessionId, targetId) => ipcRenderer.invoke('session-changes-diff', sessionId, targetId),
+  sessionChangesClear: (sessionId, opts) => ipcRenderer.invoke('session-changes-clear', sessionId, opts),
+  sessionChangesEntries: (sessionId, opts) => ipcRenderer.invoke('session-changes-entries', sessionId, opts),
+  // V4: without `value` it reads the kept range and view; with one it keeps it (`null` = back to the default).
+  sessionChangesView: (sessionId, value) => (value === undefined
+    ? ipcRenderer.invoke('session-changes-view-get', sessionId)
+    : ipcRenderer.invoke('session-changes-view-set', sessionId, value)),
   // Export of the Flow (T17): a session id and a format in, `{ ok, canceled, error, name }` out (the file's base name, never a path). `opts.backendLabel` is the name the sidebar badge shows, handed over by the view.
   exportSessionFlow: (sessionId, format, opts) => ipcRenderer.invoke('flow-export', { sessionId, format, backendLabel: opts && opts.backendLabel }),
   // For the one class of fact main cannot see: something that happened in the UI. Main still writes it,

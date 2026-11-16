@@ -109,6 +109,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/session-flow.js        a session's flow (the Flow tab): reading a transcript into a snapshot in a worker, its status and cancel
   src/app/flow-export.js         a session's flow saved to a file (JSON, SVG, PDF, Mermaid): fresh read, save dialog, safe-write
   src/app/process-usage.js       the CPU and memory of a session's process tree (one shared sample, on the sidebar's ask)
+  src/app/session-changes.js     what a session changed since the last review (the Changes group, Details, Clear, a diff by row id)
 
 None of the above? A NEW src/app/<area>.js — not main.js.
 

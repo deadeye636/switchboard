@@ -208,3 +208,15 @@ test('the module opens no database and loads no registry', () => {
   const requires = [...src.matchAll(/require\s*\(\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
   assert.deepEqual(requires, ['../backends/change-events']);
 });
+
+test('cleanChangesView keeps an entry id or a push tick key as a pick end, and drops anything else', () => {
+  const { cleanChangesView } = require('../src/db/changes-record');
+  assert.deepEqual(cleanChangesView({ range: 'pick', view: 'split', pickFrom: 3, pickTo: 'push:sub:abc:120' }),
+    { range: 'pick', view: 'split', pickFrom: 3, pickTo: 'push:sub:abc:120' });
+  assert.equal(cleanChangesView({ pickTo: 'push:S:i2' }).pickTo, 'push:S:i2');
+  for (const bad of ['../x', 'push:S:', 'push::4', 'push:S:4;x', 'push:' + 'a'.repeat(300) + ':1', -1, 0, 1.5, {}]) {
+    assert.equal(cleanChangesView({ pickTo: bad }).pickTo, null, String(bad));
+  }
+  assert.equal(cleanChangesView({ pickTo: 'push:a' + String.fromCharCode(10) + 'b:1' }).pickTo, null);
+  assert.equal(cleanChangesView(null), null);
+});

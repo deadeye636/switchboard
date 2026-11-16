@@ -243,6 +243,18 @@ Mockup: docs/plans/870-session-changes/mockups/timeline.html (local). Recorded i
   `{ sessionId, position }` and never compare positions of two sessions. A push snapshot that was cut by a cap carries
   `truncated`, and a file missing from such a snapshot is unknown in a difference (never its full total).
   A partial push (one ref refused, another moved) still ends a Split block (`moved`).
+- **G3. A fork is a timeline of its own, starting at its first own position.** (Main session, from the T4 verify.) A
+  Claude fork's file copies the parent's lines, so its derived row includes the parent's edits and commits. The fork's
+  `start` entry is placed at its first own position with the counts there as its snapshot, so every range from it
+  leaves the inherited part out. The parser does not mark that line, so the app takes the highest position the fork's
+  row holds the FIRST time the fork is seen (its header figure or a refresh, with or without a repository) and stores the
+  start then, once, from the database alone (`sha` empty, `how` = `fork-first-seen`); it never moves afterwards, and its
+  SHA is filled later when a repository answers (or stays empty, as G7 allows). A fork first seen after it already
+  worked therefore starts at first sight: its earlier own work is not counted (a known gap). Sidechain lines in a main
+  file (old CLI versions) count in the main row; no child file doubles them.
+- **Push tips.** A push event records no SHA, so a pushed block's commit range is taken from the commits the lineage
+  recorded: its tip is the newest recorded commit before the push, its start the previous push's tip or the range's
+  baseline. A push with no recorded commit before it has no range of its own (its block shows counts, no `+/-`).
 
 Owner decisions of 2026-11-16 (approved with the v1 mockup):
 
@@ -351,6 +363,8 @@ brought back to the owner before the sequence-number fallback is used.
   extractor may not. v1 counts only the edit tools and `Write`-like calls; shell-made writes are not attributed (a known
   under-report, not a wrong claim).
 - Hermes answers nothing (T1: no edit or shell call exists in its local store); agy and Codex answer in part (section 2).
+- A transcript path on a network share is answered "outside this checkout" lexically, before any filesystem call; a
+  mapped network drive letter is not detected that way (the same limit as `src/app/network-path.js` everywhere else).
 - A session row that is dropped (a failed stat, a removal and bring-back) while the index worker's read memo is still
   alive, and that the watcher lane re-creates before a reconcile pass reaches it, comes back without its change rows. It
   heals when the next edit, commit or push settles, after an app restart, or with a parser bump. The reconcile pass

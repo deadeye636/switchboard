@@ -58,6 +58,16 @@ take an inventory id, re-list on every call and delegate to `backend-resources.j
 `flow-pages.js` + `flow-pdf.js` (the PDF form of the Flow export — #826, spec 46 T19; `flow-pages.js` is pure: it cuts the expanded rows into A4 page slices that never split a card, repeats a header with the lane legend on every page, continues the rails across a cut and draws a spawn or return bar only on a page that holds both ends and its gap row, and wraps the page SVGs in one static HTML document. `flow-pdf.js` writes that HTML into a fresh temp directory (plain `fs`, flag `wx`; removed on every path and by `destroyPending`), prints it in a hidden `sandbox` window with `javascript: false` and no preload through `webContents.printToPDF`, and destroys the window on success, failure, a 60 s timeout and quit (`destroyPending` from the teardown). Electron arrives through a window factory),
 `flow-mermaid.js` (the Mermaid form of the Flow export — #826, spec 46 T20; pure, called only by `flow-export.js`: `flowchart TD`, runs of equivalent calls as one node, one `subgraph` per lane nested by parent, spawn and dashed return edges, every label a quoted string with markup characters as numeric entities, no directive. Over `MAX_EDGES` it folds to one node per lane and turn, then cuts, each with a `%%` comment),
 `process-usage.js` (what a session costs the machine — #834, spec 43; its process tree from `session.pty.pid` with CPU and memory, ONE sample for every session — `@vscode/windows-process-tree` from `process.pid` on Windows, an optional native module required lazily, one `ps` call elsewhere — shared by every request within `REUSE_MS` or while it is out. Nothing runs on its own: the sidebar's Processes group asks while it is open and in view. Names no backend),
+`session-changes.js` + `session-changes-model.js` (what a session changed since the last review — #870, spec 47; a session id
+in, never a path. The module gathers the lineage (D1: a `/clear` child continues its parent's timeline, a fork starts its
+own), the derived rows of the scan, the timeline entries and the version-control facts, all through provider hooks with
+`provider.bin`, a timeout, an output cap and a closed stdin; one read in flight per session and request, and a bounded
+number of calls per refresh (`SPAWN_BOUND`: only the commits an answer shows are looked up). A recorded SHA is resolved and
+accepted only when the full SHA starts with it; a transcript path on a foreign share is answered "outside" lexically
+(`network-path.js`) and every other one is checked with `path-containment.js` before any use; a diff is asked by a
+content-derived row id from a recent answer, and an unknown id is refused. What is kept per session is capped, and
+`forget(sessionId)` drops it. The model is pure: ranges, All and Split, snapshot differences and the states of the spec.
+`summary` reads the database only (the header figure)),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
 menu on a marked word; since #839 also the plain text field menu, `editable-edit-menu`, opened only when a window asks
@@ -618,6 +628,7 @@ line there, in the same commit.
 | A session's flow (the Flow tab): the worker read, its cancel and its status (#826) | `src/app/session-flow.js` |
 | A session's flow saved to a file (JSON, SVG, PDF, Mermaid): fresh read, save dialog, safe-write (#826) | `src/app/flow-export.js` |
 | The CPU and memory of a session's process tree, sampled only when the sidebar asks (#834) | `src/app/process-usage.js` |
+| What a session changed since the last review: the Changes group, Details, Clear, the timeline, a diff by row id (#870) | `src/app/session-changes.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;
