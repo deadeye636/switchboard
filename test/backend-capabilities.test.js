@@ -86,7 +86,7 @@ const PINNED = {
     task: 'no',     // spec 41: a task runs on a pipe; Pi's pipe driver is pi-native
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is pi-native
     sessionFlow: 'limited', // spec 46: one lane, agents as a summary step, no approval step in a terminal
-    sessionChanges: 'no', // spec 47: declined for now
+    sessionChanges: 'limited', // spec 47: a delegated agent (the subagent tool) runs without a session file, so its changes are not seen
     turnDigest: 'yes',   // #507: a bounded tail read of its session file
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
@@ -108,7 +108,7 @@ const PINNED = {
     task: 'yes',    // spec 41: taskProfile, asks shown on the row
     idleMaintenance: 'limited', // spec 45: the hit verdict is best effort
     sessionFlow: 'limited', // spec 46: read through its owner Pi
-    sessionChanges: 'no', // spec 47: declined for now
+    sessionChanges: 'limited', // spec 47: through its owner Pi (a delegated agent is not seen)
     turnDigest: 'yes',   // #507: Pi's answer, over the same store
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',

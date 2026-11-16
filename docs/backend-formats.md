@@ -1490,7 +1490,7 @@ ones). Nothing here was produced by a new turn.
 |---|---|---|---|---|
 | Claude (and claude-native, which writes Claude's transcript) | `tool_use` `Edit` / `Write` with `input.file_path`; `MultiEdit` (`file_path`) and `NotebookEdit` (`notebook_path`) are not in any local transcript and are taken from the CLI's tool list. Paired by `tool_use.id` = `tool_result.tool_use_id`; a failure has `is_error: true`; anything else (absent or `false`) is a success | `Bash` and `PowerShell`, both `input.command`; the output is the result's `content` string (a user line, `type: "user"`) | byte offset of the line | **yes** |
 | Codex | the patch text inside an `exec` script: `*** Add File:`, `*** Update File:`, `*** Delete File:`, `*** Move to:` name the files (relative to the turn's cwd). A failed patch answers `Script failed` (measured); success is `Script completed` | `tools.exec_command({ cmd, workdir })` inside the same `exec` script; the output is the parts of the `custom_tool_call_output`, after a `Script completed` header part. A command is tied to its output only when the script holds one command | byte offset of the line | **limited**: edits by patch text only (no shell writes); a script that catches a failed patch itself still reports success; commits and pushes only from a one-command script |
-| Pi (and pi-native) | `toolCall` `edit` (`arguments.path`, `arguments.edits[]`) and `write` (`arguments.path`); paired by `toolCall.id` = `toolResult.toolCallId`; failure is `isError: true` | `bash`, `arguments.command`; the output is `toolResult.content[].text` | byte offset of the line | **yes** |
+| Pi (and pi-native) | `toolCall` `edit` (`arguments.path`, `arguments.edits[]`) and `write` (`arguments.path`); paired by `toolCall.id` = `toolResult.toolCallId`; failure is `isError: true` | `bash`, `arguments.command`; the output is `toolResult.content[].text` | byte offset of the line | **limited**: a delegated agent (`subagent` tool) runs `--no-session`, so its changes are not in any file |
 | Hermes | none verified: the only tool calls in the local store are `read_file` and `search_files` | none verified: no terminal call in the local store | `messages.id` | **no**: nothing to verify against (no edit or shell call exists locally), so no shape is claimed |
 | agy | `run_command`, `replace_file_content`, `write_to_file` steps name `TargetFile`; one `steps` row holds call, status and result together; `status` 7 is a failed edit with its error text | `run_command`: `CommandLine` and `Cwd` in a JSON string, then `The command exited with code N.`, `Output:` and the output lines, all readable strings of one protobuf blob | `steps.idx` | **limited**: edits, commits and pushes are readable, but only by scraping strings out of a protobuf blob with no schema; failed-command and rejected-push shapes are not observed |
 
@@ -1569,7 +1569,9 @@ missing in its capability row (spec 47, section 2).
   blank lines. As in Claude, a chained command can leave the commit line in an error result
   (`bash-git-commit-ok-later-step-failed.jsonl`).
 - Edit failure texts seen: `Found N occurrences of the text in <path>. The text must be unique…`. Pi has a
-  `subagent` tool; whether a delegated agent's edits are in the parent's transcript was not examined.
+  `subagent` tool, which runs the child with `--no-session` (`src/backends/pi/subagent-tool.js`): the parent file gets only the
+  tool's final text and usage, and the child's own tool calls never reach it, so a delegated agent's edits, commits and pushes
+  are not seen.
 - **A transcript is a tree** (`parentId`, `src/backends/pi/active-branch.js`). A file edit on a branch the user later
   left still happened on disk, so the extractor attributes by what the session did, not by what the active branch
   shows; the parser's own active-branch walk must not decide it.

@@ -25,6 +25,8 @@ const crypto = require('crypto');
 const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 const { transportFromEntry } = require('./transport-marker');
 const { activeChain } = require('./active-branch');
+const { createPiChangeExtractor } = require('./change-events');
+const { createLineCursor } = require('../change-events');
 
 //   v2: the parse state carries per-(date, model) metrics (#154)
 //   v3: per-(date, HOUR, model), bucketed in LOCAL time, with cost booked on the turn that spent it (#159)
@@ -87,6 +89,11 @@ function createParseState() {
     // How the session was last driven (#568), from a marker entry — null for every session the terminal
     // backend ran. A session-level fact, so it is read off every entry rather than off the visible branch.
     transport: null,
+    // The session-changes accumulator (#870, spec 47). It reads EVERY line, not the visible branch (an edit on an abandoned
+    // branch still happened). Retained state only, never written out; an incremental read carries it on. `changesSent` is the
+    // revision the last emitted `changes` held. The extractor itself is made by parseSession / parseSessionIncremental (the two
+    // readers that feed it), so the throwaway states `visibleState` builds allocate none.
+    changesSent: -1,
 
     // Per-(date, hour, model) metrics -> session_metrics -> the Stats charts (#154, #159). Pi reports
     // usage AND cost per ASSISTANT MESSAGE, with a timestamp on the entry, so its buckets are exact —
@@ -282,12 +289,14 @@ function applyEntry(st, entry) {
   }
 }
 
-function applyLine(st, line) {
+function applyLine(st, line, cursor) {
   const s = line.trim();
   if (!s) return;
   let entry;
   try { entry = JSON.parse(s); } catch { return; }   // a half-written live line is skipped, not fatal
   applyEntry(st, entry);
+  // With a `cursor` (the byte offsets of the lines being read) the line also feeds the change extractor (#870).
+  if (cursor && entry && typeof entry === 'object') st.changes.feed(entry, cursor);
 }
 
 function fingerprintAt(fd, offset) {
@@ -307,13 +316,13 @@ function readFrom(filePath, st, startOffset) {
     const len = size - startOffset;
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, startOffset);
-    const chunk = buf.toString('utf8');
-
-    const lastNl = chunk.lastIndexOf('\n');
-    const consumable = lastNl >= 0 ? chunk.slice(0, lastNl + 1) : '';
-    const consumedBytes = Buffer.byteLength(consumable, 'utf8');
-
-    for (const line of consumable.split('\n')) applyLine(st, line);
+    // Only consume up to the last newline, found on the raw bytes so the consumed length is the file's own and the change
+    // extractor's byte offsets (#870) need no re-encoding.
+    const consumedBytes = buf.lastIndexOf(0x0A) + 1;
+    const consumed = buf.subarray(0, consumedBytes);
+    const lines = consumed.toString('utf8').split('\n').filter(Boolean);
+    const cursor = createLineCursor(consumed, startOffset);
+    for (let i = 0; i < lines.length; i++) { cursor.index = i; applyLine(st, lines[i], cursor); }
 
     const offset = startOffset + consumedBytes;
     return { offset, fingerprint: fingerprintAt(fd, offset), size };
@@ -418,7 +427,7 @@ function applyMessageToVisible(st, entry) {
   }
 }
 
-function buildRow(st, filePath, opts = {}) {
+function buildRow(st, filePath, opts = {}, fullParse = true) {
   if (!st.sessionId) return null;
   let stat;
   try { stat = fs.statSync(filePath); } catch { return null; }
@@ -426,6 +435,11 @@ function buildRow(st, filePath, opts = {}) {
   const activeMinutes = visible.startedAt && visible.lastEntryAt
     ? Math.max(0, Math.round((new Date(visible.lastEntryAt) - new Date(visible.startedAt)) / 60000))
     : 0;
+
+  // The cumulative changes aggregate (#870): always on a full parse (empty included, so a session that lost its edits is
+  // replaced), on an incremental one when something new was found, or when the caller has no stored row (`forceChanges`).
+  const changes = fullParse || opts.forceChanges === true || st.changes.revision !== st.changesSent ? st.changes.toRow() : undefined;
+  if (changes) st.changesSent = st.changes.revision;
 
   return {
     sessionId: visible.sessionId,
@@ -472,6 +486,7 @@ function buildRow(st, filePath, opts = {}) {
     transport: visible.transport || null,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
     dailyMetrics: Object.values(visible.dailyMetrics),
+    ...(changes ? { changes } : {}),
   };
 }
 
@@ -479,6 +494,7 @@ function buildRow(st, filePath, opts = {}) {
 function parseSession(handle, opts = {}) {
   if (!handle || handle.kind !== 'file' || !handle.path) return null;
   const st = createParseState();
+  st.changes = createPiChangeExtractor();
   try { readFrom(handle.path, st, 0); } catch { return null; }
   return buildRow(st, handle.path, opts);
 }
@@ -514,13 +530,14 @@ function parseSessionIncremental(handle, opts = {}, prev = null) {
       start = prev.offset;
     }
   }
-  if (!st) st = createParseState();
+  const resumed = !!st;
+  if (!st) { st = createParseState(); st.changes = createPiChangeExtractor(); }
 
   let res;
   try { res = readFrom(handle.path, st, start); } catch { return { row: null, parseState: null }; }
 
   return {
-    row: buildRow(st, handle.path, opts),
+    row: buildRow(st, handle.path, opts, !resumed),
     parseState: {
       version: PARSER_SCHEMA_VERSION,
       offset: res.offset,

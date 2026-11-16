@@ -609,8 +609,9 @@ module.exports = {
   caveat: 'If you have run `pi /login`, its stored OAuth account takes priority over any API key passed in — Pi will use the logged-in account, not the key.',
   // The capability matrix's answers for Pi (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
-  // Spec 47 (#870): declines, no extractor reads a Pi transcript for changes yet.
-  reportsChanges: false,
+  // Spec 47 (#870): read from the transcript by the parser (`./change-events.js`), every line and not the visible branch (the
+  // transcript is a tree). pi-native forwards this through its owner.
+  reportsChanges: true,
   capabilities: {
     fork: { state: 'limited', note: 'only after its first reply — Pi names its own sessions' },
     deleteSessions: 'yes',
@@ -635,7 +636,7 @@ module.exports = {
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is pi-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is pi-native' },
     sessionFlow: { state: 'limited', note: 'one lane: a delegated agent writes no session file, so it is one summary step; no permission mode, no approval step in a terminal; risk marks are a built-in pattern list on bash and powershell calls (heuristic), and a pi-native refusal shows as a denied call (spec 46)' },
-    sessionChanges: 'no',
+    sessionChanges: { state: 'limited', note: 'edits, commits and pushes from its own transcript (every branch); a delegated agent (the subagent tool) runs without a session file, so what it changes is not seen' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },

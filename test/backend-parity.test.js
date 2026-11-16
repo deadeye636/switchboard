@@ -372,7 +372,7 @@ test('the sessionFlow capability row agrees with what the hook answers, and a re
 // Spec 47 (#870): every backend answers `reportsChanges` with a boolean, the capability row says the same, and a driver
 // gives its owner's answer (its transcript is the owner's).
 test('every backend answers reportsChanges, and the sessionChanges row agrees', () => {
-  const expected = { claude: true, 'claude-native': true, codex: true, pi: false, 'pi-native': false, hermes: false, agy: false };
+  const expected = { claude: true, 'claude-native': true, codex: true, pi: true, 'pi-native': true, hermes: false, agy: false };
   assert.deepEqual(Object.fromEntries(READY.map(b => [b.id, b.reportsChanges])), expected);
   for (const b of READY) {
     const state = b.capabilities.sessionChanges.state || b.capabilities.sessionChanges;
