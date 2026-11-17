@@ -400,7 +400,13 @@ Three things on our side of that fence:
 
   **The gate is OPT-IN, and only `app/lifecycle.js`'s cold start opts in.** Three callers must keep the
   unconditional pass and get it by doing nothing: the "Rebuild session cache" action, the
-  `claudeParserBumped` branch of `get-projects`, and the FTS-recreated path. That third one is not
+  FTS-recreated path, and a `get-projects` that finds the search index empty. The `claudeParserBumped`
+  branch of `get-projects` and the global `claudeParserVersion` setting are retired (#880): a parser bump
+  triggers nothing by itself, the per-folder parser-version check below makes the one gated cold scan
+  cover it and resume per folder after an interrupted run, and there is no mark any more to be written
+  after a failed or cancelled scan. `get-projects` with a populated cache and index answers from the cache
+  at once; with an empty cache it joins the scan in flight (or starts the full one if it raced
+  `whenReady`), and the scan refreshes the sidebar through `projects-changed`. The FTS one is not
   caution: migration v6 drops the FTS tables and leaves `cache_meta` stamped, so a gate it did not
   bypass would skip every folder and leave search **permanently empty** behind a full sidebar, with
   nothing visibly broken. `lifecycle.js` reads `searchFtsRecreated()` before it starts the scan and asks
@@ -422,7 +428,8 @@ Three things on our side of that fence:
   transcript deleted inside a folder whose newest `.jsonl` did not move (anything but the newest file,
   or a nested subagent transcript) is not pruned; an FTS entry orphaned there is not cleared, because
   the folder-scoped search wipe rides on the apply that is skipped; and the folder's `projectPath` is
-  the stored one rather than a freshly derived one. All three are repaired by the unconditional pass.
+  the stored one rather than a freshly derived one. All three are repaired by the unconditional pass
+  (rebuild, FTS recreate, the reconcile sweep) — and, since #880, no longer by a parser bump.
   The fourth case was a hazard rather than a cost and is closed: `refreshFilePrepare` stamps a folder
   *before* posting its parse, so a reply lost to a worker respawn or a quit left the folder stamped with
   a row that was never written — repaired for free by the old unconditional scan, and lost for ever

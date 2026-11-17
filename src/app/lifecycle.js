@@ -163,8 +163,9 @@ function start(ctx) {
     //
     // What the gate stops doing on a warm launch, so it is on the record here too: rows for a transcript
     // deleted inside an unchanged folder are not pruned, FTS entries orphaned there are not cleared, and
-    // the folder's projectPath is the stored one rather than a freshly derived one. The rebuild action, a
-    // parser bump and a recreated FTS table all still run the unconditional pass that repairs all three.
+    // the folder's projectPath is the stored one rather than a freshly derived one. The rebuild action and
+    // a recreated FTS table still run the unconditional pass that repairs all three; a parser bump does NOT
+    // (#880): it re-reads only the folders holding a stale row, in this one pass, and resumes per folder.
     //
     // populateCacheViaWorker runs in a Worker thread and is non-blocking; concurrent callers share the
     // same in-flight Promise, so the FTS-recreated call below is free.

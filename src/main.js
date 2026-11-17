@@ -512,11 +512,7 @@ sessionCache.init({
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder,
         buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus,
-        populateCacheViaWorker } = sessionCache;
-// Only the parser version is Claude's to read here. The transcript PATH goes through the descriptor's
-// transcriptPathFor (#211/#233) — a direct resolveJsonlPath import is how the subagent handlers came to
-// resolve every backend's row inside Claude's store.
-const { PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./backends/claude/session-reader');
+        populateCacheViaWorker, scanInFlight } = sessionCache;
 
 // #199 — the off-thread index worker is the ONE runtime path. The SWITCHBOARD_INDEX_WORKER flag and the
 // inline parse orchestration it used to gate were removed once the worker was validated in a live install
@@ -559,25 +555,11 @@ indexWorker.init({
 // `alive` is whether the worker thread is currently spawned; `pending` the in-flight request count.
 ipcMain.handle('index-worker-status', () => indexWorker.status());
 
-// A bumped Claude parser has to re-read the sessions it changed — and that re-read must happen on the
-// WORKER thread, not here.
-//
-// The per-row staleness gate (#152) lives inside refreshFolder, and refreshFolder is itself gated on the
-// folder's index mtime: a folder whose files have not changed is never opened, so the row gate behind it
-// never runs. For a change like #157 — which re-attributes sessions that MOVED, and a session that moved
-// did so in the past — that means every existing misattribution would stand forever.
-//
-// Wiping the folder memo would open that gate, but it would route the whole re-read through the
-// SYNCHRONOUS reconcile on the main process (the cache is not empty, so the worker path is skipped) — the
-// exact thing derive-project-path's header warns about: a store's worth of transcripts, read on the UI
-// thread. So instead: notice the bump, and take the path the Rebuild button already takes.
-function claudeParserBumped() {
-  try { return Number(getSetting('claudeParserVersion')) !== CLAUDE_PARSER_VERSION; } catch { return false; }
-}
-
-function markClaudeParserRead() {
-  try { setSetting('claudeParserVersion', CLAUDE_PARSER_VERSION); } catch { /* it will simply run again */ }
-}
+// A bumped Claude parser re-reads the sessions it changed on the WORKER thread, and the cold scan does it:
+// `coldScanSkipStamps` (src/backends/claude/store-indexer.js) leaves a folder out of the gate when any of
+// its rows is below the current parser version, per folder, and an interrupted run resumes where it stopped
+// (#880). There is no global "parser read" mark any more — the old `claudeParserVersion` setting chained a
+// second full pass behind the gated one and was written even after a failed or cancelled scan.
 
 
 // --- Project management (#170) ---
@@ -1134,7 +1116,6 @@ ipcMain.handle('rebuild-cache', async () => {
     // The worker keeps its OWN _rootCache; a rebuild must clear it there too or it keeps stale roots (F4).
     try { indexWorker.postRootCacheReset(); } catch { /* best effort */ }
     await populateCacheViaWorker();
-    markClaudeParserRead();
     // A rebuild must cover EVERY backend's roots, not just Claude's (T-2.7 + T-4.2) — otherwise
     // "Rebuild session cache" would silently drop the user's Codex/other-backend history. And it must
     // FORCE the re-read: the reason to rebuild is that a row is wrong, and a wrong row's change marker
@@ -1162,9 +1143,11 @@ const queueIndexSweep = () => indexSweep.queue();
 
 ipcMain.handle('get-projects', async (_event, showArchived) => {
   try {
-    // ...and a bumped parser counts as "needs populating": the rows are there, but they were written by a
-    // parser that no longer describes them (#157). This runs the worker exactly once per bump.
-    const needsPopulate = !isCachePopulated() || !isSearchIndexPopulated() || claudeParserBumped();
+    // A bumped parser is NOT a reason to scan here (#880): the cold scan the app already runs on whenReady
+    // re-reads every folder with a stale row. With a populated cache and index the response is the cached
+    // view at once and the scan refreshes it through `projects-changed`.
+    const searchEmpty = !isSearchIndexPopulated();
+    const needsPopulate = !isCachePopulated() || searchEmpty;
 
     if (needsPopulate) {
       // First call after a migration that clears session_cache (e.g. v4) finds
@@ -1172,9 +1155,12 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
       // empty list and rely on `notifyRendererProjectsChanged` firing later —
       // which only triggers a reload if the user is on the Sessions tab. To
       // avoid that race, await the scan here so the response carries the
-      // freshly-populated cache. Concurrent callers share the same Promise.
-      await populateCacheViaWorker();
-      markClaudeParserRead();
+      // freshly-populated cache. An empty cache joins the scan already in flight (a gated scan with no
+      // stamps reads everything); get-projects can race `whenReady`, and then no scan exists yet, so the
+      // full one starts and the lifecycle's request shares it. An empty SEARCH index asks for the full
+      // pass (it escalates behind a gated scan): a gated pass skips stamped folders and would leave
+      // search empty.
+      await (searchEmpty ? populateCacheViaWorker() : (scanInFlight() || populateCacheViaWorker()));
     }
 
     // #199 step 3: the response is now a PURE cache read. The repair/upkeep work that used to run on the

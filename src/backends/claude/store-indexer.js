@@ -425,8 +425,7 @@ function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs }, sco
  *      empty folder costs a readdir.
  *   3. Every one of those rows was written by the CURRENT parser. A parser bump moves no file's mtime, so
  *      a stamp comparison alone cannot see one — #152's per-row gate sits BEHIND the folder gate and
- *      never runs when the folder is skipped. Asking per folder means a bump is repaired whether or not
- *      the global `claudeParserVersion` setting agrees.
+ *      never runs when the folder is skipped. Asking per folder is what repairs a bump.
  *
  * The scope is Claude's: a project folder key is shared with Axis-B backends, whose rows live elsewhere
  * and carry their own parser versions.
@@ -454,16 +453,19 @@ function coldScanSkipStamps() {
  *
  * `incremental` (#589) is OPT-IN, and that direction is the safeguard: every existing caller keeps the
  * unconditional full pass it has always had, and only the cold start on `app.whenReady` asks for the
- * gate. The three that MUST stay full are `rebuild-cache`, the `claudeParserBumped` branch of
- * get-projects, and the `searchFtsRecreated` path — migration v6 drops the FTS tables but leaves
- * `cache_meta` stamped, so a gate they did not bypass would skip every folder and leave search
- * permanently empty behind a full sidebar.
+ * gate. The two that MUST stay full are `rebuild-cache` and the `searchFtsRecreated` path — migration
+ * v6 drops the FTS tables but leaves `cache_meta` stamped, so a gate they did not bypass would skip
+ * every folder and leave search permanently empty behind a full sidebar.
+ *
+ * A parser bump is NOT one of them (#880): the gate already re-reads every folder holding a row below
+ * the current parser version (`coldScanSkipStamps`) and resumes per folder, so one gated pass covers a
+ * bump. The global `claudeParserVersion` setting is retired; nothing chains a second pass for it.
  *
  * ESCALATION. Concurrent callers share one in-flight scan, so a full request arriving while the gated
- * cold-start scan is running would otherwise be handed the gated promise and silently get no full pass —
- * exactly the get-projects/parser-bump race. A full request chains a real full scan behind the gated one
- * instead; a full request while a FULL scan is in flight still shares it, and an incremental request
- * always shares whatever is running.
+ * cold-start scan is running would otherwise be handed the gated promise and silently get no full pass.
+ * A full request chains a real full scan behind the gated one instead (`rebuild-cache` does); a full
+ * request while a FULL scan is in flight still shares it, and an incremental request always shares
+ * whatever is running. A caller that only wants to WAIT for the cold start uses `scanInFlight`.
  */
 function populateCacheViaWorker({ incremental = false } = {}) {
   if (populatePromise) {
@@ -632,6 +634,11 @@ function populateCacheViaWorker({ incremental = false } = {}) {
   return populatePromise;
 }
 
+// The scan in flight, or null. `get-projects` waits on it instead of requesting another (#880).
+function scanInFlight() {
+  return populatePromise;
+}
+
 // Terminate an in-flight project-scan worker (called from will-quit before closeDb, so a late worker
 // message can't write to a closed DB) (issue #76).
 function terminateScanWorker() {
@@ -656,6 +663,7 @@ module.exports = {
   cancelReindex,
   flushPendingReindex,
   populateCacheViaWorker,
+  scanInFlight,
   terminateScanWorker,
   // #199: the reply-replay entry points — the index worker's reply handler and the synchronous
   // refreshFolder both call these, so there is ONE apply implementation, no drift.

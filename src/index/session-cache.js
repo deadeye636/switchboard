@@ -80,6 +80,7 @@ module.exports = {
   resolveRowFilePath: storeIndexer.resolveRowFilePath,
   flushPendingReindex: storeIndexer.flushPendingReindex,
   populateCacheViaWorker: storeIndexer.populateCacheViaWorker,
+  scanInFlight: storeIndexer.scanInFlight,
   terminateScanWorker: storeIndexer.terminateScanWorker,
   // --- neutral write sink + shared scan-state (index-writes.js) ---
   // Exposed so the IPC handlers that delete a folder's rows (remove-project, delete-project-sessions,

@@ -192,9 +192,9 @@ test('a stamped folder with no cached rows is re-read', async () => {
   }
 });
 
-test('the default is still the unconditional full pass — rebuild-cache and a parser bump take it', async () => {
-  // `rebuild-cache` (main.js) and the `claudeParserBumped` branch of get-projects both call
-  // populateCacheViaWorker() with no argument. Opt-IN is what makes those two safe without touching them.
+test('the default is still the unconditional full pass — rebuild-cache takes it', async () => {
+  // `rebuild-cache` (main.js) calls populateCacheViaWorker() with no argument (the `claudeParserBumped`
+  // branch of get-projects, its second caller, is gone, #880). Opt-IN is what makes that safe untouched.
   const rec = recorder();
   const w = setup(4, { onUpsert: rec.onUpsert });
   try {
@@ -209,9 +209,8 @@ test('the default is still the unconditional full pass — rebuild-cache and a p
 });
 
 test('a full request while a gated scan is in flight still gets a full pass', async () => {
-  // Concurrent callers share one in-flight scan. Without the escalation, a get-projects that finds a
-  // bumped parser during the cold start would be handed the GATED promise, await it, mark the parser read
-  // and never re-parse anything.
+  // Concurrent callers share one in-flight scan. Without the escalation, a rebuild-cache arriving during
+  // the cold start would be handed the GATED promise and never get its full pass.
   const rec = recorder();
   const infoLines = [];
   const w = setup(4, { onUpsert: rec.onUpsert, infoLines });
