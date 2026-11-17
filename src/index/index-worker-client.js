@@ -350,6 +350,14 @@ function postFile(folder, relFilename, { immediate = false } = {}) {
   if (isAppQuitting()) return Promise.resolve();
   const prep = storeIndexer.refreshFilePrepare(folder, relFilename);
   if (!prep) return Promise.resolve();
+  // A new session started in a REMOVED project (#879): refreshFilePrepare reported it to the sighting feed,
+  // and `syncRegistry` is what acts on that feed (bring-back past the tombstone, then the folder re-index and
+  // the projects-changed push of its own). It otherwise runs only after a reconcile reply, and the removed
+  // branch posts no parse, so ask for the upkeep here — once per new start, not per append.
+  if (prep.sighted) {
+    try { afterReconcile(false); } catch (err) { log.warn(`[index-worker] afterReconcile failed: ${err?.message || err}`); }
+    return Promise.resolve();
+  }
   if (prep.deletedId) { noteDeleted(prep.deletedId); return Promise.resolve(); }
 
   const reqId = ++reqSeq;

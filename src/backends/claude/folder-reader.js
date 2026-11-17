@@ -8,9 +8,11 @@ const { readSessionFile, enumerateSessionFiles } = require('./session-reader');
 // cache — keep it free of Electron and DB dependencies.
 // Returns { folderPath, projectPath, sessions }; projectPath is null (with
 // empty sessions) when no project path can be derived from the folder.
-function readFolderSessions(projectsDir, folder) {
+// `known.projectPath` (optional): a caller that has already derived it (the scan worker, which must decide
+// removed-or-not before reading) hands it in rather than deriving twice.
+function readFolderSessions(projectsDir, folder, known) {
   const folderPath = path.join(projectsDir, folder);
-  const projectPath = deriveProjectPath(folderPath);
+  const projectPath = known && known.projectPath ? known.projectPath : deriveProjectPath(folderPath);
   const sessions = [];
   if (!projectPath) return { folderPath, projectPath: null, sessions };
 

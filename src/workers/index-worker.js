@@ -33,7 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const { parentPort } = require('worker_threads');
 
-const { getFolderIndexMtimeMs } = require('../index/folder-index-state');
+const { getFolderIndexState } = require('../index/folder-index-state');
 const { deriveProjectPath, _resetRootCache } = require('../session/derive-project-path');
 const { parseClaudeFolder, parseClaudeFile } = require('../backends/claude/folder-parse');
 const { parseBackendSessions } = require('../backends/parse');
@@ -84,8 +84,11 @@ function sweepClaude({ roots, folderMeta, removedSet, snapshot, force }) {
     const folderPath = path.join(projectsDir, folder);
     // The gate — the RISK-4b recursive stat walk, now on THIS thread. Trip a folder that is new or whose
     // newest .jsonl is newer than what main last indexed (or every folder under `force`).
-    const indexMtimeMs = getFolderIndexMtimeMs(folderPath);
-    if (indexMtimeMs > 0) examined.push(folder);
+    const state = getFolderIndexState(folderPath);
+    const indexMtimeMs = state.mtimeMs;
+    // `complete`: no stat or readdir under the folder failed. A failed stat on a nested transcript lowers the
+    // number, so the folder may look current while it is not — then it was not looked at (#879).
+    if (indexMtimeMs > 0 && state.complete) examined.push(folder);
     const meta = folderMeta && folderMeta[folder];
     if (!force && meta && indexMtimeMs <= (meta.indexMtimeMs || 0)) continue;
 

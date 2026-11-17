@@ -44,6 +44,7 @@ function makeFakeDb(onUpsert) {
   const search = new Map();
   const meta = new Map();
   const folderMeta = new Map();
+  const removedPaths = new Set();
   return {
     _cache: cache, _folderMeta: folderMeta, _search: search,
     deleteCachedFolder(folder) { for (const [id, r] of [...cache]) if (r.folder === folder) cache.delete(id); },
@@ -66,9 +67,11 @@ function makeFakeDb(onUpsert) {
     getSetting() { return {}; },
     getMeta(id) { return meta.get(id) || null; },
     setName(id, name) { meta.set(id, { ...(meta.get(id) || {}), name }); },
-    getProjectMeta() { return null; },
+    // A project path in `_removed` is a removed project (a register row with `removedAt`).
+    getProjectMeta(p) { return removedPaths.has(p) ? { removedAt: 1, registered: false } : null; },
     getProjectStates() { return new Map(); },
     getProjectTombstones() { return new Map(); },
+    _removed: removedPaths,
   };
 }
 
@@ -326,6 +329,373 @@ test('the client releases only handed-over folders the reply says were examined,
     assert.deepEqual(storeIndexer.handedOverSnapshot(), []);
   } finally {
     client._setTransport(null);
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+// --- removed and pathless folders (#879) ---------------------------------------------------------------
+
+const indexWrites = require('../src/index/index-writes');
+const HEAD_START = '2031-02-03T04:05:06.000Z';
+
+function writeHeadTranscript(dir, name, cwd, timestamp) {
+  const file = path.join(dir, name + '.jsonl');
+  fs.writeFileSync(file,
+    JSON.stringify({ type: 'user', timestamp, cwd, message: { role: 'user', content: 'x' } }) + '\n', 'utf8');
+  return file;
+}
+
+test('a stamped removed folder with nothing newer is not read again (#879 A)', async () => {
+  const rec = recorder();
+  const w = setup(3, { onUpsert: rec.onUpsert });
+  try {
+    const removed = w.made[0];
+    const cwd = path.join(w.root, 'proj-0');
+    w.db._removed.add(cwd);
+    await sessionCache.populateCacheViaWorker();
+    assert.ok(w.db._folderMeta.get(removed.folder).indexMtimeMs > 0, 'the removed folder was stamped');
+    assert.equal([...w.db._cache.values()].filter(r => r.folder === removed.folder).length, 0, 'and holds no rows');
+
+    indexWrites.getStoreProjectPaths().delete(cwd);
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+    assert.equal(indexWrites.getStoreProjectPaths().has(cwd), false,
+      'the cold scan did not open it: no sighting was posted');
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a removed folder with a newer transcript is read for its heads only (#879 A+B)', async () => {
+  const rec = recorder();
+  const w = setup(2, { onUpsert: rec.onUpsert });
+  try {
+    const removed = w.made[0];
+    const cwd = path.join(w.root, 'proj-0');
+    w.db._removed.add(cwd);
+    await sessionCache.populateCacheViaWorker();
+    const stampBefore = w.db._folderMeta.get(removed.folder).indexMtimeMs;
+    rec.seen.length = 0;
+    indexWrites.getStoreProjectPaths().delete(cwd);
+
+    // A session started after the removal.
+    const fresh = writeHeadTranscript(removed.dir, 'eeeeeeee-0000-4000-8000-000000000009', cwd, HEAD_START);
+    touchLater(fresh);
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+
+    const sighting = indexWrites.getStoreProjectPaths().get(cwd);
+    assert.ok(sighting, 'the sighting reached the register feed (#575)');
+    assert.equal(sighting.startedAt, HEAD_START, 'startedAt is the head timestamp, never the recency');
+    assert.notEqual(sighting.startedAt, sighting.newestAt);
+    assert.deepEqual(rec.seen, [], 'no row was written for the removed project');
+    assert.equal([...w.db._cache.values()].filter(r => r.folder === removed.folder).length, 0);
+    assert.ok(w.db._folderMeta.get(removed.folder).indexMtimeMs > stampBefore, 'the stamp advanced');
+
+    // And it is quiet again afterwards.
+    indexWrites.getStoreProjectPaths().delete(cwd);
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+    assert.equal(indexWrites.getStoreProjectPaths().has(cwd), false, 'nothing newer than the new stamp');
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a project that is no longer removed is read in full (#879)', async () => {
+  const rec = recorder();
+  const w = setup(2, { onUpsert: rec.onUpsert });
+  try {
+    const f = w.made[0];
+    const cwd = path.join(w.root, 'proj-0');
+    w.db._removed.add(cwd);
+    await sessionCache.populateCacheViaWorker();
+    rec.seen.length = 0;
+
+    w.db._removed.delete(cwd);   // un-removed: stamped, no rows
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+    assert.deepEqual(rec.seen, [f.folder], 'the folder was read normally and its rows written');
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a pathless folder is stamped by the reconcile and then skipped by the cold scan (#879)', async () => {
+  const { sweepClaude } = require('../src/workers/index-worker');
+  const { claudeStoreScope } = require('../src/index/index-writes');
+  const rec = recorder();
+  const w = setup(1, { onUpsert: rec.onUpsert });
+  try {
+    // A folder no project path can be derived from: its transcript names no cwd.
+    const folder = '-no-such-project-for-the-gate-test';
+    const dir = path.join(w.projectsDir, folder);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'ffffffff-0000-4000-8000-000000000001.jsonl');
+    fs.writeFileSync(file, JSON.stringify({ type: 'summary', summary: 'x' }) + '\n', 'utf8');
+
+    await sessionCache.populateCacheViaWorker();
+    assert.equal(w.db._folderMeta.has(folder), false, 'the cold scan itself stamps nothing for it');
+
+    // The reconcile the lifecycle queues after the scan: parseClaudeFolder stamps a pathless folder.
+    const { out } = sweepClaude({
+      roots: { claude: w.projectsDir }, folderMeta: {}, removedSet: [], snapshot: { claudeByFolder: {} }, force: false,
+    });
+    const hit = out.find(o => o.folder === folder);
+    assert.ok(hit, 'the reconcile gate tripped on the unstamped folder');
+    storeIndexer.applyClaudeFolderReply(folder, hit.reply, { scope: claudeStoreScope(), cachedMap: new Map() });
+    const meta = w.db._folderMeta.get(folder);
+    assert.ok(meta && meta.indexMtimeMs > 0 && !meta.projectPath, 'stamped, with no project path');
+
+    // From now on main sends it to the worker as a stamp-compare folder (the worker skips it while nothing in
+    // it is newer than the stamp), and not as a hand-over to the reconcile: it has no rows to reuse.
+    const gate = storeIndexer._coldScanGate({ incremental: true });
+    assert.equal(gate.skipStamps[folder], meta.indexMtimeMs);
+    assert.ok(!gate.skipFolders.includes(folder));
+    assert.ok(!storeIndexer.handedOverSnapshot().includes(folder));
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a session started in a removed project while the app runs is reported before the folder is stamped (#879 H1)', async () => {
+  const client = require('../src/index/index-worker-client');
+  const registry = require('../src/projects/project-registry');
+  const w = setup(2);
+  try {
+    const f = w.made[0];
+    const cwd = path.join(w.root, 'proj-0');
+    w.db._removed.add(cwd);
+    await sessionCache.populateCacheViaWorker();
+    const stampBefore = w.db._folderMeta.get(f.folder).indexMtimeMs;
+    indexWrites.getStoreProjectPaths().delete(cwd);
+
+    // The watcher lane: a new transcript appears in the removed project's folder.
+    const name = 'abababab-0000-4000-8000-000000000001';
+    const fresh = writeHeadTranscript(f.dir, name, cwd, HEAD_START);
+    touchLater(fresh);
+    const prep = storeIndexer.refreshFilePrepare(f.folder, path.join(f.folder, name + '.jsonl'));
+    assert.deepEqual(prep, { sighted: true }, 'a new start asks for the registry sync');
+    const seen = indexWrites.getStoreProjectPaths().get(cwd);
+    assert.equal(seen.startedAt, HEAD_START, 'the start is the head timestamp, not the recency');
+    assert.ok(w.db._folderMeta.get(f.folder).indexMtimeMs > stampBefore, 'and the folder was stamped after it');
+
+    // What syncRegistry then decides on that sighting: a start after the removal brings the project back.
+    assert.equal(registry.shouldRegister(
+      { removedAt: '2030-01-01T00:00:00.000Z', registered: 0 },
+      { source: 'scan', autoAdd: true, sessionStartedAt: seen.startedAt }), true);
+
+    // A later append of the same session is the same start: nothing more is asked for.
+    const later = new Date(Date.now() + 9000);
+    fs.utimesSync(fresh, later, later);
+    assert.equal(storeIndexer.refreshFilePrepare(f.folder, path.join(f.folder, name + '.jsonl')), null);
+
+    // The cold scan trusts the stamp now, and nothing is lost: the sighting was recorded before it.
+    indexWrites.getStoreProjectPaths().delete(cwd);
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+    assert.equal(indexWrites.getStoreProjectPaths().has(cwd), false, 'quiet');
+
+    // postFile turns the ask into the registry upkeep (afterReconcile -> syncRegistry), once per new start.
+    const upkeep = [];
+    client.init({
+      PROJECTS_DIR: w.projectsDir, log: { info() {}, warn() {}, debug() {}, silly() {} }, db: w.db,
+      isAppQuitting: () => false, afterReconcile: (changed) => upkeep.push(changed), onFileApplied: () => {},
+    });
+    client._setTransport(() => {});
+    const name2 = 'abababab-0000-4000-8000-000000000002';
+    const second = writeHeadTranscript(f.dir, name2, cwd, '2032-01-01T00:00:00.000Z');
+    touchLater(second);
+    await client.postFile(f.folder, path.join(f.folder, name2 + '.jsonl'));
+    assert.deepEqual(upkeep, [false], 'a newer start ran the upkeep once');
+  } finally {
+    require('../src/index/index-worker-client')._setTransport(null);
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a new transcript with no timestamped line yet leaves the removed folder unstamped (#879 L3)', async () => {
+  const w = setup(1);
+  try {
+    const f = w.made[0];
+    const cwd = path.join(w.root, 'proj-0');
+    w.db._removed.add(cwd);
+    await sessionCache.populateCacheViaWorker();
+    const stampBefore = w.db._folderMeta.get(f.folder).indexMtimeMs;
+    indexWrites.getStoreProjectPaths().delete(cwd);
+
+    // A brand-new session: its header-only first line names no timestamp yet.
+    const name = 'cdcdcdcd-0000-4000-8000-000000000001';
+    const file = path.join(f.dir, name + '.jsonl');
+    fs.writeFileSync(file, JSON.stringify({ type: 'summary', summary: 'x' }) + '\n', 'utf8');
+    touchLater(file);
+    const prep = storeIndexer.refreshFilePrepare(f.folder, path.join(f.folder, name + '.jsonl'));
+    assert.equal(prep, null, 'no new start to report');
+    assert.equal(w.db._folderMeta.get(f.folder).indexMtimeMs, stampBefore, 'and the stamp was left alone');
+
+    // So the next cold start still opens the folder, and finds the start once the head has one.
+    fs.writeFileSync(file,
+      JSON.stringify({ type: 'user', timestamp: HEAD_START, cwd, message: { role: 'user', content: 'x' } }) + '\n', 'utf8');
+    touchLater(file);
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+    assert.equal(indexWrites.getStoreProjectPaths().get(cwd)?.startedAt, HEAD_START);
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('postFile on a removed folder: a new start runs the upkeep once and posts no parse, a repeat nothing (#879 L4)', async () => {
+  const client = require('../src/index/index-worker-client');
+  const w = setup(1);
+  try {
+    const f = w.made[0];
+    const cwd = path.join(w.root, 'proj-0');
+    w.db._removed.add(cwd);
+    await sessionCache.populateCacheViaWorker();
+    indexWrites.getStoreProjectPaths().delete(cwd);
+
+    const upkeep = [];
+    const posted = [];
+    client.init({
+      PROJECTS_DIR: w.projectsDir, log: { info() {}, warn() {}, debug() {}, silly() {} }, db: w.db,
+      isAppQuitting: () => false, afterReconcile: (changed) => upkeep.push(changed), onFileApplied: () => {},
+    });
+    client._setTransport((msg) => posted.push(msg));
+
+    const name = 'efefefef-0000-4000-8000-000000000001';
+    const file = writeHeadTranscript(f.dir, name, cwd, HEAD_START);
+    touchLater(file);
+    const rel = path.join(f.folder, name + '.jsonl');
+    await client.postFile(f.folder, rel);
+    assert.deepEqual(upkeep, [false], 'the upkeep ran once for the new start');
+    assert.deepEqual(posted, [], 'and no parse was posted');
+
+    fs.utimesSync(file, new Date(Date.now() + 9000), new Date(Date.now() + 9000));
+    await client.postFile(f.folder, rel);
+    assert.deepEqual(upkeep, [false], 'a repeat append of the same session calls nothing');
+    assert.deepEqual(posted, []);
+  } finally {
+    client._setTransport(null);
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('the cold-scan skip decision treats an incomplete mtime walk as changed (#879 L1)', () => {
+  const { shouldSkipFolder } = require('../src/workers/scan-gate');
+  const { getFolderIndexState } = require('../src/index/folder-index-state');
+  assert.equal(shouldSkipFolder({ cleared: true }), true, 'a cleared folder needs no state');
+  assert.equal(shouldSkipFolder({ stamp: 0, state: { mtimeMs: 1, complete: true } }), false, 'no stamp: read');
+  assert.equal(shouldSkipFolder({ stamp: 100, state: { mtimeMs: 100, complete: true } }), true, 'equal is current');
+  assert.equal(shouldSkipFolder({ stamp: 100, state: { mtimeMs: 101, complete: true } }), false, 'newer: read');
+  assert.equal(shouldSkipFolder({ stamp: 100, state: { mtimeMs: 50, complete: false } }), false, 'incomplete: read');
+
+  // End to end through the real walk with a failing stat, so it holds on every platform.
+  const w = setup(1);
+  try {
+    const f = w.made[0];
+    const nestedDir = path.join(f.dir, 'sess');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    const nested = path.join(nestedDir, 'agent-1.jsonl');
+    fs.writeFileSync(nested, '{}\n', 'utf8');
+    touchLater(nested);
+    const full = getFolderIndexState(f.dir);
+    const realStat = fs.statSync;
+    fs.statSync = (p, ...rest) => {
+      if (String(p) === nested) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realStat.call(fs, p, ...rest);
+    };
+    try {
+      const state = getFolderIndexState(f.dir);
+      assert.ok(state.mtimeMs <= full.mtimeMs);
+      assert.equal(shouldSkipFolder({ stamp: full.mtimeMs, state }), false, 'looks current by number, is not skipped');
+    } finally {
+      fs.statSync = realStat;
+    }
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a stamped pathless folder with rows below the current parser is read in full (#879 L2)', () => {
+  const w = setup(2);
+  try {
+    const [a, b] = w.made.map(m => m.folder);
+    // Two folders stamped with no project path. `a` still holds a stale row, `b` a current one.
+    w.db.setFolderMeta(a, null, 1000);
+    w.db.setFolderMeta(b, null, 1000);
+    w.db._cache.set('stale-1', { sessionId: 'stale-1', folder: a, parserVersion: CLAUDE_PARSER_VERSION - 1 });
+    w.db._cache.set('fresh-1', { sessionId: 'fresh-1', folder: b, parserVersion: CLAUDE_PARSER_VERSION });
+    const gate = storeIndexer._coldScanGate({ incremental: true });
+    assert.equal(gate.skipStamps[a], undefined, 'stale rows: not behind a stamp compare');
+    assert.ok(!gate.skipFolders.includes(a));
+    assert.equal(gate.skipStamps[b], 1000, 'current rows: still the stamp compare');
+    // And a pathless folder with no rows at all.
+    w.db.setFolderMeta('-empty-pathless', null, 5);
+    assert.equal(storeIndexer._coldScanGate({ incremental: true }).skipStamps['-empty-pathless'], 5);
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a failed stat on a nested transcript makes the folder changed, not current (#879)', () => {
+  const { getFolderIndexState, getFolderIndexMtimeMs: mtimeOf } = require('../src/index/folder-index-state');
+  const { sweepClaude } = require('../src/workers/index-worker');
+  const w = setup(2);
+  try {
+    const f = w.made[0];
+    const nestedDir = path.join(f.dir, 'sess', 'subagents');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    const nested = path.join(nestedDir, 'agent-1.jsonl');
+    fs.writeFileSync(nested, '{}\n', 'utf8');
+    touchLater(nested);
+
+    const full = getFolderIndexState(f.dir);
+    assert.equal(full.complete, true);
+
+    const realStat = fs.statSync;
+    fs.statSync = (p, ...rest) => {
+      if (String(p) === nested) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realStat.call(fs, p, ...rest);
+    };
+    try {
+      const broken = getFolderIndexState(f.dir);
+      assert.equal(broken.complete, false, 'the failed stat is reported');
+      assert.ok(broken.mtimeMs < full.mtimeMs, 'and it did lower the number');
+      assert.equal(mtimeOf(f.dir), broken.mtimeMs, 'the plain number API is unchanged');
+
+      const args = { roots: { claude: w.projectsDir }, folderMeta: { [f.folder]: { indexMtimeMs: full.mtimeMs, projectPath: null } }, removedSet: [], snapshot: { claudeByFolder: {} }, force: false };
+      const swept = sweepClaude(args);
+      assert.ok(!swept.examined.includes(f.folder), 'the reconcile does not call it examined');
+      assert.ok(swept.examined.includes(w.made[1].folder), 'a healthy folder still is');
+    } finally {
+      fs.statSync = realStat;
+    }
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('the cold-scan worker treats an incomplete mtime walk of a stamped removed folder as changed (#879)', async () => {
+  // The worker is a thread, so the stat failure is staged by an unreadable nested DIRECTORY instead of a
+  // patched fs: on platforms where chmod cannot deny reads this is skipped.
+  const rec = recorder();
+  const w = setup(1, { onUpsert: rec.onUpsert });
+  try {
+    const f = w.made[0];
+    const cwd = path.join(w.root, 'proj-0');
+    w.db._removed.add(cwd);
+    await sessionCache.populateCacheViaWorker();
+    indexWrites.getStoreProjectPaths().delete(cwd);
+
+    const locked = path.join(f.dir, 'locked');
+    fs.mkdirSync(locked);
+    fs.writeFileSync(path.join(locked, 'a.jsonl'), '{}\n');
+    fs.chmodSync(locked, 0o000);
+    let denied = false;
+    try { fs.readdirSync(locked); } catch { denied = true; }
+    if (!denied) { fs.chmodSync(locked, 0o755); return; }   // chmod is not honoured here (Windows, root)
+    try {
+      await sessionCache.populateCacheViaWorker({ incremental: true });
+      assert.equal(indexWrites.getStoreProjectPaths().has(cwd), true, 'incomplete walk: the folder was read, not skipped');
+    } finally {
+      fs.chmodSync(locked, 0o755);
+    }
+  } finally {
     fs.rmSync(w.root, { recursive: true, force: true });
   }
 });

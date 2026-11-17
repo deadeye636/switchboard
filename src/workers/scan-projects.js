@@ -24,25 +24,50 @@
 // one rather than a freshly derived one. Both are repaired by the full pass — the rebuild action, a
 // recreated FTS table — which is why that pass stays unconditional.
 //
+// The second gate (#879) is for the two kinds of folder that hold NO rows, so the rows-and-parser-version
+// rule above cannot clear them: a REMOVED project's folder (its rows are purged and never written back) and
+// a PATHLESS one (no project path can be derived). Main stamps both (the cold scan's removed branch, the
+// reconcile's `parseClaudeFolder` for a pathless folder) and sends them as `skipStamps` (folder -> stamp):
+//   (A) such a folder is skipped unless a transcript in it is newer than its stamp, so a session started
+//       after the removal still reaches the #575 bring-back, and a folder whose mtime walk was incomplete (a
+//       failed stat) counts as changed;
+//   (B) a removed folder that IS read is read for its transcript HEADS only (`newestSessionStart`,
+//       memoised, a failed read not memoised) and posts the store-project sighting. It parses no row: the
+//       project is removed, so main writes none, and parsing 100+ MB of transcripts for a result that is
+//       thrown away was the cost. `removedPaths` is main's set of removed project paths.
+// A pathless folder that is read still posts nothing (nothing to apply); the reconcile stamps it.
+//
 // Protocol (store-indexer.js populateCacheViaWorker is the other half):
-//   IN  workerData{projectsDir, skipFolders}           — the store root + the folders cleared for the reconcile
+//   IN  workerData{projectsDir, skipFolders, skipStamps, removedPaths}
+//                                                      — the store root; the folders cleared for the reconcile;
+//                                                        folder -> stamp for removed/pathless folders; the
+//                                                        removed project paths
 //   OUT progress{type:'progress', text}                — status-bar line, unchanged
-//       folder{type:'folder', result}                  — ONE scanned folder, posted as it finishes
+//       folder{type:'folder', result}                  — ONE scanned folder, posted as it finishes. `result` is
+//                                                        {folder, projectPath, sessions, indexMtimeMs}, or for a
+//                                                        removed project {folder, projectPath, sessions: [],
+//                                                        indexMtimeMs, removed: true, storeProject:
+//                                                        {newestAt, startedAt}} — heads only, no rows
 //       {ok:true, folders, skipped}                    — the stream is complete
 //       {ok:false, status}                             — the store root could not be read
 const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
-const { getFolderIndexMtimeMs } = require('../index/folder-index-state');
+const { getFolderIndexState } = require('../index/folder-index-state');
 // Direct path import (NOT the backends registry): this is a worker_thread and must stay Electron-free,
 // and the registry can transitively reach electron. folder-reader only requires session-reader +
-// derive-project-path, both Electron-free (#188).
+// derive-project-path, both Electron-free (#188); folder-parse is the same kind of leaf (#199).
 const { readFolderSessions } = require('../backends/claude/folder-reader');
+const { deriveProjectPath } = require('../session/derive-project-path');
+const { newestSessionStart } = require('../backends/claude/folder-parse');
+const { shouldSkipFolder } = require('./scan-gate');
 
 const PROJECTS_DIR = workerData.projectsDir;
 // The folders main has cleared for skipping (handed to the reconcile); everything else is read in full.
 // Absent/empty = scan everything (the pre-#589 behaviour).
 const SKIP_FOLDERS = new Set((workerData && workerData.skipFolders) || []);
+const SKIP_STAMPS = (workerData && workerData.skipStamps) || {};
+const REMOVED_PATHS = new Set((workerData && workerData.removedPaths) || []);
 
 // A sentinel rather than a second return channel: `null` already means "no project path, post nothing",
 // and the two are counted differently in the terminal message.
@@ -50,12 +75,31 @@ const SKIPPED = { skipped: true };
 
 function readFolderFromFilesystem(folder) {
   // The gate (#589, #881): a cleared folder is the reconcile's, changed or not, and costs no stat walk here.
-  if (SKIP_FOLDERS.has(folder)) return SKIPPED;
+  if (shouldSkipFolder({ cleared: SKIP_FOLDERS.has(folder) })) return SKIPPED;
+  const folderPath = path.join(PROJECTS_DIR, folder);
   // Capture the index mtime before reading sessions so a concurrent index
   // write during the read still triggers the next refresh.
-  const indexMtimeMs = getFolderIndexMtimeMs(path.join(PROJECTS_DIR, folder));
-  const { projectPath, sessions } = readFolderSessions(PROJECTS_DIR, folder);
+  const state = getFolderIndexState(folderPath);
+  const indexMtimeMs = state.mtimeMs;
+  // The mtime gate (#879) — for a stamped removed or pathless folder only. `<=` and not `<`, matching
+  // workers/index-worker.js. An incomplete walk may have under-counted: that is "changed", not "current".
+  if (shouldSkipFolder({ stamp: SKIP_STAMPS[folder], state })) return SKIPPED;
+
+  const projectPath = deriveProjectPath(folderPath);
   if (!projectPath) return null;
+  if (REMOVED_PATHS.has(projectPath)) {
+    // (B): the heads, never the rows. `newestAt` is the folder's index mtime, a RECENCY, exactly as the
+    // reconcile's removed branch reports it; `startedAt` is the newest session START (#575) and is null
+    // when no head can say — the recency is never substituted for it.
+    return {
+      folder, projectPath, sessions: [], indexMtimeMs, removed: true,
+      storeProject: {
+        newestAt: indexMtimeMs ? new Date(indexMtimeMs).toISOString() : null,
+        startedAt: newestSessionStart(folderPath),
+      },
+    };
+  }
+  const { sessions } = readFolderSessions(PROJECTS_DIR, folder, { projectPath });
   return { folder, projectPath, sessions, indexMtimeMs };
 }
 

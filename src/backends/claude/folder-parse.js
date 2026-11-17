@@ -234,6 +234,8 @@ function parseClaudeFile(filePath, folder, projectPath, { parentSessionId } = {}
 
 module.exports = {
   parseClaudeFolder,
+  newestSessionStart,
+  sessionStartedAt,
   parseClaudeFile,
   _sessionStartAt,
   _fileReadState,

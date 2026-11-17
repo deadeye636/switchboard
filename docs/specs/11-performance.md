@@ -446,6 +446,33 @@ Three things on our side of that fence:
   alone, and `applyReconcileReply` releases the folders its request was posted with, tripped or proven
   current. A cold scan that reads a folder in full releases it too.
 
+  **Removed and pathless folders (#879).** Neither holds rows, so the rows-and-version rule above can never
+  clear them, and before this they were fully parsed on every cold start (a removed project's folder is
+  parsed in the worker, then thrown away on main). Main sends each stamped one to the worker as `skipStamps`
+  and the worker keeps the old compare for exactly these two kinds: nothing in the folder newer than the
+  stamp -> not opened; a transcript newer than it -> read, so a session started after the removal still
+  reaches the #575 bring-back. A removed folder that is read is read for its transcript HEADS only
+  (`newestSessionStart`, memoised, a failed read not memoised): the worker posts `{removed, storeProject:
+  {newestAt, startedAt}}` with no rows, `applyScannedFolder` calls `noteStoreProject` and stamps the folder,
+  and nothing is written for the project (user-state rows stay). `newestAt` is the folder's recency and
+  `startedAt` the head's start; the one is never substituted for the other. A project that is no longer
+  removed is stamped with no rows, so the rows rule reads it in full. A pathless folder is stamped by the
+  reconcile (`parseClaudeFolder`'s no-projectPath branch, run right after the cold scan); the cold scan posts
+  nothing for it and does not need to. A stamped pathless folder that still holds a Claude row below the
+  current parser version is not put behind the stamp compare but read in full, so those rows do not keep
+  their old version for good. Neither kind is in `handedOver`: there is no row for the reconcile to reuse.
+
+  **A session that starts in a removed project while the app runs is reported before the folder is
+  stamped.** The cold scan trusts a removed folder's stamp, and the sighting map is in memory only, so the
+  watcher lane's removed branch (`refreshFilePrepare`) must not stamp without reporting: it reads the new
+  transcript's head start (`sessionStartedAt`, never the recency), calls `noteStoreProject`, and only then
+  stamps. A start newer than any reported this run makes it return `{ sighted: true }`, and `postFile` runs
+  the post-reconcile upkeep (`afterReconcile(false)` -> `syncRegistry`), which is what acts on the feed:
+  past the tombstone it registers the project, re-indexes its folders and pushes `projects-changed`. A
+  later append of the same session reports the same start and asks for nothing. A folder whose mtime walk was incomplete (`getFolderIndexState().complete === false`: a failed stat
+  on a nested transcript, an unreadable subdirectory) counts as changed in the cold scan and is not reported
+  `examined` by the reconcile, so it is neither skipped nor released from the hand-over.
+
   **What the gate takes away, and it is not nothing.** A skipped folder keeps its drift: an FTS entry orphaned there is not cleared, because
   the folder-scoped search wipe rides on the apply that is skipped; and the folder's `projectPath` is
   the stored one rather than a freshly derived one. Both are repaired by the unconditional pass

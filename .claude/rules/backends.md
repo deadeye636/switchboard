@@ -325,6 +325,10 @@ Three things to keep in mind when you touch a reporter:
   the bring-back instead, which the user can always undo by adding the project or launching a session in
   it (`source: 'user'` registers in both modes). The reasoning lives in `project-registry.js` and in
   spec 10; do not re-decide it in a new reporter.
+- **The cold scan's removed-folder read is the same HEADS read (#879).** `src/workers/scan-projects.js` posts
+  `{ removed: true, storeProject: { newestAt, startedAt } }` with no rows for a removed project, and
+  `applyScannedFolder` reports it; a full parse of a folder whose rows are thrown away was the cost. A stamped
+  removed folder with nothing newer is not opened at all.
 - **Claude's REMOVED-folder branch reads HEADS, and still parses nothing.** It never parsed — a removed
   project's rows were purged and re-reading them would put them back — so it had only the folder index
   mtime, a recency it was reporting as a start. `sessionReader.readSessionStartedAt` reads the first chunk

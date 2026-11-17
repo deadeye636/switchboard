@@ -21,7 +21,7 @@ const { deriveProjectPath } = require('../../session/derive-project-path');
 // #199 step 5.2a (F1/F2): the PURE Claude parse-loops + their shared incremental memo live in the
 // Electron-free leaf folder-parse.js. store-indexer re-imports them so there is ONE implementation the
 // step-5 worker and main both run — no drift. The DB-touching orchestration stays HERE, on main.
-const { parseClaudeFolder, _fileReadState } = require('./folder-parse');
+const { parseClaudeFolder, _fileReadState, sessionStartedAt } = require('./folder-parse');
 const backends = require('../index');
 // Claude's format readers are reached THROUGH its descriptor (#188), not by importing the format
 // modules directly. The registry is fully seeded by the time this module is first required (the façade
@@ -36,6 +36,7 @@ const {
   isRemovedProject,
   markPersisted,
   noteStoreProject,
+  getStoreProjectPaths,
   newestSessionAt,
   newestStartedAt,
   notifyRendererProjectsChanged,
@@ -339,8 +340,16 @@ function refreshFilePrepare(folder, relFilename) {
   if (!projectPath) return null;
   if (isRemovedProject(projectPath)) {
     cancelReindex(filePath);
-    stampFolderUnlessHandedOver(folder, projectPath, folderPath);
-    return null;
+    // Record the sighting BEFORE the stamp (#879). The cold scan trusts a removed folder's stamp and does not
+    // open it again, and the sighting map is in memory only: a session that starts in a removed project while
+    // the app runs and is only stamped here would never reach the #575 bring-back, not even after a restart.
+    // The START comes from the transcript's head, never from the recency; a head that cannot say gives null.
+    const sighting = noteRemovedSighting(projectPath, filePath, folderPath);
+    // No start found in an existing transcript: leave the stamp alone, so the next cold start reads the
+    // folder's heads again instead of trusting a stamp that hides this session (L3).
+    if (sighting.stamp) stampFolderUnlessHandedOver(folder, projectPath, folderPath);
+    // `sighted` asks the caller for the registry sync: it is what acts on a sighting (see postFile).
+    return sighting.isNew ? { sighted: true } : null;
   }
   if (!fs.existsSync(filePath)) {
     cancelReindex(filePath);
@@ -359,6 +368,29 @@ function refreshFilePrepare(folder, relFilename) {
   // refresh while the off-thread read is pending — exactly as refreshFile does inline.
   stampFolderUnlessHandedOver(folder, projectPath, folderPath);
   return { filePath, folder, projectPath, parentSessionId };
+}
+
+// A transcript the watcher saw in a REMOVED project: report it to the register feed. A NEW session start for
+// that project (a start later than any this run has reported) is the only thing that can bring a project
+// back; a live session that merely appends reports the same start and asks for nothing. `newestAt` is the folder's recency (as the reconcile's removed branch reports it), `startedAt` the
+// head's start and null when the head cannot say — the one is never substituted for the other (#575).
+//
+// Returns { stamp, isNew }. `stamp` says whether the folder may be stamped afterwards: a file that is gone
+// has nothing to report, but a transcript that exists and whose head names no timestamp yet (a brand-new
+// session) must NOT be stamped over, or the next cold start would trust the stamp and that session could
+// never bring the project back (L3). `isNew`: a start later than any reported this run.
+function noteRemovedSighting(projectPath, filePath, folderPath) {
+  let exists = false;
+  try { exists = fs.statSync(filePath).isFile(); } catch { /* gone: the delete branch is the next one */ }
+  if (!exists) return { stamp: true, isNew: false };
+  const startedAt = sessionStartedAt(filePath);
+  const newestMs = getFolderIndexMtimeMs(folderPath);
+  const prev = getStoreProjectPaths().get(projectPath) || null;
+  noteStoreProject(projectPath, newestMs ? new Date(newestMs).toISOString() : null, startedAt);
+  return {
+    stamp: !!startedAt,
+    isNew: !!startedAt && (!prev || !prev.startedAt || startedAt > prev.startedAt),
+  };
 }
 
 // Folders the cold scan skipped and handed to the reconcile (#881), until a reconcile reply covering them has
@@ -405,15 +437,26 @@ let cancelActiveScan = null;
 
 // Apply ONE scanned folder. Split out of the message handler so the streamed drain below can run it
 // once per event-loop turn — the body is byte-for-byte the old loop body. Returns the session count.
-function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs }, scope) {
+function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs, removed, storeProject }, scope) {
   // The cold scan read this folder in full and stamps it below: no longer handed over (#881).
   handedOver.delete(folder);
+  // A removed folder the worker read for its HEADS only (#879): no rows came with it, none are written.
+  // `isRemovedProject` is asked again on main because the worker's removed set is a snapshot: a project
+  // un-removed since then must not be stamped as read (its rows were never read), so it is left unstamped
+  // for the reconcile gate to trip on.
+  if (removed && storeProject) {
+    if (!isRemovedProject(projectPath)) return 0;
+    noteStoreProject(projectPath, storeProject.newestAt, storeProject.startedAt);
+    setFolderMeta(folder, projectPath, indexMtimeMs);
+    return 0;
+  }
   // A REMOVED project is not indexed — and this is a WRITE path like any other (#167). Without this a
   // "Rebuild session cache" (or any cold start that takes the worker path) would put a removed
   // project's sessions back into the cache, the search index and the stats as an invisible zombie.
   if (projectPath && isRemovedProject(projectPath)) {
-    // The cold scan parsed these rows in full, so it can report a real START (#575) — unlike the
-    // incremental removed branch, which reads only the heads of the folder's transcripts.
+    // Only a removed folder the worker did not know to be removed reaches here with parsed rows (it was
+    // never stamped, so its path was not in the worker's removed set): the rows give a real START (#575).
+    // A known one arrives as heads only, above.
     noteStoreProject(projectPath, newestSessionAt(sessions), newestStartedAt(sessions));
     setFolderMeta(folder, projectPath, indexMtimeMs);
     return 0;
@@ -470,23 +513,50 @@ function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs }, sco
  *
  * The scope is Claude's: a project folder key is shared with Axis-B backends, whose rows live elsewhere
  * and carry their own parser versions.
+ *
+ * Two kinds of folder the rule above can never clear, because they hold no rows (#879): a stamped REMOVED
+ * project's folder and a stamped PATHLESS one (the reconcile stamps those with a null projectPath, so the
+ * cold scan need not). They go to the worker as `skipStamps` and keep the old mtime compare: nothing newer
+ * than the stamp -> not opened. A newer transcript -> read, and a removed folder is then read for its HEADS
+ * only (the worker posts the store-project sighting, `applyScannedFolder` stamps it, no row is written).
+ * These are not handed over to the reconcile and not in `handedOver`: there is no row for it to reuse.
  */
-function coldScanSkipFolders() {
-  if (typeof getAllFolderMeta !== 'function' || typeof getCachedByFolder !== 'function') return [];
+function coldScanGate({ incremental }) {
+  const gate = { skipFolders: [], skipStamps: {}, removedPaths: [] };
+  if (typeof getAllFolderMeta !== 'function') return gate;
   let metaMap;
-  try { metaMap = getAllFolderMeta() || new Map(); } catch { return []; }
+  try { metaMap = getAllFolderMeta() || new Map(); } catch { return gate; }
   const scope = claudeStoreScope();
-  const skip = [];
   for (const [folder, meta] of metaMap) {
+    const projectPath = meta && meta.projectPath;
+    const removed = !!projectPath && isRemovedProject(projectPath);
+    // Every removed project's path goes to the worker, stamped or not, even on the full pass: a removed
+    // folder is only ever read for its heads (#879), because nothing of it is written.
+    if (removed) gate.removedPaths.push(projectPath);
+    if (!incremental) continue;
     const stamp = meta && meta.indexMtimeMs;
     if (!stamp) continue;
+    // #879: a stamped REMOVED folder and a stamped PATHLESS one hold no rows, so the rule below can never
+    // clear them. They keep the mtime compare, in the worker: unchanged since the stamp -> not opened; a
+    // transcript newer than the stamp -> read (heads only for a removed one), so a session started after the
+    // removal still reaches the #575 bring-back. A project that is no longer removed is neither kind and
+    // falls through to the rows rule: stamped, no rows -> read in full.
+    if (removed) { gate.skipStamps[folder] = stamp; continue; }
+    if (typeof getCachedByFolder !== 'function') continue;
     let rows;
     try { rows = getCachedByFolder(folder, scope) || []; } catch { continue; }
+    if (!projectPath) {
+      // Pathless: normally no rows, so the stamp compare. But rows that still carry an old parser version
+      // would keep it for good behind a stamp compare — then the folder is read in full (#879).
+      if (rows.some(r => r.parserVersion !== CLAUDE_PARSER_VERSION)) continue;
+      gate.skipStamps[folder] = stamp;
+      continue;
+    }
     if (!rows.length) continue;
     if (rows.some(r => r.parserVersion !== CLAUDE_PARSER_VERSION)) continue;
-    skip.push(folder);
+    gate.skipFolders.push(folder);
   }
-  return skip;
+  return gate;
 }
 
 /**
@@ -499,7 +569,7 @@ function coldScanSkipFolders() {
  * every folder and leave search permanently empty behind a full sidebar.
  *
  * A parser bump is NOT one of them (#880): the gate already re-reads every folder holding a row below
- * the current parser version (`coldScanSkipFolders`) and resumes per folder, so one gated pass covers a
+ * the current parser version (`coldScanGate`) and resumes per folder, so one gated pass covers a
  * bump. The global `claudeParserVersion` setting is retired; nothing chains a second pass for it.
  *
  * ESCALATION. Concurrent callers share one in-flight scan, so a full request arriving while the gated
@@ -517,7 +587,7 @@ function populateCacheViaWorker({ incremental = false } = {}) {
   }
   populateIsIncremental = !!incremental;
   populateCancelled = false;
-  const skipFolders = incremental ? coldScanSkipFolders() : [];
+  const { skipFolders, skipStamps, removedPaths } = coldScanGate({ incremental });
   for (const f of skipFolders) handedOver.add(f);   // the watcher lane may not stamp them until a reconcile has (#881)
   sendStatus('Scanning projects…', 'active');
 
@@ -538,7 +608,7 @@ function populateCacheViaWorker({ incremental = false } = {}) {
     };
 
   const worker = new Worker(path.join(__dirname, '..', '..', 'workers', 'scan-projects.js'), {
-    workerData: { projectsDir: PROJECTS_DIR, skipFolders },
+    workerData: { projectsDir: PROJECTS_DIR, skipFolders, skipStamps, removedPaths },
   });
   activeScanWorker = worker;
 
@@ -718,4 +788,6 @@ module.exports = {
   claudeEnabled,
   // exposed for the façade's readSessionFile re-export convenience
   claude,
+  // test seam: what the cold start would send the scan worker (#879)
+  _coldScanGate: coldScanGate,
 };
