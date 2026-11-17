@@ -205,6 +205,33 @@ const UNC = String.fromCharCode(92, 92) + 'evil-host' + String.fromCharCode(92) 
 const at9 = Date.UTC(2026, 10, 16, 9);
 const entry = (o) => ({ lineageId: 'S', sessionId: 'S', fromSha: null, toSha: null, fromPosition: null, files: null, repoRoot: null, how: null, ...o });
 
+// A reopened review ends at the HEAD a Clear recorded: the app's own SHA, used without a lookup, so it has to be ASKED about.
+function reviewSetup(catFile) {
+  const s = setup({
+    files: [{ path: 'src/a.js', count: 3, first: 1, last: 50, at: at9 }],
+    answers: { 'rev-list': ok(FULL('a')), 'cat-file': catFile, log: ok(''), diff: ok('') },
+  });
+  s.store.entries.push(entry({ id: 1, kind: 'start', position: null, at: 1, sha: FULL('a') }));
+  s.store.entries.push(entry({ id: 2, kind: 'clear', position: 20, at: 2, toSha: FULL('b'), files: { files: [['src/a.js', 1]], truncated: false } }));
+  return s;
+}
+
+test('a reopened review whose recorded end the repository no longer holds says the commits are gone', async () => {
+  const { calls } = reviewSetup((args) => (args.includes(FULL('b') + '^{commit}') || args.some((a) => a.includes(FULL('b'))) ? { code: 128 } : ok('')));
+  const st = await sc.state('S', { range: 'pick', pickFrom: 1, pickTo: 2 });
+  assert.equal(st.review.n, 1);
+  assert.equal(st.review.gone, true);
+  assert.ok(st.notes.some((n) => n.code === 'review-gone'));
+  assert.ok(calls.some((c) => sub(c) === 'cat-file' && c.args.some((a) => a.includes(FULL('b')))), 'the end was asked about');
+});
+
+test('a reopened review whose recorded end is still held is not reported gone', async () => {
+  reviewSetup(ok(''));
+  const st = await sc.state('S', { range: 'pick', pickFrom: 1, pickTo: 2 });
+  assert.equal(st.review.gone, false);
+  assert.equal(st.notes.some((n) => n.code === 'review-gone'), false);
+});
+
 test('row ids are content-derived: a Details id of range B diffs B\'s file after the sidebar asked range A', async () => {
   const { store, calls } = setup({
     files: [{ path: 'src/a.js', count: 3, first: 1, last: 50, at: at9 }],
@@ -238,8 +265,9 @@ test('spawns are bounded: 120 recorded commits not in history cost at most SPAWN
   const st = await sc.state('S', { range: 'whole' });
   assert.equal(st.commits.length, uniq.length);
   // A FIRST refresh: the bound includes the timeline's baseline calls.
-  // 2 baseline + 1 check + 1 history + 2 * (8 cut + 16 mark lookups, each with one ancestry check) + 12 numstat reads.
-  assert.equal(sc.SPAWN_BOUND, 64);
+  // 2 baseline + 1 check + 1 history + 2 * (8 cut + 16 mark lookups, each with one ancestry check) + 12 numstat reads
+  // + 1 for the end of a range that stops at a recorded SHA (a reopened review; this whole-session range has none).
+  assert.equal(sc.SPAWN_BOUND, 65);
   assert.ok(calls.length <= sc.SPAWN_BOUND, `${calls.length} calls, bound ${sc.SPAWN_BOUND}`);
   assert.ok(calls.filter((c) => sub(c) === 'rev-parse').length <= 16);
   // The same commits all in history: matched by the history read, no lookup at all.

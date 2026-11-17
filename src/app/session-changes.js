@@ -418,7 +418,8 @@ function gatherDb(sessionId, request) {
  * check (1) + the history read (1) + the cut SHAs (`MAX_CUT_RESOLVE` lookups, a budget of their own, taken FIRST so the
  * blocks keep their counts) + the shown commits' marks (`MAX_RESOLVE` lookups) + one ancestry check per resolved SHA that
  * is not in the history read (a cut SHA resolved above can be a shown commit too, so up to `MAX_CUT_RESOLVE + MAX_RESOLVE`
- * of them) + `MAX_NUMSTAT_CUTS` line-count reads. Only the commits the answer SHOWS are checked (`plan.shas`), and a SHA the
+ * of them) + `MAX_NUMSTAT_CUTS` line-count reads + the end check of a range that stops at a SHA the app recorded (1, a
+ * past review or a pick ending at a Clear). Only the commits the answer SHOWS are checked (`plan.shas`), and a SHA the
  * history read holds costs nothing.
  */
 async function gitFacts(co, first) {
@@ -459,6 +460,19 @@ async function gitFacts(co, first) {
       from: await full(cut.fromSha, cut.fromTrusted),
       to: cut.working ? null : await full(cut.toSha, cut.toTrusted),
     });
+  }
+  // A range that ends at a recorded SHA (a reopened review, a pushed block): the end no longer resolving is said, not guessed.
+  // Only a `null` is "gone" (looked up and not a commit here); `undefined` is a spent lookup budget, which is unknown. An end
+  // the app wrote itself (a Clear's HEAD) needs no lookup, so it is asked whether the repository still HOLDS it, like the
+  // baseline above: a rewritten and collected commit is the case a reopened review has to say out loud.
+  const firstCut = cuts[0] || null;
+  const firstEnds = firstCut ? ends.get(firstCut.id) : null;
+  if (firstCut && !firstCut.working && firstEnds) {
+    if (firstEnds.to === null) facts.endGone = true;
+    else if (typeof firstEnds.to === 'string' && firstCut.toTrusted && firstCut.toSha === firstEnds.to) {
+      const held = await run(co.provider, co.root, () => co.provider.revExistsArgs(firstEnds.to), CAP_SMALL);
+      if (!held.ok) { if (held.code === 128 || held.code === 1 || held.refused) facts.endGone = true; else facts.failed = true; }
+    }
   }
   const matched = new Set();
   for (const raw of first.plan.shas.filter((s) => RECORDED_SHA_RE.test(s))) {
@@ -834,7 +848,7 @@ function getView(sessionId) {
   return { range: r.range, view: r.view, pickFrom: r.pickFrom, pickTo: r.pickTo };
 }
 
-function setView(sessionId, value) {
+function setView(sessionId, value, sender) {
   if (typeof sessionId !== 'string' || !sessionId || quitting()) return { ok: false };
   const s = store();
   if (typeof s.setChangesView !== 'function') return { ok: false };
@@ -844,8 +858,9 @@ function setView(sessionId, value) {
     s.setChangesView(sessionId, cleanChangesView({ range: r.range, view: r.view, pickFrom: r.pickFrom, pickTo: r.pickTo }));
   }
   // The range and view are shared by every window that shows this session (the sidebar group, Details): the ones that
-  // follow it read again, so a change made in one is seen in the other.
-  notifyFollowers(sessionId);
+  // follow it read again, so a change made in one is seen in the other. The window that wrote it is left out: it reads on
+  // its own right after the write, and a notice on top would be a second read of the same answer.
+  notifyFollowers(sessionId, sender ? senderKeyOf(sender) : undefined);
   return { ok: true };
 }
 
@@ -877,10 +892,11 @@ function statusOf(cwd) {
   try { return typeof ctx.getVcsStatus === 'function' ? statusSig(ctx.getVcsStatus(cwd)) : null; } catch { return null; }
 }
 
-function notifyFollowers(sessionId) {
+function notifyFollowers(sessionId, exceptKey) {
   const f = followed.get(sessionId);
   if (!f || quitting()) return;
   for (const [key, sender] of [...f.subs]) {
+    if (exceptKey !== undefined && key === exceptKey) continue;   // the window that made the change reads on its own
     if (!sender || (typeof sender.isDestroyed === 'function' && sender.isDestroyed())) { dropSub(sessionId, key); continue; }
     try { sender.send(CHANGED_CHANNEL, { sessionId }); } catch { dropSub(sessionId, key); }
   }
@@ -982,7 +998,7 @@ function registerIpc(ipc) {
   ipc.handle('session-changes-clear', (_e, sessionId, opts) => clear(sessionId, { missing: !!(opts && opts.missing === true) }));
   ipc.handle('session-changes-entries', (_e, sessionId, opts) => entries(sessionId, optsOf(opts)));
   ipc.handle('session-changes-view-get', (_e, sessionId) => getView(sessionId));
-  ipc.handle('session-changes-view-set', (_e, sessionId, value) => setView(sessionId, value));
+  ipc.handle('session-changes-view-set', (e, sessionId, value) => setView(sessionId, value, e && e.sender));
   // The Changes group follows while it is open and shown (spec 47 section 4); fire-and-forget like `vcs-follow`.
   ipc.handle('session-changes-follow', (e, sessionId) => follow(sessionId, e && e.sender));
   ipc.on('session-changes-unfollow', (e, sessionId) => { unfollow(sessionId, e && e.sender); });
@@ -990,7 +1006,8 @@ function registerIpc(ipc) {
 
 module.exports = {
   init, registerIpc, summary, state, details, entries, diff, versions, open, openDetails, openDiffWindow, clear, getView, setView, forget, follow, unfollow, noteScanWrite,
-  SPAWN_BOUND: 2 + 2 + 2 * (MAX_CUT_RESOLVE + MAX_RESOLVE) + MAX_NUMSTAT_CUTS,
+  // + 1: a range that ends at a recorded SHA (a reopened review) asks once whether the repository still holds that end.
+  SPAWN_BOUND: 2 + 2 + 2 * (MAX_CUT_RESOLVE + MAX_RESOLVE) + MAX_NUMSTAT_CUTS + 1,
   _lineageOf: (id) => lineageOf(id),
   _followedSessions: () => [...followed.keys()],
   _hasTargets: (id) => targets.has(id),

@@ -185,6 +185,22 @@ function toBoundary(tick, order) {
   return { sessionId: order[i - 1], position: null, at: tick.at };
 }
 
+/**
+ * V2: the review a range reopens, or null. It is a pick whose end is a Clear and whose start is the entry just before it
+ * (the previous Clear, or the start): no other Clear lies between. `n` counts Clears in timeline order (the first Clear is
+ * review 1). Its content is what the stored entries and the history hold; what was uncommitted then is not reconstructible,
+ * and the answer says so through a note (the renderer words it).
+ */
+function reviewOf(ticks, range, req) {
+  if (req.range !== 'pick' || range.empty || range.to === null) return null;
+  const from = ticks[range.from];
+  const to = ticks[range.to];
+  if (!from || !to || to.kind !== 'clear' || (from.kind !== 'clear' && from.kind !== 'start')) return null;
+  if (ticks.slice(range.from + 1, range.to).some((t) => t.kind === 'clear')) return null;
+  const n = ticks.slice(0, range.to + 1).filter((t) => t.kind === 'clear').length;
+  return { n, at: num(to.at), fromAt: num(from.at), fromKind: from.kind, fromSha: short(from.kind === 'clear' ? from.toSha : from.sha), toSha: short(to.toSha), readOnly: true, gone: false, unrecorded: !to.toSha };
+}
+
 /** The commits of every session that a later amend replaced (E3: the amend's SHA takes the old one's place). */
 function replacedCommits(rowsBySession) {
   const gone = new Set();
@@ -397,7 +413,7 @@ function figureOf(ctx) {
  *   request      { range, view, pickFrom, pickTo }; now: ms
  *   paths        Map<rawPath, { key, outside }>
  *   facts        { outside: Set<key>, untracked: Set<key>, editedByOthers: Map<key, n>, statusKeys: [key] }
- *   vcs          null (not read: DB only) or { noRepo, failed, baselineGone, inHistory: Map<rawSha, bool>,
+ *   vcs          null (not read: DB only) or { noRepo, failed, baselineGone, endGone (the range's recorded end), inHistory: Map<rawSha, bool>,
  *                numstat: Map<cutId, Map<key, { added, deleted, binary }>>, otherCommits }
  */
 function buildModel(input) {
@@ -479,7 +495,24 @@ function buildModel(input) {
   if (vcs && vcs.noRepo) notes.push({ code: 'no-repo' });
   // E2: a gone review point offers "Set review point to now"; a gone start of any other range only says so.
   const reviewGone = !!(vcs && vcs.baselineGone) && req.range === 'since-review';
-  if (vcs && vcs.baselineGone) notes.push({ code: reviewGone ? 'baseline-gone' : 'range-start-gone' });
+  // V2: a picked range from the entry before a Clear to that Clear IS that review, reopened read-only.
+  const review = reviewOf(ticks, range, req);
+  if (review) {
+    // "new" is about the working tree now, not that review's time: in All and in every Split block, or a diff would read it.
+    for (const f of files) f.isNew = false;
+    for (const b of blocks) for (const f of b.files) f.isNew = false;
+    // A Clear that recorded no HEAD (no repository was readable then) has no end of its own: the cut would borrow the
+    // tick before it and show an empty range as if nothing had happened. It says so instead.
+    const gone = !review.unrecorded && !!(vcs && (vcs.baselineGone || vcs.endGone));
+    review.gone = gone;
+    // An unrecorded review has no committed part to show, so the "this shows its commits and diffs" sentence would
+    // contradict its own note.
+    if (review.unrecorded) notes.push({ code: 'review-no-commit' });
+    else {
+      if (gone) notes.push({ code: 'review-gone' });
+      notes.push({ code: 'review-uncommitted' });
+    }
+  } else if (vcs && vcs.baselineGone) notes.push({ code: reviewGone ? 'baseline-gone' : 'range-start-gone' });
   if (vcs && vcs.failed) notes.push({ code: 'vcs-failed' });
   if (vcs && vcs.countsCapped) notes.push({ code: 'counts-unavailable' });
   if (truncated) notes.push({ code: 'truncated', limit: truncated.limit });
@@ -513,7 +546,9 @@ function buildModel(input) {
     figure,
     state,
     notes,
-    actions: { clear: !!figure && !reviewGone, setReviewPointNow: reviewGone },
+    // A reopened review is read-only: nothing to mark as reviewed, no review point to set.
+    actions: { clear: !review && !!figure && !reviewGone, setReviewPointNow: !review && reviewGone },
+    review,
     files,
     commits,
     blocks,

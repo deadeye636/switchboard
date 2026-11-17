@@ -64,6 +64,26 @@ test('state selection: every row of the spec\'s states table has its one line', 
   assert.equal(failed.controls, false);
 });
 
+test('a reopened review (V2): its context names it, the notes say read-only content and E2’s wording, and no Clear is offered', () => {
+  const review = { n: 2, at: 77, fromAt: 55, fromKind: 'clear', readOnly: true, gone: false };
+  const v = view({
+    request: { range: 'pick', view: 'all' }, review, actions: { clear: false, setReviewPointNow: false },
+    notes: [{ code: 'review-uncommitted' }],
+  });
+  const model = changesRowModel(v, { fmt });
+  assert.match(model.context, /^Review 2 · t77 · read-only$/);
+  const texts = model.state.notes.map((n) => n.text);
+  assert.ok(texts.some((t) => /Uncommitted content of that time cannot be reconstructed/.test(t)));
+  assert.equal(model.state.clear, false);
+  assert.equal(model.state.setReviewPoint, false);
+  assert.doesNotMatch(changesModelHtml(model), /data-ssb="changes-clear"/);
+  const gone = changesStateOf(view({ review: { ...review, gone: true }, notes: [{ code: 'review-gone' }, { code: 'review-uncommitted' }], actions: { clear: false, setReviewPointNow: false } }));
+  assert.match(gone.notes[0].text, /commits are no longer in this repository.s history\. Diffs are not available\./);
+  assert.equal(gone.notes[0].tone, 'warn');
+  const none = changesStateOf(view({ notes: [{ code: 'review-no-commit' }], actions: { clear: false, setReviewPointNow: false } }));
+  assert.match(none.notes[0].text, /recorded no commit/);
+});
+
 test('rows: a file is its folder dimmed and its name, with new, other sessions and edits in the meta', () => {
   const m = changesRowModel(view({
     files: [file({ isNew: true }), file({ id: 'f:2', key: 'notes.md', count: 1, otherSessions: 2 }), file({ id: 'f:3', key: '/elsewhere/x.js', outside: true, count: null, unknown: true })],

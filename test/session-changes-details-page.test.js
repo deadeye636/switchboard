@@ -243,6 +243,63 @@ test('at.pick is ignored in a state with no strip (a backend that does not repor
   assert.equal(document.querySelector('.strip-note.picking'), null);
 });
 
+test('a reopened review is drawn read-only: its name, the sentence, no Clear, and the way back to the current view', async () => {
+  const review = { n: 2, at: Date.now() - 3600e3, fromAt: Date.now() - 2 * 3600e3, fromKind: 'clear', readOnly: true, gone: false };
+  const view = viewModel({
+    request: { range: 'pick', view: 'all', pickFrom: 3, pickTo: 4 }, review, actions: { clear: false, setReviewPointNow: false },
+    notes: [{ code: 'review-uncommitted' }],
+  });
+  const { document, calls } = load({ view });
+  await settle();
+  const body = document.getElementById('body');
+  assert.match(body.querySelector('.note.review').textContent, /Review 2 · read-only/);
+  assert.match(body.textContent, /Uncommitted content of that time cannot be reconstructed/);
+  assert.equal(document.getElementById('clear').hidden, true, 'no Clear and no Set review point in a past review');
+  assert.match(document.getElementById('foot').textContent, /read-only/);
+  assert.match(body.querySelector('.sub').textContent, /Review 2/);
+  body.querySelector('[data-act="back-current"]').click();
+  await settle();
+  assert.deepEqual(plain(calls.view.at(-1)), { range: 'since-review', view: 'all', pickFrom: null, pickTo: null });
+});
+
+test('a past review whose commits are gone says so', async () => {
+  const review = { n: 1, at: Date.now(), fromAt: null, fromKind: 'start', readOnly: true, gone: true };
+  const { document } = load({ view: viewModel({ review, actions: { clear: false, setReviewPointNow: false }, notes: [{ code: 'review-gone' }, { code: 'review-uncommitted' }] }) });
+  await settle();
+  assert.match(document.getElementById('body').textContent, /commits are no longer in this repository.s history\. Diffs are not available\./);
+});
+
+test('the today marker carries the highlighted line when both neighbours are in the range', async () => {
+  const ticks = [
+    { id: 1, kind: 'start', at: Date.now() - 5 * 3600e3, sha: 'aaaaaaa' },
+    { id: 2, kind: 'clear', at: Date.now() - 3 * 3600e3, sha: 'bbbbbbb' },
+    { id: 3, kind: 'clear', at: Date.now() - 1 * 3600e3, sha: 'ccccccc' },
+  ];
+  const mk = (fromId, toId) => viewModel({ ticks, range: { kind: 'today', empty: false, fromId, toId, todayAt: ticks[1].at - 1000 } });
+  const inside = load({ view: mk(1, null) });
+  await settle();
+  assert.ok(inside.document.querySelector('.tick.marker').classList.contains('in'), 'between two ticks of the range');
+  const outside = load({ view: mk(2, null) });
+  await settle();
+  assert.equal(outside.document.querySelector('.tick.marker').classList.contains('in'), false, 'its left neighbour is the range start: the line starts after it');
+});
+
+test('an `at` that arrives while a read is out is not used up by that older read', async () => {
+  const withRow = viewModel();
+  const without = viewModel({ files: [withRow.files[1]] });       // the older read does not list f:1 yet
+  let release;
+  let n = 0;
+  const gate = new Promise((r) => { release = r; });
+  const { document, calls, listeners } = load({ view: async () => { n++; if (n === 1) { await gate; return without; } return withRow; } });
+  for (let i = 0; i < 6 && calls.details.length < 1; i++) await flush();
+  assert.equal(calls.details.length, 1, 'the first read is out');
+  listeners.at({ id: 'f:1' });
+  release();
+  await settle();
+  assert.equal(n, 2, 'it read again after the notice');
+  assert.ok(document.querySelector('.file[data-id="f:1"]').classList.contains('selected'));
+});
+
 function loadDiffWindow(query, answer) {
   const dom = new JSDOM(fs.readFileSync(path.join(RENDERER, 'diff-window.html'), 'utf8'), {
     url: 'http://localhost/diff-window.html?' + query, runScripts: 'outside-only', pretendToBeVisual: true,

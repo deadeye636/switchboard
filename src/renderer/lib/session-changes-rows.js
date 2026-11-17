@@ -53,6 +53,10 @@
     'counts-unavailable': { tone: '', text: () => 'Line counts are not shown for every file.' },
     truncated: { tone: '', text: (n) => `Only the first ${n.limit} files are listed.` },
     'nothing-since-review': { tone: '', text: () => 'Nothing since the last review.' },
+    // A reopened review (V2): read-only, and E2's wording when its commits are gone.
+    'review-gone': { tone: 'warn', text: () => 'This review’s commits are no longer in this repository’s history. Diffs are not available.' },
+    'review-no-commit': { tone: 'warn', text: () => 'This review recorded no commit (no repository could be read then), so it has no diffs to show. The edit counts below are the ones stored.' },
+    'review-uncommitted': { tone: '', text: () => 'Uncommitted content of that time cannot be reconstructed: this shows its commits, the edit counts that were stored and the committed part of each diff.' },
   };
 
   // The state the group is in and the notes it says: pure, so a test can pin every row of the states table.
@@ -145,6 +149,7 @@
     const review = view.lastReview;
     if (state.lists) {
       if (kind === 'since-review') model.context = review && review.at ? `Since Clear ${fmt(review.at)}${review.sha ? ` · ${review.sha}` : ''}` : 'Since the session started';
+      else if (view.review) model.context = `Review ${view.review.n}${view.review.at ? ` · ${fmt(view.review.at)}` : ''} · read-only`;
       else model.context = { today: 'Today', 'since-push': 'Since the last push', whole: 'Whole session', pick: 'Picked entries' }[kind] || '';
     } else if (kind === 'since-review' && review && review.at) {
       const now = isNum(ui.now) ? ui.now : Date.now();

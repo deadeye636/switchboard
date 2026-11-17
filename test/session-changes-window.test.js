@@ -231,6 +231,23 @@ test('a change of the kept range or view tells the windows that follow the sessi
   sc.unfollow('S', sender);
 });
 
+test('the window that changed the view is not told about it: it reads on its own, the other one is', () => {
+  setup();
+  const mk = (id) => { const sent = []; return { sent, id, send: (ch) => sent.push(ch), isDestroyed: () => false, once() {}, on() {} }; };
+  const sidebar = mk(902);
+  const details = mk(903);
+  sc.follow('S', sidebar);
+  sc.follow('S', details);
+  sc.setView('S', { range: 'today', view: 'all', pickFrom: null, pickTo: null }, details);
+  assert.deepEqual(details.sent, [], 'the writer reads itself');
+  assert.deepEqual(sidebar.sent, ['session-changes-updated']);
+  sc.setView('S', { range: 'whole', view: 'all', pickFrom: null, pickTo: null }, sidebar);
+  assert.deepEqual(sidebar.sent, ['session-changes-updated'], 'nor the sidebar when it wrote');
+  assert.deepEqual(details.sent, ['session-changes-updated']);
+  sc.unfollow('S', sidebar);
+  sc.unfollow('S', details);
+});
+
 test('a diff window is opened by row id from a kept answer, and a stale id is refused', async () => {
   const { made } = setup();
   assert.equal(sc.openDiffWindow('S', 'f:unknown').ok, false);

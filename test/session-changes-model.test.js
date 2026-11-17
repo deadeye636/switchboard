@@ -305,6 +305,90 @@ test('a gone start of a range other than "Since last review" has its own note an
   assert.ok(c.notes.some((n) => n.code === 'counts-unavailable'));
 });
 
+// --- V2: reopening a review (Clear N-1 to Clear N) is a read-only range ---
+
+function reviewInput(request, vcsFacts) {
+  return input({
+    rows: { S: row({ files: [file('a.js', 5, 250, day(11, 30)), file('b.js', 1, 120, day(10, 30))], commits: [commit('abc1234', 90, day(9, 30)), commit('def5678', 180, day(10, 40))] }) },
+    entries: [
+      start(),
+      clearE(2, 100, day(10), [['a.js', 2]], { fromSha: SHA_A, toSha: SHA_B }),
+      clearE(3, 200, day(11), [['a.js', 5], ['b.js', 1]], { fromSha: SHA_B, toSha: 'c'.repeat(40) }),
+    ],
+    request,
+    vcs: vcsFacts === undefined ? null : vcsFacts,
+  });
+}
+
+test('review: the range from the previous Clear to a Clear is Review N, read-only, with the counts that were stored', () => {
+  const v = m.buildModel(reviewInput({ range: 'pick', pickFrom: 2, pickTo: 3 }));
+  assert.deepEqual(v.review, { n: 2, at: day(11), fromAt: day(10), fromKind: 'clear', fromSha: SHA_B.slice(0, 7), toSha: 'ccccccc', readOnly: true, gone: false, unrecorded: false });
+  assert.deepEqual(keys(v.files), ['a.js:3', 'b.js:1'], 'the snapshot difference, not the totals of today');
+  assert.deepEqual(v.commits.map((c) => c.sha), ['def5678']);
+  assert.equal(v.actions.clear, false, 'nothing to mark as reviewed');
+  assert.equal(v.actions.setReviewPointNow, false);
+  assert.ok(v.notes.some((n) => n.code === 'review-uncommitted'), 'it says uncommitted content is not reconstructible');
+  assert.equal(v.plan.cuts[0].working, false, 'its diffs are the committed range from..to, not the working tree');
+  assert.equal(v.plan.cuts[0].toSha, 'c'.repeat(40));
+});
+
+test('review: the first Clear is Review 1 and starts at the start entry', () => {
+  const v = m.buildModel(reviewInput({ range: 'pick', pickFrom: 1, pickTo: 2 }));
+  assert.equal(v.review.n, 1);
+  assert.equal(v.review.fromKind, 'start');
+  assert.deepEqual(keys(v.files), ['a.js:2']);
+});
+
+test('review: a range that is not Clear N-1 to Clear N is an ordinary pick', () => {
+  for (const request of [
+    { range: 'pick', pickFrom: 1, pickTo: 3 },       // skips a Clear
+    { range: 'pick', pickFrom: 2, pickTo: null },    // runs to now
+    { range: 'whole' }, { range: 'since-review' },
+  ]) {
+    const v = m.buildModel(reviewInput(request));
+    assert.equal(v.review, null, JSON.stringify(request));
+  }
+});
+
+test('review: a past review whose commits are gone says so in E2’s terms, and offers nothing to set', () => {
+  for (const vcs of [{ baselineGone: true }, { endGone: true }]) {
+    const v = m.buildModel(reviewInput({ range: 'pick', pickFrom: 2, pickTo: 3 }, vcs));
+    assert.equal(v.review.gone, true);
+    assert.ok(v.notes.some((n) => n.code === 'review-gone'));
+    assert.equal(v.notes.some((n) => n.code === 'range-start-gone' || n.code === 'baseline-gone'), false);
+    assert.equal(v.actions.setReviewPointNow, false, 'read-only: no "Set review point to now"');
+    assert.equal(v.actions.clear, false);
+  }
+  const fine = m.buildModel(reviewInput({ range: 'pick', pickFrom: 2, pickTo: 3 }, { inHistory: new Map(), numstat: new Map() }));
+  assert.equal(fine.review.gone, false);
+  assert.equal(fine.notes.some((n) => n.code === 'review-gone'), false);
+});
+
+test('review in Split: no row of any block keeps today’s "new" mark, so no diff of it reads the working tree', () => {
+  const rows = { S: row({
+    files: [file('a.js', 5, 250, day(11, 30))], commits: [commit('abc1234', 90, day(10, 20))],
+    pushes: [push(150, day(10, 30), [['a.js', 3]])],
+  }) };
+  const entries = [start(), clearE(2, 100, day(10), [['a.js', 2]]), clearE(3, 200, day(11), [['a.js', 5]], { fromSha: SHA_B, toSha: 'c'.repeat(40) })];
+  const v = m.buildModel(input({ rows, entries, request: { range: 'pick', view: 'split', pickFrom: 2, pickTo: 3 }, facts: { untracked: new Set(['a.js']) } }));
+  assert.ok(v.review);
+  assert.ok(v.blocks.length >= 2, 'a push between the two Clears cuts the review into blocks');
+  for (const b of v.blocks) for (const f of b.files) assert.equal(f.isNew, false, 'block ' + b.id);
+  for (const f of v.files) assert.equal(f.isNew, false);
+  const now = m.buildModel(input({ rows, entries, request: { range: 'whole', view: 'all' }, facts: { untracked: new Set(['a.js']) } }));
+  assert.equal(now.files[0].isNew, true, 'outside a review the mark is today’s');
+});
+
+test('review: a Clear that recorded no HEAD says so, instead of showing an empty range as if nothing had happened', () => {
+  const entries = [start(), clearE(2, 100, day(10), [['a.js', 2]]), clearE(3, 200, day(11), [['a.js', 5]], { toSha: null })];
+  const v = m.buildModel(input({ rows: { S: row({ files: [file('a.js', 5, 250, day(11, 30))] }) }, entries, request: { range: 'pick', pickFrom: 2, pickTo: 3 }, vcs: { endGone: true } }));
+  assert.equal(v.review.unrecorded, true);
+  assert.ok(v.notes.some((n) => n.code === 'review-no-commit'));
+  assert.equal(v.notes.some((n) => n.code === 'review-gone'), false, 'a missing record is not a collected commit');
+  assert.equal(v.notes.some((n) => n.code === 'review-uncommitted'), false, 'no "this shows its commits and diffs" beside it');
+  assert.equal(v.review.gone, false);
+});
+
 test('row ids are content-derived: the same file in the same cut keeps its id; the plan reads All, then the newest blocks', () => {
   const rows = { S: row({
     files: [file('a.js', 3, 300, day(11))], commits: [commit('1111111', 50, day(8)), commit('2222222', 150, day(9))],

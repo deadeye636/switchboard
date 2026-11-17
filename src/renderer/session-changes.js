@@ -37,6 +37,7 @@
     diffs: new Map(),       // row id -> markup of its last read (drawn at once, read again after each refresh)
     selected: null,
     at: startAt,
+    atStamp: 0,             // the read counter when `at` was set: only a read STARTED after it may land on it
     seq: 0,
   };
 
@@ -90,6 +91,8 @@
 
   function rangeLabel(request) {
     const found = CHANGES_RANGES.find((r) => r[0] === request.range);
+    const review = state.view && state.view.review;
+    if (review && request.range === 'pick') return 'Review ' + review.n;
     return request.range === 'pick' ? 'Picked entries' : found ? found[1] : '';
   }
 
@@ -102,6 +105,12 @@
     let html = '';
     for (const n of st.notes) html += '<div class="note' + (n.tone === 'warn' ? ' warn' : '') + '">' + esc(n.text) + '</div>';
     if (!st.controls) return html || '<div class="empty big">Nothing to show.</div>';
+    // V2: a picked range from one Clear to the next is a past review, read-only. The way back is the current view.
+    if (v.review) {
+      html = '<div class="note review"><span class="tag clear">Review ' + v.review.n + ' · read-only</span> '
+        + esc((isNum(v.review.fromAt) ? 'from ' + when(v.review.fromAt) + ' ' : '') + 'to ' + when(v.review.at))
+        + ' <button type="button" class="btn" data-act="back-current" title="Go back to what is new since the last review">Back to the current view</button></div>' + html;
+    }
     const t = v.totals || {};
     const sub = ['Changes by this session', '<b>' + esc(rangeLabel(state.request)) + '</b>', plural(t.files || 0, 'file'), plural(t.commits || 0, 'commit')];
     if (t.notPushed > 0) sub.push(t.notPushed + ' not pushed');
@@ -139,6 +148,7 @@
     if (isNum(t.added)) parts.push('+' + t.added + ' −' + (t.deleted || 0));
     parts.push(esc(plural(t.edits || 0, 'edit')));
     const base = v.footer && v.footer.baseSha ? v.footer.baseSha : '';
+    if (v.review) return '<span>' + parts.join(' · ') + '</span><span class="hint">A past review: read-only, nothing here can be cleared.</span>';
     const hint = base ? '<span class="hint">Pushed blocks are exact commit ranges. The open block is against ' + esc(base)
       + ' and may include earlier uncommitted work in a file edited again.</span>' : '';
     return '<span>' + parts.join(' · ') + '</span>' + hint;
@@ -159,18 +169,19 @@
     // "Today" is derived, never stored: a marker where the first activity of today falls, not something to pick (V3).
     const todayAt = v.range && v.range.kind === 'today' && isNum(v.range.todayAt) ? v.range.todayAt : null;
     let markerDrawn = todayAt === null;
-    const marker = '<span class="tick marker" title="The first activity of today: not an entry, so it cannot be picked">'
+    // The marker sits between two ticks and carries the range's line through when both of its neighbours are inside it.
+    const marker = (before) => '<span class="tick marker' + (!empty && fromAt >= 0 && before - 1 >= fromAt && before <= last ? ' in' : '') + '" title="The first activity of today: not an entry, so it cannot be picked">'
       + '<span class="dot"></span><span class="lbl">today</span><span class="tm">' + esc(when(todayAt)) + '</span></span>';
     const cells = [];
     ticks.forEach((t, i) => {
-      if (!markerDrawn && isNum(t.at) && t.at > todayAt) { cells.push(marker); markerDrawn = true; }
+      if (!markerDrawn && isNum(t.at) && t.at > todayAt) { cells.push(marker(i)); markerDrawn = true; }
       const cls = ['tick'];
       if (!empty && fromAt >= 0) { if (i === fromAt) cls.push('in-l'); else if (i > fromAt && i <= last) cls.push('in'); }
       if (picked === t.id) cls.push('picked');
       cells.push('<button type="button" class="' + cls.join(' ') + '" data-tick="' + esc(t.id) + '" title="' + esc(t.sha ? 'at ' + t.sha : 'Pick this entry') + '">'
         + '<span class="dot ' + (dotKind[t.kind] || '') + '"></span><span class="lbl">' + esc(word[t.kind] || t.kind) + '</span><span class="tm">' + esc(when(t.at)) + '</span></button>');
     });
-    if (!markerDrawn) cells.push(marker);
+    if (!markerDrawn) cells.push(marker(ticks.length));
     const nowCls = ['tick'];
     if (!empty && fromAt >= 0 && toAt < 0) nowCls.push('in');
     if (picked === NOW_TICK) nowCls.push('picked');
@@ -203,7 +214,8 @@
     clear.dataset.missing = st && st.setReviewPoint ? '1' : '';
   }
 
-  function render() {
+  // `readSeq` is given by a render that shows a finished read; any other render (a pick, a row toggle) never consumes `at`.
+  function render(readSeq) {
     const v = state.view;
     const st = changesStateOf(v);
     drawControls(v, st);
@@ -213,7 +225,7 @@
     el('body').innerHTML = !v ? '<div class="empty big">Loading…</div>' : bodyHtml(v, st);
     el('foot').innerHTML = v && v.ok !== false ? footHtml(v, st) : '';
     for (const id of state.expanded) paintPane(id);
-    landOnSelection();
+    landOnSelection(readSeq);
   }
 
   function paintPane(id) {
@@ -248,9 +260,11 @@
   }
 
   // Opened at an item (`at.id`) or in pick mode (`at.pick`): the row is selected, opened and scrolled into view.
-  function landOnSelection() {
+  function landOnSelection(readSeq) {
     const at = state.at;
     if (!at) return;
+    // A read that was already out when `at` arrived may not list the item yet: it must not use `at` up.
+    if (!isNum(readSeq) || readSeq <= state.atStamp) return;
     if (!state.view) return;     // nothing read yet: keep it for the first answer
     // Whatever the first completed read cannot land on is dropped, so it does not fire again on a later refresh.
     state.at = null;
@@ -295,7 +309,7 @@
         for (const id of [...state.expanded]) if (!listed.has(id)) { state.expanded.delete(id); state.diffs.delete(id); }
       }
       el('updated').textContent = 'updated ' + pad(new Date().getHours()) + ':' + pad(new Date().getMinutes()) + ':' + pad(new Date().getSeconds());
-      render();
+      render(my);
       for (const id of state.expanded) loadDiff(id);
     } finally {
       inFlight = false;
@@ -337,6 +351,7 @@
   });
 
   el('body').addEventListener('click', (e) => {
+    if (e.target.closest('[data-act="back-current"]')) { state.picking = null; keep({ range: 'since-review', pickFrom: null, pickTo: null }); return; }
     const expand = e.target.closest('button.diff-expand');
     if (expand) {
       const pane = expand.closest('.diff-pane');
@@ -379,7 +394,11 @@
 
   // A window that is already open is pointed at another item or into pick mode (main sends the new `at`).
   if (typeof window.api.onSessionChangesDetailsAt === 'function') {
-    window.api.onSessionChangesDetailsAt((at) => { state.at = at && typeof at === 'object' ? at : {}; if (state.at.pick || state.at.id) refresh(false); });
+    window.api.onSessionChangesDetailsAt((at) => {
+      state.at = at && typeof at === 'object' ? at : {};
+      state.atStamp = state.seq;     // a read already out started before this: it may not land on it
+      if (state.at.pick || state.at.id) refresh(false);
+    });
   }
 
   // The window follows its session while it is open: main answers a checkout or scan change with one notice.
