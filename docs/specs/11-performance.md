@@ -392,8 +392,8 @@ Three things on our side of that fence:
 
 - **The scan itself does not re-read what has not changed (#589).** The lever the bullet above left
   unpulled — gating each folder the way the incremental reconcile does — has been pulled. `src/workers/scan-projects.js` now takes a per-folder
-  `skipStamps` map and compares `getFolderIndexMtimeMs` against it — the same gate, against the same
-  number, that the reconcile has made in `src/workers/index-worker.js` since #199. Measured on a
+  `skipFolders` list (since #881; first a `skipStamps` map compared against `getFolderIndexMtimeMs`, see
+  below) — the folders main cleared for the incremental reconcile in `src/workers/index-worker.js`. Measured on a
   synthetic store of 1015 transcripts across 35 folders (2.25 GiB, warm page cache, in-memory index):
   a second launch went from **21 903 ms to 85 ms**, and a launch with one folder's newest transcript
   moved took 737 ms. A first-ever launch is unchanged by design — there is nothing to skip.
@@ -424,12 +424,33 @@ Three things on our side of that fence:
   clears a folder for skipping only when it is stamped, has at least one cached row in Claude's scope,
   and every one of those rows was written by the current parser.
 
-  **What the gate takes away, and it is not nothing.** A skipped folder keeps its drift: a row for a
-  transcript deleted inside a folder whose newest `.jsonl` did not move (anything but the newest file,
-  or a nested subagent transcript) is not pruned; an FTS entry orphaned there is not cleared, because
+  **A live session no longer defeats the gate (#881).** The first gate compared the folder's newest
+  `.jsonl` mtime with the stamp, and a running CLI moves that file every few seconds, so every cold start
+  re-parsed the whole project folder around it. A cleared folder (stamped, at least one row, every Claude
+  row at the current parser version) is now left out of the cold scan whatever its mtime and handed to the
+  incremental reconcile, which reuses a row whose file mtime and parser version match and reads only the
+  changed files. The cold scan writes nothing for a skipped folder, its stamp included, so the reconcile's
+  own gate still trips on a folder that moved and the stamp advances only by whoever really read the files.
+  `app/lifecycle.js` queues the reconcile itself (`queueIndexSweep`) as soon as the cold scan has settled,
+  so the hand-over does not wait for a renderer `get-projects`; after the scan, because a folder the scan
+  reads in full is stamped by then and the worker does not read it twice, and through `index-sweep.js`,
+  which skips the quit (#76) and counts as the first sweep. A stale-version row, no stamp or no rows still
+  forces the full read and wipe-rewrite. Accepted cost: such a folder no longer gets the cold scan's
+  folder-wide drift repair (below); a deleted transcript is still pruned by the reconcile.
+
+  **A handed-over folder is not stamped by the watcher until a reconcile has covered it.** The watcher
+  starts before the cold scan, and `refreshFilePrepare` stamps a folder with its newest mtime while it
+  parses one file — so a live append would push the stamp past a file that changed offline, and the
+  reconcile's gate would then skip the folder for good. `store-indexer.js` keeps the skipped folders in a
+  set (`handedOver`); `refreshFilePrepare` still parses and applies its one file but leaves the stamp
+  alone, and `applyReconcileReply` releases the folders its request was posted with, tripped or proven
+  current. A cold scan that reads a folder in full releases it too.
+
+  **What the gate takes away, and it is not nothing.** A skipped folder keeps its drift: an FTS entry orphaned there is not cleared, because
   the folder-scoped search wipe rides on the apply that is skipped; and the folder's `projectPath` is
-  the stored one rather than a freshly derived one. All three are repaired by the unconditional pass
-  (rebuild, FTS recreate, the reconcile sweep) — and, since #880, no longer by a parser bump.
+  the stored one rather than a freshly derived one. Both are repaired by the unconditional pass
+  (rebuild, FTS recreate) — and, since #880, no longer by a parser bump. (A transcript deleted in a cleared
+  folder is pruned by the reconcile, so it is not on this list any more.)
   The fourth case was a hazard rather than a cost and is closed: `refreshFilePrepare` stamps a folder
   *before* posting its parse, so a reply lost to a worker respawn or a quit left the folder stamped with
   a row that was never written — repaired for free by the old unconditional scan, and lost for ever

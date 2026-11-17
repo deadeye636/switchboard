@@ -7,21 +7,25 @@
 // `open-terminal` is served, no timer fires. One message per folder lets main apply each on its own
 // event-loop turn, and lets the apply overlap the parse instead of piling up behind it.
 //
-// It also GATES (#589). `skipStamps` is main's per-folder "indexed as of" stamp, and a folder whose newest
-// `.jsonl` has not moved past it is not opened at all — the same comparison the reconcile's gate makes in
-// index-worker.js, against the same `getFolderIndexMtimeMs`. Main decides WHICH folders may carry a stamp
-// (it folds in the parser version and refuses a folder with no rows); the worker only compares. An EMPTY
-// `skipStamps` is the unconditional full scan every caller but the cold start still asks for.
+// It also GATES (#589, #881). `skipFolders` is the list of folders main has CLEARED for the incremental
+// reconcile: stamped, holding at least one row, every row at the current parser version. Such a folder is
+// not opened at all — whether or not its newest `.jsonl` moved. The first version compared that mtime
+// against the stamp, and a live session moves it every few seconds, so one running CLI made every cold
+// start re-parse its whole folder (#881). The reconcile (index-worker.js `runClaudeReconcile` ->
+// `parseClaudeFolder`) makes that comparison itself, reuses a row whose file mtime and parser version
+// match and reads only the changed files, so a changed folder is handed to it rather than re-read here.
+// The worker posts NOTHING for a skipped folder, so main does not advance its stamp: the reconcile's gate
+// still trips on it, and the stamp moves only when the files were really read. Main decides WHICH folders
+// are cleared; an EMPTY list is the unconditional full scan every caller but the cold start asks for.
 //
 // What the gate costs is real and is not a rounding error: a skipped folder keeps whatever drift it had.
-// A transcript deleted inside a folder whose newest `.jsonl` did not move (so: anything but the newest
-// file, or a nested subagent transcript) keeps its row; an FTS entry orphaned there stays orphaned,
-// because the folder-scoped search wipe rides on the apply this skips; and the folder's `projectPath` is
-// the stored one rather than a freshly derived one. All three are repaired by the full pass — the rebuild
-// action, a parser bump, a recreated FTS table — which is why that pass stays unconditional.
+// The reconcile prunes a deleted transcript, but an FTS entry orphaned there stays orphaned, because the
+// folder-scoped search wipe rides on the apply this skips, and the folder's `projectPath` is the stored
+// one rather than a freshly derived one. Both are repaired by the full pass — the rebuild action, a
+// recreated FTS table — which is why that pass stays unconditional.
 //
 // Protocol (store-indexer.js populateCacheViaWorker is the other half):
-//   IN  workerData{projectsDir, skipStamps}            — the store root + folder -> indexed-as-of mtime
+//   IN  workerData{projectsDir, skipFolders}           — the store root + the folders cleared for the reconcile
 //   OUT progress{type:'progress', text}                — status-bar line, unchanged
 //       folder{type:'folder', result}                  — ONE scanned folder, posted as it finishes
 //       {ok:true, folders, skipped}                    — the stream is complete
@@ -36,22 +40,20 @@ const { getFolderIndexMtimeMs } = require('../index/folder-index-state');
 const { readFolderSessions } = require('../backends/claude/folder-reader');
 
 const PROJECTS_DIR = workerData.projectsDir;
-// folder -> the mtime main last indexed this folder as of. Only folders main has cleared for skipping are
-// in here; everything else is read in full. Absent/empty = scan everything (the pre-#589 behaviour).
-const SKIP_STAMPS = (workerData && workerData.skipStamps) || {};
+// The folders main has cleared for skipping (handed to the reconcile); everything else is read in full.
+// Absent/empty = scan everything (the pre-#589 behaviour).
+const SKIP_FOLDERS = new Set((workerData && workerData.skipFolders) || []);
 
 // A sentinel rather than a second return channel: `null` already means "no project path, post nothing",
 // and the two are counted differently in the terminal message.
 const SKIPPED = { skipped: true };
 
 function readFolderFromFilesystem(folder) {
+  // The gate (#589, #881): a cleared folder is the reconcile's, changed or not, and costs no stat walk here.
+  if (SKIP_FOLDERS.has(folder)) return SKIPPED;
   // Capture the index mtime before reading sessions so a concurrent index
   // write during the read still triggers the next refresh.
   const indexMtimeMs = getFolderIndexMtimeMs(path.join(PROJECTS_DIR, folder));
-  // The gate (#589). `<=` and not `<`, matching workers/index-worker.js: a stamp equal to the folder's
-  // newest `.jsonl` mtime means the folder was indexed as of that write.
-  const stamp = SKIP_STAMPS[folder];
-  if (stamp && indexMtimeMs <= stamp) return SKIPPED;
   const { projectPath, sessions } = readFolderSessions(PROJECTS_DIR, folder);
   if (!projectPath) return null;
   return { folder, projectPath, sessions, indexMtimeMs };

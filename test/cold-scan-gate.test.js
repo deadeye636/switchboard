@@ -95,6 +95,8 @@ function setup(folders, { onUpsert, infoLines } = {}) {
   }
 
   backends.init({ getGlobalSettings: () => ({ backendEnabled: {} }) });
+  // The hand-over set is module state shared by every test in this file: start each one empty.
+  storeIndexer.releaseHandedOver(storeIndexer.handedOverSnapshot());
   const db = makeFakeDb(onUpsert);
   sessionCache.init({
     PROJECTS_DIR: projectsDir,
@@ -136,18 +138,240 @@ test('a folder that has not changed since the last run is not re-read', async ()
   }
 });
 
-test('only the folder whose transcript moved is re-read', async () => {
+// What the app does right after the cold start: the reconcile request the first get-projects queues, built
+// from the same two inputs index-worker-client posts (the folder stamps and the cached rows per folder).
+// The reply is APPLIED the way index-worker-client does (applyClaudeFolderReply, then the hand-over
+// release), so what a test asserts afterwards is on the db, not on a reply field.
+function reconcileOnce(w) {
+  const { sweepClaude } = require('../src/workers/index-worker');
+  const { claudeStoreScope } = require('../src/index/index-writes');
+  const folderMeta = {};
+  for (const [folder, m] of w.db._folderMeta) folderMeta[folder] = { indexMtimeMs: m.indexMtimeMs, projectPath: m.projectPath };
+  const claudeByFolder = {};
+  const cachedMaps = {};
+  for (const row of w.db._cache.values()) {
+    const filePath = storeIndexer.resolveRowFilePath(row);
+    (claudeByFolder[row.folder] = claudeByFolder[row.folder] || []).push({
+      sessionId: row.sessionId, modified: row.modified, parserVersion: row.parserVersion, filePath,
+    });
+    (cachedMaps[row.folder] = cachedMaps[row.folder] || new Map())
+      .set(row.sessionId, { modified: row.modified, filePath, parserVersion: row.parserVersion });
+  }
+  const handedOver = storeIndexer.handedOverSnapshot();
+  const { out, examined } = sweepClaude({
+    roots: { claude: w.projectsDir }, folderMeta, removedSet: [], snapshot: { claudeByFolder }, force: false,
+  });
+  for (const { folder, reply } of out) {
+    storeIndexer.applyClaudeFolderReply(folder, reply, { scope: claudeStoreScope(), cachedMap: cachedMaps[folder] || new Map() });
+  }
+  storeIndexer.releaseHandedOver(handedOver.filter(f => examined.includes(f)));
+  return out;
+}
+
+test('a folder whose transcript moved is left to the reconcile, which reads only the changed file (#881)', async () => {
+  // A live session moves its transcript every few seconds. The old gate compared that mtime with the stamp
+  // and re-parsed the whole folder on every cold start; a cleared folder is now the reconcile's.
   const rec = recorder();
   const w = setup(4, { onUpsert: rec.onUpsert });
+  try {
+    // A second, untouched transcript in the folder that will move, so "only the changed file" can be told
+    // from "the whole folder".
+    const moved = w.made[2];
+    const cwd = path.join(w.root, 'proj-2');
+    const otherId = 'cccccccc-0000-4000-8000-000000000002';
+    const otherFile = path.join(moved.dir, otherId + '.jsonl');
+    fs.writeFileSync(otherFile,
+      JSON.stringify({ type: 'user', cwd, message: { role: 'user', content: 'other' } }) + '\n', 'utf8');
+
+    await sessionCache.populateCacheViaWorker();
+    rec.seen.length = 0;
+    const stampBefore = w.db._folderMeta.get(moved.folder).indexMtimeMs;
+
+    touchLater(moved.file);
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+
+    assert.deepEqual(rec.seen, [], 'the cold scan opened nothing, the moved folder included');
+    assert.equal(w.db._folderMeta.get(moved.folder).indexMtimeMs, stampBefore,
+      'and it did not stamp a folder it never read');
+
+    const out = reconcileOnce(w);
+    assert.deepEqual(out.map(o => o.folder), [moved.folder], 'the reconcile gate trips on exactly that folder');
+    const reply = out[0].reply;
+    assert.deepEqual(reply.sessions.map(s => s.sessionId), [moved.sessionId],
+      'and it re-read only the changed file, reusing the other row');
+    assert.equal(reply.stats.filesFull + reply.stats.filesIncremental, 1);
+    assert.ok(w.db._folderMeta.get(moved.folder).indexMtimeMs > stampBefore,
+      'the reconcile is what advances the stamp (asserted on the db)');
+    assert.deepEqual(storeIndexer.handedOverSnapshot(), [], 'and it released every handed-over folder');
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('the watcher lane does not stamp a handed-over folder past a file that changed offline (#881 F1)', async () => {
+  // The watcher starts BEFORE the cold scan. A live append stamps its folder with the newest mtime of every
+  // file in it while the one-file parse reads only the live file: without the hand-over guard the stamp jumps
+  // past the file that changed offline and the reconcile's gate skips the folder for good.
+  const rec = recorder();
+  const w = setup(3, { onUpsert: rec.onUpsert });
+  try {
+    const f = w.made[1];
+    const cwd = path.join(w.root, 'proj-1');
+    const offlineId = 'dddddddd-0000-4000-8000-000000000001';
+    const offlineFile = path.join(f.dir, offlineId + '.jsonl');
+    fs.writeFileSync(offlineFile,
+      JSON.stringify({ type: 'user', cwd, message: { role: 'user', content: 'offline' } }) + '\n', 'utf8');
+
+    await sessionCache.populateCacheViaWorker();
+    rec.seen.length = 0;
+    const stampBefore = w.db._folderMeta.get(f.folder).indexMtimeMs;
+
+    touchLater(offlineFile);            // changed while the app was not running
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+    assert.deepEqual(rec.seen, [], 'the cold scan left the folder to the reconcile');
+
+    const later = new Date(Date.now() + 9000);
+    fs.utimesSync(f.file, later, later);   // the live session appends
+    const prep = storeIndexer.refreshFilePrepare(f.folder, path.join(f.folder, path.basename(f.file)));
+    assert.ok(prep && prep.filePath, 'the watcher lane still parses its one file');
+    assert.equal(w.db._folderMeta.get(f.folder).indexMtimeMs, stampBefore,
+      'but it did not advance the stamp of a handed-over folder');
+
+    const out = reconcileOnce(w);
+    const reply = out.find(o => o.folder === f.folder)?.reply;
+    assert.ok(reply, 'the reconcile gate still trips on the folder');
+    assert.ok(reply.sessions.some(s => s.sessionId === offlineId), 'and the offline-changed file is read');
+
+    // Released: the watcher lane stamps normally again.
+    const stampAfter = w.db._folderMeta.get(f.folder).indexMtimeMs;
+    fs.utimesSync(f.file, new Date(Date.now() + 12000), new Date(Date.now() + 12000));
+    storeIndexer.refreshFilePrepare(f.folder, path.join(f.folder, path.basename(f.file)));
+    assert.ok(w.db._folderMeta.get(f.folder).indexMtimeMs > stampAfter, 'after the reconcile the watcher stamps again');
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('the reconcile reports only the folders it really looked at (#881 R1)', () => {
+  const { sweepClaude } = require('../src/workers/index-worker');
+  const w = setup(2);
+  try {
+    const args = { roots: { claude: w.projectsDir }, folderMeta: {}, removedSet: [], snapshot: { claudeByFolder: {} }, force: false };
+    const ok = sweepClaude(args);
+    assert.deepEqual(ok.examined.sort(), w.made.map(m => m.folder).sort(), 'every listed folder with a real mtime');
+
+    // The store root cannot be listed (a file where the directory should be): nothing was looked at.
+    const notADir = path.join(w.root, 'not-a-dir');
+    fs.writeFileSync(notADir, 'x');
+    const unreadable = sweepClaude({ ...args, roots: { claude: notADir } });
+    assert.deepEqual(unreadable.examined, []);
+    assert.deepEqual(unreadable.out, []);
+
+    // One folder exists but cannot be stat-ed: it reads as mtime 0, which the gate calls current, but it was
+    // not looked at.
+    const bad = path.join(w.projectsDir, w.made[0].folder);
+    const realStat = fs.statSync;
+    fs.statSync = (p, ...rest) => {
+      if (String(p) === bad) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realStat.call(fs, p, ...rest);
+    };
+    try {
+      const partial = sweepClaude({ ...args, folderMeta: { [w.made[0].folder]: { indexMtimeMs: 1e15, projectPath: null } } });
+      assert.deepEqual(partial.examined, [w.made[1].folder], 'the folder whose stat failed is not examined');
+    } finally {
+      fs.statSync = realStat;
+    }
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('the client releases only handed-over folders the reply says were examined, and an error reply releases none (#881 R3)', async () => {
+  const client = require('../src/index/index-worker-client');
+  const w = setup(3);
+  try {
+    await sessionCache.populateCacheViaWorker();
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+    const [a, b, c] = w.made.map(m => m.folder);
+    assert.equal(storeIndexer.handedOverSnapshot().length, 3);
+
+    client.init({
+      PROJECTS_DIR: w.projectsDir, log: { info() {}, warn() {}, debug() {}, silly() {} }, db: w.db,
+      isAppQuitting: () => false, afterReconcile: () => {}, onFileApplied: () => {},
+    });
+    const sent = [];
+    client._setTransport((msg) => sent.push(msg));
+
+    // A reply for a sweep that examined only `a`: `b` and `c` keep their guard.
+    const p1 = client.postReconcile({ force: true });
+    client._deliverReply({ type: 'reply', reqId: sent[0].reqId, kind: 'reconcile', claude: [], examined: [a], backends: [] });
+    await p1;
+    assert.deepEqual(storeIndexer.handedOverSnapshot().sort(), [b, c].sort());
+
+    // An error reply applied nothing, so nothing is released.
+    const p2 = client.postReconcile({ force: true });
+    client._deliverReply({ type: 'error', reqId: sent[1].reqId, error: 'boom' });
+    await p2;
+    assert.deepEqual(storeIndexer.handedOverSnapshot().sort(), [b, c].sort());
+
+    // A reply that names no examined folder (a store root it could not read) releases none either.
+    const p3 = client.postReconcile({ force: true });
+    client._deliverReply({ type: 'reply', reqId: sent[2].reqId, kind: 'reconcile', claude: [], examined: [], backends: [] });
+    await p3;
+    assert.deepEqual(storeIndexer.handedOverSnapshot().sort(), [b, c].sort());
+
+    const p4 = client.postReconcile({ force: true });
+    client._deliverReply({ type: 'reply', reqId: sent[3].reqId, kind: 'reconcile', claude: [], examined: [b, c], backends: [] });
+    await p4;
+    assert.deepEqual(storeIndexer.handedOverSnapshot(), []);
+  } finally {
+    client._setTransport(null);
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a cold scan that reads a folder in full releases it from the hand-over', async () => {
+  const w = setup(2);
+  try {
+    await sessionCache.populateCacheViaWorker();
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+    assert.equal(storeIndexer.handedOverSnapshot().length, 2, 'both folders were handed over');
+    await sessionCache.populateCacheViaWorker();   // full pass reads them
+    assert.deepEqual(storeIndexer.handedOverSnapshot(), []);
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a changed folder with a stale-version row is still read in full by the cold scan (#881)', async () => {
+  const rec = recorder();
+  const w = setup(3, { onUpsert: rec.onUpsert });
   try {
     await sessionCache.populateCacheViaWorker();
     rec.seen.length = 0;
 
-    touchLater(w.made[2].file);
+    touchLater(w.made[1].file);
+    for (const row of w.db._cache.values()) if (row.folder === w.made[1].folder) row.parserVersion = CLAUDE_PARSER_VERSION - 1;
     await sessionCache.populateCacheViaWorker({ incremental: true });
 
-    assert.deepEqual(rec.seen, [w.made[2].folder],
-      `exactly the changed folder was opened (saw: ${rec.seen.join(',')})`);
+    assert.deepEqual(rec.seen, [w.made[1].folder], 'only the stale folder was read, in full');
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a changed folder with no rows is read in full by the cold scan (#881)', async () => {
+  const rec = recorder();
+  const w = setup(3, { onUpsert: rec.onUpsert });
+  try {
+    await sessionCache.populateCacheViaWorker();
+    rec.seen.length = 0;
+
+    touchLater(w.made[0].file);
+    for (const [id, row] of [...w.db._cache]) if (row.folder === w.made[0].folder) w.db._cache.delete(id);
+    await sessionCache.populateCacheViaWorker({ incremental: true });
+
+    assert.deepEqual(rec.seen, [w.made[0].folder]);
   } finally {
     fs.rmSync(w.root, { recursive: true, force: true });
   }
@@ -285,7 +509,7 @@ test('the cold scan reports what it skipped, or a warm launch reads as a scan th
 // --- the lifecycle bypass (the one the gate must never swallow) -------------------------------------
 
 // A ctx for `lifecycle.start` whose every hook is a no-op, so the test can watch the one call it is about.
-function lifecycleCtx({ ftsRecreated, calls }) {
+function lifecycleCtx({ ftsRecreated, calls, sweeps = [] }) {
   const noop = () => {};
   return {
     app: {
@@ -318,8 +542,24 @@ function lifecycleCtx({ ftsRecreated, calls }) {
     activeSessions: new Map(),
     searchFtsRecreated: () => ftsRecreated,
     populateCacheViaWorker: (opts) => { calls.push(opts); return Promise.resolve(); },
+    queueIndexSweep: () => { sweeps.push('sweep'); },
   };
 }
+
+test('lifecycle queues the reconcile itself once the cold scan has settled (#881 F2)', async () => {
+  const { start } = require('../src/app/lifecycle');
+  const calls = [];
+  const sweeps = [];
+  let settle;
+  const ctx = lifecycleCtx({ ftsRecreated: false, calls, sweeps });
+  ctx.populateCacheViaWorker = (opts) => { calls.push(opts); return new Promise(r => { settle = r; }); };
+  start(ctx);
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(sweeps, [], 'not while the scan is still running');
+  settle();
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(sweeps, ['sweep'], 'one reconcile request right after it settled');
+});
 
 test('lifecycle asks for the GATED pass on an ordinary launch', async () => {
   const { start } = require('../src/app/lifecycle');

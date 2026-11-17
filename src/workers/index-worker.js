@@ -21,7 +21,7 @@
 //       immediate{...file payload...}                                      — same, PRIORITY (jumps the queue)
 //       rebuild{reqId, roster, roots, folderMeta, removedSet, snapshot}    — force re-parse (B-4, async)
 //       rootCacheReset{}                                                   — clear the worker's _rootCache (F4)
-//   OUT reply{reqId, kind:'reconcile'|'rebuild', claude:[{folder, reply}], backends:[{backendId, reply, storeMissing}]}
+//   OUT reply{reqId, kind:'reconcile'|'rebuild', claude:[{folder, reply}], examined:[folder] (#881), backends:[{backendId, reply, storeMissing}]}
 //       reply{reqId, kind:'file', session, sessionId}
 //
 // Each per-folder / per-backend `reply` is byte-for-byte what parseClaudeFolder / parseBackendSessions
@@ -56,17 +56,26 @@ function workerFolderProjectPath(folder, folderPath, folderMeta) {
 // The Claude sweep: the reconcileCacheFromFilesystem gate walk (now off-thread) + the refreshFolder
 // snapshot gather (DB reads replaced by the posted snapshot) + the pure parseClaudeFolder loop, per folder.
 // Returns [{folder, reply}] for every folder that TRIPPED the gate — exactly the set refreshFolder ran on.
-function runClaudeReconcile({ roots, folderMeta, removedSet, snapshot, force }) {
+function runClaudeReconcile(args) {
+  return sweepClaude(args).out;
+}
+
+// The same sweep, with the folders it really LOOKED at (#881): `examined` holds a folder only when it was
+// listed and its gate saw a real mtime. A store root that could not be read examines nothing, and a folder
+// whose stat failed reads as mtime 0 — "current" to the gate, but not looked at. Main releases a handed-over
+// folder only for what is in `examined`.
+function sweepClaude({ roots, folderMeta, removedSet, snapshot, force }) {
   const out = [];
+  const examined = [];
   const projectsDir = roots && roots.claude;
-  if (!projectsDir || !fs.existsSync(projectsDir)) return out;
+  if (!projectsDir || !fs.existsSync(projectsDir)) return { out, examined };
 
   let folders;
   try {
     folders = fs.readdirSync(projectsDir, { withFileTypes: true })
       .filter(d => d.isDirectory() && d.name !== '.git')
       .map(d => d.name);
-  } catch { return out; }
+  } catch { return { out, examined }; }
 
   const removed = removedSet instanceof Set ? removedSet : new Set(removedSet || []);
   const byFolder = (snapshot && snapshot.claudeByFolder) || {};
@@ -76,6 +85,7 @@ function runClaudeReconcile({ roots, folderMeta, removedSet, snapshot, force }) 
     // The gate — the RISK-4b recursive stat walk, now on THIS thread. Trip a folder that is new or whose
     // newest .jsonl is newer than what main last indexed (or every folder under `force`).
     const indexMtimeMs = getFolderIndexMtimeMs(folderPath);
+    if (indexMtimeMs > 0) examined.push(folder);
     const meta = folderMeta && folderMeta[folder];
     if (!force && meta && indexMtimeMs <= (meta.indexMtimeMs || 0)) continue;
 
@@ -105,7 +115,7 @@ function runClaudeReconcile({ roots, folderMeta, removedSet, snapshot, force }) 
     });
     out.push({ folder, reply });
   }
-  return out;
+  return { out, examined };
 }
 
 // --- Axis-B reconcile (per-row) --------------------------------------------------------------------
@@ -176,12 +186,13 @@ function unreadableBackendReply() {
 function handleReconcile(msg, kind) {
   const roster = msg.roster || {};
   const force = kind === 'rebuild' || !!msg.force;
-  const claude = roster.claudeEnabled
-    ? runClaudeReconcile({ roots: msg.roots, folderMeta: msg.folderMeta, removedSet: msg.removedSet, snapshot: msg.snapshot, force })
-    : [];
+  const swept = roster.claudeEnabled
+    ? sweepClaude({ roots: msg.roots, folderMeta: msg.folderMeta, removedSet: msg.removedSet, snapshot: msg.snapshot, force })
+    : { out: [], examined: [] };
+  const claude = swept.out;
   const axisB = Array.isArray(roster.axisB) ? roster.axisB : [];
   const backendsOut = axisB.map(id => runBackendReconcile(id, { snapshot: msg.snapshot, force }));
-  return { type: 'reply', reqId: msg.reqId, kind, claude, backends: backendsOut };
+  return { type: 'reply', reqId: msg.reqId, kind, claude, examined: swept.examined, backends: backendsOut };
 }
 
 function handleFile(msg) {
@@ -244,6 +255,7 @@ if (parentPort) parentPort.on('message', enqueue);
 // the same thread rather than spawning it, so it can assert the reply shape without an IPC round-trip.
 module.exports = {
   runClaudeReconcile,
+  sweepClaude,
   runBackendReconcile,
   handleReconcile,
   handleFile,

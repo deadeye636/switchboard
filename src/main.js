@@ -556,7 +556,7 @@ indexWorker.init({
 ipcMain.handle('index-worker-status', () => indexWorker.status());
 
 // A bumped Claude parser re-reads the sessions it changed on the WORKER thread, and the cold scan does it:
-// `coldScanSkipStamps` (src/backends/claude/store-indexer.js) leaves a folder out of the gate when any of
+// `coldScanSkipFolders` (src/backends/claude/store-indexer.js) leaves a folder out of the skip list when any of
 // its rows is below the current parser version, per folder, and an interrupted run resumes where it stopped
 // (#880). There is no global "parser read" mark any more — the old `claudeParserVersion` setting chained a
 // second full pass behind the gated one and was written even after a failed or cancelled scan.
@@ -2622,6 +2622,7 @@ const lifecycleCtx = {
   startDbUpkeep: () => dbUpkeep.start(),
   cleanStaleLockFiles,
   populateCacheViaWorker,
+  queueIndexSweep,
   applyAutoHide: (onStartup) => projects.applyAutoHide(onStartup),
   startTriggerWatcher: (opts) => require('./watch/trigger-watcher').start(opts),
   searchFtsRecreated: () => searchFtsRecreated,

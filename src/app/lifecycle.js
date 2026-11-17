@@ -161,11 +161,17 @@ function start(ctx) {
     // behind a full sidebar — certain on the first affected upgrade, not a race. `searchFtsRecreated` is
     // a snapshot of what THIS run's migrations did, so reading it here is the same answer as below.
     //
-    // What the gate stops doing on a warm launch, so it is on the record here too: rows for a transcript
-    // deleted inside an unchanged folder are not pruned, FTS entries orphaned there are not cleared, and
-    // the folder's projectPath is the stored one rather than a freshly derived one. The rebuild action and
-    // a recreated FTS table still run the unconditional pass that repairs all three; a parser bump does NOT
-    // (#880): it re-reads only the folders holding a stale row, in this one pass, and resumes per folder.
+    // A folder the gate clears (stamped, rows, every row at the current parser version) is not read here at
+    // all, changed or not (#881): it is handed to the incremental reconcile, which reuses unchanged rows and
+    // reads only changed files. A live session therefore no longer makes this scan re-parse its folder. The
+    // reconcile is queued right below, once the scan has settled, so the hand-over never waits for a
+    // renderer `get-projects`.
+    //
+    // What the gate stops doing on a warm launch, so it is on the record here too: FTS entries orphaned in a
+    // cleared folder are not cleared, and the folder's projectPath is the stored one rather than a freshly
+    // derived one. (A transcript deleted there IS pruned, by the reconcile.) The rebuild action and a
+    // recreated FTS table still run the unconditional pass that repairs both; a parser bump does NOT (#880):
+    // it re-reads only the folders holding a stale row, in this one pass, and resumes per folder.
     //
     // populateCacheViaWorker runs in a Worker thread and is non-blocking; concurrent callers share the
     // same in-flight Promise, so the FTS-recreated call below is free.
@@ -174,6 +180,12 @@ function start(ctx) {
       // #57: run one auto-hide pass once the cache is populated on startup, so
       // stale projects are hidden before the first sidebar render settles.
       try { ctx.applyAutoHide(true); } catch {}
+      // #881: the reconcile that picks up what changed in the folders the scan skipped. AFTER the scan, never
+      // beside it: a folder the scan reads in full is stamped by then, so the reconcile's gate skips it instead
+      // of the worker reading it twice. `queueIndexSweep` is the index-sweep door, so the first get-projects
+      // sweep is not a second run of it back to back; and it checks `isAppQuitting` itself, which is what
+      // keeps a scan settled by the quit's cancel from posting a request after `closeDb()` (#76).
+      try { ctx.queueIndexSweep?.(); } catch {}
     });
 
     // File-trigger watcher — allows harness scripts to inject input into open

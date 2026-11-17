@@ -218,7 +218,8 @@ function refreshFolder(folder, opts = {}) {
 function applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats, dropIds } = {}) {
   // Fold the Claude parse counters RETURNED in the reply into the sweep accumulator (#199 step 5.2a / F3).
   // The loop no longer mutates a by-reference `stats` object (that can't cross a thread) — it returns them,
-  // and main adds them here so the `[perf] reconcile … full=/incr=/bytes=` line prints the same numbers.
+  // and main adds them here; index-worker-client logs the accumulated sweep total at debug
+  // (`[index-worker] reconcile applied … full=/incr=/bytes=`).
   if (stats && reply.stats) {
     stats.filesFull += reply.stats.filesFull;
     stats.filesIncremental += reply.stats.filesIncremental;
@@ -338,7 +339,7 @@ function refreshFilePrepare(folder, relFilename) {
   if (!projectPath) return null;
   if (isRemovedProject(projectPath)) {
     cancelReindex(filePath);
-    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+    stampFolderUnlessHandedOver(folder, projectPath, folderPath);
     return null;
   }
   if (!fs.existsSync(filePath)) {
@@ -351,14 +352,33 @@ function refreshFilePrepare(folder, relFilename) {
       try { sessionId = claude.subagentSessionId(parentSessionId, m ? m[1] : base); } catch { sessionId = null; }
     }
     if (sessionId) applyIndexResults({ deleteIds: [sessionId] });
-    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+    stampFolderUnlessHandedOver(folder, projectPath, folderPath);
     return { deletedId: sessionId || null };
   }
   // Stamp the folder as indexed-as-of-now up front so the reconcile sweep doesn't jump in with a full
   // refresh while the off-thread read is pending — exactly as refreshFile does inline.
-  setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+  stampFolderUnlessHandedOver(folder, projectPath, folderPath);
   return { filePath, folder, projectPath, parentSessionId };
 }
+
+// Folders the cold scan skipped and handed to the reconcile (#881), until a reconcile reply covering them has
+// been applied. The stamp of such a folder says "the files were read as of this" for the files the cold scan
+// last read, and the folder may hold files that changed OFFLINE after that. A watcher append stamps the
+// folder with the newest mtime incl. every file, while the one-file parse reads only the live file — so the
+// stamp would jump past the offline change and the reconcile's gate would skip the folder for good. While a
+// folder is handed over, the watcher lane therefore leaves its stamp alone (it still parses and applies its one
+// file; the reconcile reuses that row, its mtime matches). Cost of a folder staying pending: a few extra
+// cheap reconcile trips, never a lost change. The set is only ever cleared by a reply (or a full read) that
+// really examined the folder.
+const handedOver = new Set();
+function stampFolderUnlessHandedOver(folder, projectPath, folderPath) {
+  if (handedOver.has(folder)) return;
+  setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+}
+// A copy at post time: the reconcile worker examines every folder it is sent, the ones that tripped (a reply)
+// and the ones whose gate proved them current (no reply), so the whole posted set is released on apply.
+function handedOverSnapshot() { return handedOver.size ? [...handedOver] : []; }
+function releaseHandedOver(folders) { for (const f of folders || []) handedOver.delete(f); }
 
 // The reconcile safety-net sweep (folder gate walk + per-folder refresh) moved OFF the main thread into the
 // persistent index worker (#199 — workers/index-worker.js runClaudeReconcile + the shared
@@ -386,6 +406,8 @@ let cancelActiveScan = null;
 // Apply ONE scanned folder. Split out of the message handler so the streamed drain below can run it
 // once per event-loop turn — the body is byte-for-byte the old loop body. Returns the session count.
 function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs }, scope) {
+  // The cold scan read this folder in full and stamps it below: no longer handed over (#881).
+  handedOver.delete(folder);
   // A REMOVED project is not indexed — and this is a WRITE path like any other (#167). Without this a
   // "Rebuild session cache" (or any cold start that takes the worker path) would put a removed
   // project's sessions back into the cache, the search index and the stats as an invisible zombie.
@@ -415,6 +437,25 @@ function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs }, sco
  * reconcile has had a gate for this since #199; the cold scan computed `getFolderIndexMtimeMs` only to
  * STAMP it, never to ask.
  *
+ * A skipped folder is NOT compared against its stamp any more (#881). The cold scan used to skip only a
+ * folder whose newest `.jsonl` had not moved past the stamp, and a live session moves exactly that file
+ * every few seconds, so one running CLI made every cold start re-parse its whole project folder. A cleared
+ * folder is now left out of the cold scan whatever its mtime and handed to the incremental reconcile
+ * (index-worker `runClaudeReconcile` -> `parseClaudeFolder`), which reuses a row whose mtime and parser
+ * version match and reads only the files that changed. Two things make that hand-over safe:
+ *
+ *   - the cold scan writes NOTHING for a skipped folder, the stamp included, so the reconcile's own gate
+ *     (`indexMtimeMs <= stamp`) still trips for a folder that moved, and the stamp is advanced only by
+ *     whoever actually read the files. Until a reconcile has looked at the folder it also sits in
+ *     `handedOver`, which keeps the watcher lane (`refreshFilePrepare`) from stamping it past a file that
+ *     changed offline;
+ *   - the reconcile is queued by `app/lifecycle.js` (`queueIndexSweep`) right after the scan settles, so the
+ *     hand-over does not wait for a renderer `get-projects`; `index-sweep.js` always runs the first sweep.
+ *
+ * What it costs: a cleared folder no longer gets the cold scan's folder-wide drift repair. A deleted
+ * transcript is still pruned by the reconcile; projectPath re-derivation and the FTS orphan repair stay on
+ * the rebuild / FTS-recreate pass, exactly as for an unchanged folder before.
+ *
  * A folder is cleared for skipping only when all three hold, and none of them is belt-and-braces:
  *
  *   1. It carries a stamp. No stamp means main has never recorded indexing it.
@@ -430,12 +471,12 @@ function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs }, sco
  * The scope is Claude's: a project folder key is shared with Axis-B backends, whose rows live elsewhere
  * and carry their own parser versions.
  */
-function coldScanSkipStamps() {
-  if (typeof getAllFolderMeta !== 'function' || typeof getCachedByFolder !== 'function') return {};
+function coldScanSkipFolders() {
+  if (typeof getAllFolderMeta !== 'function' || typeof getCachedByFolder !== 'function') return [];
   let metaMap;
-  try { metaMap = getAllFolderMeta() || new Map(); } catch { return {}; }
+  try { metaMap = getAllFolderMeta() || new Map(); } catch { return []; }
   const scope = claudeStoreScope();
-  const skip = {};
+  const skip = [];
   for (const [folder, meta] of metaMap) {
     const stamp = meta && meta.indexMtimeMs;
     if (!stamp) continue;
@@ -443,7 +484,7 @@ function coldScanSkipStamps() {
     try { rows = getCachedByFolder(folder, scope) || []; } catch { continue; }
     if (!rows.length) continue;
     if (rows.some(r => r.parserVersion !== CLAUDE_PARSER_VERSION)) continue;
-    skip[folder] = stamp;
+    skip.push(folder);
   }
   return skip;
 }
@@ -458,7 +499,7 @@ function coldScanSkipStamps() {
  * every folder and leave search permanently empty behind a full sidebar.
  *
  * A parser bump is NOT one of them (#880): the gate already re-reads every folder holding a row below
- * the current parser version (`coldScanSkipStamps`) and resumes per folder, so one gated pass covers a
+ * the current parser version (`coldScanSkipFolders`) and resumes per folder, so one gated pass covers a
  * bump. The global `claudeParserVersion` setting is retired; nothing chains a second pass for it.
  *
  * ESCALATION. Concurrent callers share one in-flight scan, so a full request arriving while the gated
@@ -476,7 +517,8 @@ function populateCacheViaWorker({ incremental = false } = {}) {
   }
   populateIsIncremental = !!incremental;
   populateCancelled = false;
-  const skipStamps = incremental ? coldScanSkipStamps() : {};
+  const skipFolders = incremental ? coldScanSkipFolders() : [];
+  for (const f of skipFolders) handedOver.add(f);   // the watcher lane may not stamp them until a reconcile has (#881)
   sendStatus('Scanning projects…', 'active');
 
   // TIME IT (#153). `info`, not `debug`: packaged builds default to info, and a number nobody can see
@@ -496,7 +538,7 @@ function populateCacheViaWorker({ incremental = false } = {}) {
     };
 
   const worker = new Worker(path.join(__dirname, '..', '..', 'workers', 'scan-projects.js'), {
-    workerData: { projectsDir: PROJECTS_DIR, skipStamps },
+    workerData: { projectsDir: PROJECTS_DIR, skipFolders },
   });
   activeScanWorker = worker;
 
@@ -670,6 +712,8 @@ module.exports = {
   applyClaudeFolderReply,
   applyClaudeFileReply,
   refreshFilePrepare,
+  handedOverSnapshot,
+  releaseHandedOver,
   isRemovedProject,
   claudeEnabled,
   // exposed for the façade's readSessionFile re-export convenience

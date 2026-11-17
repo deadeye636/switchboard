@@ -31,6 +31,9 @@ function maxJsonlMtime(dir, max) {
   return max;
 }
 
+// The stamp's one consumer pair: the reconcile gate (index-worker.js) compares it, and whoever READS a
+// folder writes it. The cold scan no longer compares it (#881): it hands a cleared folder to the reconcile
+// and writes no stamp for a folder it skipped, so a stamp always means "the files were read as of this".
 function getFolderIndexMtimeMs(folderPath) {
   let indexMtimeMs = 0;
 

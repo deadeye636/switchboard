@@ -329,7 +329,10 @@ function doPostReconcile({ force = false, gate = false, backendIds = null } = {}
   };
 
   return new Promise((resolve) => {
-    pending.set(reqId, { resolve, postedSeq, retained, kind: force ? 'rebuild' : 'reconcile', gate });
+    // `handedOver`: the folders the cold scan left to the reconcile (#881). A request that sweeps Claude
+    // examines every folder, so applying its reply releases them (see storeIndexer.handedOverSnapshot).
+    const handedOver = r.claudeEnabled !== false ? storeIndexer.handedOverSnapshot() : [];
+    pending.set(reqId, { resolve, postedSeq, retained, kind: force ? 'rebuild' : 'reconcile', gate, handedOver });
     instrumentedPost({
       type: force ? 'rebuild' : 'reconcile',
       reqId, roster: r, roots: { claude: PROJECTS_DIR },
@@ -421,6 +424,15 @@ function applyReconcileReply(msg, p) {
       for (const s of reply.sessions || []) if (s && s.sessionId) folderDrop.add(s.sessionId);
     }
     if (storeIndexer.applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats, dropIds: folderDrop })) changed = true;
+  }
+
+  // Release a handed-over folder only if the worker really LOOKED at it (`examined`: listed, and the gate saw
+  // a real mtime): it either tripped (a reply above) or was proven current. A store root it could not read
+  // or a folder it could not stat was not looked at, and keeps its guard.
+  const examined = new Set(msg.examined || []);
+  storeIndexer.releaseHandedOver((p.handedOver || []).filter(f => examined.has(f)));
+  if (msg.claude && msg.claude.length) {
+    log.debug(`[index-worker] reconcile applied: ${msg.claude.length} folders tripped, full=${stats.filesFull} incr=${stats.filesIncremental} bytes=${stats.bytes}`);
   }
 
   for (const { backendId, reply, storeMissing } of msg.backends || []) {
