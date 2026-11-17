@@ -5,10 +5,12 @@ Issue #817. Status: **built**. The code is `src/renderer/session/session-sidebar
 ## What it does
 
 Each session has a collapsible sidebar on its right, opened from the session's toolbar. Its groups collapse one by
-one: Repository (#821), Processes (#834), Context, Tasks & notes (with a project's forge issues when spec 42 is on),
+one: Repository (#821), Changes (#870), Processes (#834), Context, Tasks & notes (with a project's forge issues when spec 42 is on),
 Handoffs, Instructions (#823) and Connectors. That is the default order since #841, which put the two figures a user
-glances at most right after the repository; a user can change it (see "The section order"), and a saved order is kept.
-A collapsed Processes or Context group shows its figure in its header (see "Figures in a collapsed header").
+glances at most right after the repository, and #870 added Changes after Repository; a user can change it (see "The
+section order"), and a saved order is kept. A collapsed Processes or Context group shows its figure in its header (see
+"Figures in a collapsed header"). The Changes group lists what this session edited, committed and pushed since the
+last review; spec 47 holds its design.
 
 ## Decided by the owner (2026-11-06)
 
@@ -176,6 +178,14 @@ Where the session runs: the repository, the branch and, when the session's direc
   window, and on a reload or crash recovery of that window). Main adds them to the poller's watch list whether or not the version-control chip is on, as an open changes
   window's folder is kept, and the heartbeat runs while any is followed. Closing a group removes its folder. A push
   goes to the main window and to every detached window, so a detached session's sidebar follows too.
+
+## The Changes group (#870)
+
+Group id `changes`, closed by default, placed after Repository. It follows the row pattern above with one deviation: a
+click on a file or commit row opens the Details window at that item instead of inserting text into the prompt;
+Shift+click inserts the file's path or the commit's short SHA, and hover shows Open (files) and Copy. The group
+reads git only while it is open and shown; its collapsed header figure reads the database only. Spec 47 holds the model,
+the timeline and the known gaps.
 
 ## The section order (#829)
 

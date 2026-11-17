@@ -772,6 +772,25 @@ and that split is the rule:
 - **A driver and a template forward the pair** (`profileToDescriptor`; claude-native and pi-native resolve through their
   owner's reader). A profile reaches the worker by its BASE backend's id, because the worker's registry holds the built-ins only.
 
+## What a session changed: `reportsChanges` and a neutral accumulator (#870, spec 47)
+
+A descriptor declares `reportsChanges` (`true`, or `false` with a comment naming why; the capability row `sessionChanges` says
+`yes`, `limited` or `no`, and a `limited` answer says which half is missing). `test/backend-parity.test.js` pins every backend; a
+driver and a template forward their owner's / base's answer. The core never calls a hook per transcript line: it reads
+`row.changes`, which a parser fills or leaves absent.
+
+- **`src/backends/change-events.js` is the shared accumulator** (requires nothing): edits per path, commits, pushes, a bounded
+  pending-call map so a call counts only when its result arrives without an error, and the caps with `truncated`.
+- **`src/backends/git-command-events.js` is git's own language**, shared for the same reason as `flow-command-patterns.js`: it finds
+  `git commit` / `git push` in a command string (through `splitSegments`) and reads the SHA, subject and push outcome from the
+  output. A Codex `bash -lc` payload goes in as the script itself, not the joined argv.
+- **`<backend>/change-events.js` is the only place that knows the backend's tool names and result shape** (Claude, Codex, Pi).
+  Hermes and agy decline. A shape nobody measured is not guessed (`docs/backend-formats.md`, "File edits, commits and pushes").
+- **`position` is the one ordering key:** a byte offset of the transcript line for file backends, the message id for a store
+  backend. It is comparable only inside one session id. The Claude loops take it from the buffer, not from a per-line
+  `Buffer.byteLength`.
+- **A parser that starts or changes what it emits is bumped with the other reporting parsers** (`.claude/rules/db.md`).
+
 ## A session whose folder is gone: `resumeCwd` (#862)
 
 A CLI that asks its own question about it (Pi 1.5.2: Continue, Fork or Cancel) cannot be answered by a terminal that is not looking or a pipe. The descriptor

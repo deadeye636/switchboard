@@ -126,6 +126,26 @@ columns and bumped Claude, Codex and Pi together). A parser that is missed leave
 without the field for good. Bumping before the column exists is the other mistake: it re-reads every session
 for a value nothing stores, and the storage step then has to force a second full re-read.
 
+## The session-changes tables: derived rows and user-state rows (#870, spec 47)
+
+`src/db/changes-store.js` (required below `runMigrations`, like every store) holds two kinds of row, and a delete has to know which.
+
+- **Derived, written by the scan:** `session_change_file`, `session_change_event`, `session_change_meta`. A parsed row that
+  carries `changes` replaces the session's rows whole in one transaction (`replaceSessionChanges`, called from
+  `applyIndexResults`); a row without `changes` leaves them alone. A full parse of a reporting backend always emits `changes`,
+  empty included. These go with the cache row: a backend-scoped folder wipe and the "source gone" delete drop them, and the
+  reparse writes them again.
+- **User state, written by the app:** `session_change_entry` (the timeline: start, Clear and `/clear` entries, with the SHAs and
+  the per-file counts at that moment) and `session_meta.changesView` (the range and view picked per session). A rescan, a
+  folder wipe and the "source gone" delete do **not** touch them. Only a deliberate delete does (`deleteChangesStateForSession`,
+  called from the session delete in `src/main.js` and the project removal paths in `src/projects/projects.js`; grep it rather
+  than trusting this list; `test/scoped-folder-deletes.test.js`). Losing one with
+  the session, or in a database restore, loses the review point for good (spec 47, known gaps).
+- **The pure shapes and caps are `src/db/changes-record.js`**, outside the store because no test loads a module that opens the
+  database. A row over a cap carries `truncated`; do not widen a cap without reading what a snapshot's difference does with it.
+- **Parsers that emit `changes` are bumped together** (Claude, Codex, Pi; the push-tip SHA was a second bump). A change to what
+  counts as an edit or a commit is another bump across all three, and it skews a stored review's counts once, as spec 47 says.
+
 ## `projects-view.js` asks descriptor hooks once per ROW
 
 `openedWithCommand` and `contextWindow` run for every session of every sidebar payload, so their per-call

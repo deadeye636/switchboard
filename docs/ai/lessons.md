@@ -1341,3 +1341,15 @@ staged without a commit; a foreign staged change elsewhere ends up mixed into th
 pathspec commit keeps out; an untracked file at the same path makes git refuse without touching the
 tree; a worktree under `.claude/worktrees/` resolves the main checkout's `node_modules`, so targeted
 tests run there without an install.
+
+## An id through a `data-*` attribute is a string, and a SHA nobody checked never goes away (#870)
+
+Two defects of the session Changes feature passed their unit tests and showed on the first click.
+
+- **A tick id came back from a `data-*` attribute as a string.** The strict integer validator on the way in read it as "not an
+  integer" and replaced it with `null`, so the range picked on the timeline strip silently fell back to the default. The tests
+  passed numbers straight to the function and never went through the DOM. Anything read back from an attribute is text: parse it
+  at the edge, and click the control once.
+- **A SHA taken from a transcript was trusted, so "gone" never fired.** The review point was used as recorded, without asking
+  git whether the commit still exists, so a history rewrite produced an empty list instead of the "review point is gone" state.
+  A recorded SHA is resolved first and accepted only when the full SHA starts with what was recorded (`src/app/session-changes.js`).

@@ -78,7 +78,7 @@ built in `vcs.js` beside the changes and diff windows (`openDetailsWindow`, focu
 `session-changes-details-at`, destroyed by `destroyAllVcsWindows`); its URL carries a session id, never a path. A large diff
 opens in the CodeMirror diff window by row id (`session-changes-open-diff-window`), which asks the two sides through
 `session-changes-versions` -> `vcs.js` `fileVersions` with a `rev`: a SHA main resolved itself, the working copy or a later SHA
-as the new side)),
+as the new side. The range and view of a session (`session-changes-view-set`) are shared by the sidebar group and Details: `setView` tells every window that follows the session except the sender, which reads again on its own right after the write),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
 menu on a marked word; since #839 also the plain text field menu, `editable-edit-menu`, opened only when a window asks
@@ -138,8 +138,7 @@ moved out of main.js because it only ever told the main window and kept no refco
 windows — #2, and since #316 which window renders which session), `presence.js` (is the USER at the
 machine — #386; one global fact, because every renderer has its own `windowFocused` and none can see
 the others. Since #673 "at the machine" means input ANYWHERE: main polls `powerMonitor.getSystemIdleTime()`
-every `SYSTEM_IDLE_POLL_MS`, and the windows' own reports (`shell/presence-report.js`, loaded by all four
-pages) stay the fast path. A gap counts as an absence only where an OS reading vouches for it, and a
+every `SYSTEM_IDLE_POLL_MS`, and the windows' own reports (`shell/presence-report.js`, loaded by every page, checked by `test/presence-reporting.test.js`) stay the fast path. A gap counts as an absence only where an OS reading vouches for it, and a
 `resume` only stops a pre-sleep reading from vouching. The reader and the resume subscription arrive through
 ctx, and the poll starts in `lifecycle.js` after `ready`, not at wiring — `powerMonitor` cannot be read
 before it), `renderer-stalls.js` (a window's own thread held for long — #707; `[loop-lag]` sees main only, so

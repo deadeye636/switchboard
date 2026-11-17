@@ -223,6 +223,10 @@ chart rather than a row of zeroes.
   context per model request (measured or marked as an estimate), risky and refused calls marked with their reason, a
   *Highlights only* view, and export as JSON, SVG, PDF or Mermaid. Claude, Codex and Pi.
   → [spec 46](docs/specs/46-session-flow.md)
+- **Session changes** — a Changes group in a session's sidebar: the files this session edited (with how often), the
+  commits it made and whether it pushed, read from its own transcript so a shared working tree stays correct. *Clear*
+  marks a review; a range picker and an All / Split view cover earlier work, and a Details window shows the commits,
+  files and diffs. Claude fully; Codex and Pi in part. → [spec 47](docs/specs/47-session-changes.md)
 - **Session lineage** — a session that continued another's work reads as one, with the earlier ones
   folded behind a caret. Backend-neutral, and a Claude `/clear` is inferred.
   → [spec 13](docs/specs/13-session-lineage.md)

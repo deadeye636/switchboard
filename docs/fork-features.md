@@ -1060,6 +1060,13 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   compactions and lane anchors; stop, fork and
   needs-attention events from the Events record sit on the step before them without being merged into it. Exports: JSON,
   SVG, a paginated PDF and Mermaid. A snapshot with an explicit Refresh, polled for new steps only while it is on screen.
+- **Session changes** (#870, spec 47) — a Changes group in the session sidebar, after Repository and closed by default. The
+  transcript says which files this session edited and which commits and pushes it ran (read inside the incremental scan,
+  one neutral accumulator, a per-backend extractor); git supplies line counts and history only while the group is open.
+  *Clear* sets a review point that hides nothing: a range picker (since last review, today, since last push, whole
+  session, or two picked entries) and an All / Split view (split at each push) cover earlier work. *Details* opens a window
+  with the commits, the files with `+/-`, the diff and a timeline strip whose Clear ticks reopen a past review read-only.
+  Claude fully; Codex and Pi in part; agy and Hermes decline and say so in the capability row.
 - **Maintenance while idle** (#827, spec 45) — Off, Keep warm, Compact only or Warm then compact, for a pipe-driven session, set
   globally, per project, or for one running session from its session line. A refresh comes within the backend's cache bound;
   a read that finds the cache cold ends keep-alive for that idle period. Nothing runs over a draft, a question or a held prompt,

@@ -1,16 +1,16 @@
 # 47 — Session changes (the sidebar's Changes group)
 
-Issue #870. Status: **planned** (owner decisions of 2026-11-12 and 2026-11-13 recorded below; nothing built). The plan
-is local (docs/plans/870-session-changes/PLAN.md, mockups beside it, gitignored); this file is the lasting record. The
-decisions of 2026-11-13 (D1–D5, section "Timeline, range and views") override E1's `/clear` rule and widen Clear; the
-places they change are corrected in place.
+Issue #870. Status: **built** (owner decisions of 2026-11-12, 2026-11-13 and 2026-11-16 are recorded below; "As built"
+says what the code does and "Known gaps" what it does not). The working plan was local and is not part of the repository;
+this file is the lasting record. The decisions of 2026-11-13 (D1–D5, section "Timeline, range and views") override E1's
+`/clear` rule and widen Clear; the places they change are corrected in place.
 
 ## What it does
 
 A compact **Changes** group in a session's sidebar (spec 43) that answers one question: *what did THIS session do
 since I last looked?* It shows the files the session edited with how often, the commits it made with their messages,
-whether it pushed, and totals in the collapsed header. **Details** opens the commits, the files and their diffs (and the
-review log). **Clear** means "I have reviewed this": the baseline moves to now and a review-log entry is kept.
+whether it pushed, and totals in the collapsed header. **Details** opens the commits, the files and their diffs. **Clear**
+means "I have reviewed this": the review point moves to now and the Clear stays on the timeline as an entry.
 Nothing is ever dropped: the start, every Clear, every `/clear` typed in the CLI and every push are entries of one
 timeline, a range picks which part to show, and a view toggle shows it as one list (**All**) or split at each push
 (**Split**). See "Timeline, range and views".
@@ -32,6 +32,21 @@ It is review only. It never blocks, gates or undoes anything, and it never write
 - **Git side only while the group is open and shown**, triggered by the poller's `vcs-status-changed` pushes (as the
   Repository group does, spec 43 #858). No timer of its own. A closed group makes no git call.
 - **The logic lives in `src/app/`**, not in the renderer, so MCP tools and rules can use it later.
+
+The other decisions are written where they apply and collected here by name:
+
+- **E1 to E10** (2026-11-12): every recommendation under "The E points" was taken. E1's `/clear` child baseline was replaced
+  by D1.
+- **D1 to D5** (2026-11-13): one timeline per lineage, Split at push only, the range picker, per-block counts from push
+  snapshots, Clear hides nothing. Built in v1, not as follow-up steps (2026-11-16). Section "Timeline, range and views".
+- **V1 to V4** (2026-11-16, with the approved mockup): the closed header figure always counts "Since last review"; the
+  review log is the Clear entries on the strip (no separate list); "Today" snaps; range and view are kept per session.
+- **Planner and main-session decisions** that follow from those: commits and pushes are small capped event rows beside the
+  per-file aggregate (a planner decision, reported to the owner); one `PARSER_SCHEMA_VERSION` bump after
+  the storage and every extractor, then a second one when the push SHA came from the push output; D6 and G3 in
+  "Timeline, range and views".
+- **Hermes and agy** declare `reportsChanges: false` (T1 found no Hermes signal; agy has a readable but schema-less one and
+  the plan default stood, see "Known gaps").
 
 ## Design (approved by the owner on 2026-11-12, with the open points below decided)
 
@@ -90,8 +105,8 @@ signal that cannot be verified is an honest `no` (the descriptor rule in `.claud
 | agy | `replace_file_content`, `write_to_file` (`TargetFile`); call, status and result are in one `steps` row; `status` 7 is a failed edit | `run_command` (`CommandLine`) with `The command exited with code N.` and the output lines in the same row | `steps.idx` | **limited**: readable only by scraping strings out of a protobuf blob; no failed commit or rejected push seen |
 
 The first pass of this table said agy was `no` (no verified signal). T1 found one: agy's tool steps carry the tool name, the
-JSON arguments and the command result as readable strings, so agy is `limited`, not `no`. Whether the extractor is built for
-agy is the owner's call at T6 (the plan defaulted it to `reportsChanges: false`).
+JSON arguments and the command result as readable strings, so agy is `limited`, not `no`. The plan default
+stood for v1: agy declares `reportsChanges: false`, and whether to build the extractor is still the owner's call.
 
 A subagent of a Claude session writes its own file (`isSidechain: true`, an `agentId` on every line) and its edits never
 appear in the parent's, so they are told apart by file and cannot be counted twice (E4). Pi's transcript is a tree; a file
@@ -211,8 +226,9 @@ the main window), with an external script because of `script-src 'self'`. Sectio
 time, pushed mark, "rewritten" mark), **Files** (path, edit count, `+/-` lines, "new"), a **diff pane** (the colouring and
 the `Open in window` bar of spec 15 / #287 are factored into one shared renderer file both windows load; large diffs open
 in the existing CodeMirror diff window with `fileVersions` learning a `rev` mode: old = `<baseline>:<path>`, new = working
-copy), and the **Review log** (reopen, E3 in the mockup). Every diff line is escaped; the diff text is read only when a
-row is opened.
+copy). There is no separate review list (V2): the timeline strip above the sections carries one tick per entry, the range
+is highlighted, and two clicked ticks are "Pick entries". A Clear tick range is a past review, opened read-only. Every diff
+line is escaped; the diff text is read only when a row is opened.
 
 ## Timeline, range and views (owner decisions of 2026-11-13)
 
@@ -293,7 +309,7 @@ one tick per entry, the range highlighted.
 | Backend does not report | one sentence, no figure |
 | Truncated | "Only the first N files are listed." |
 
-## Open points for the owner
+## The E points (all decided)
 
 Numbered `E`; each has options and a recommendation. **All decided by the owner on 2026-11-12: every recommendation
 below is taken** (E1 (a) with the (b) fallback and a `/clear` child's own baseline, the latter replaced by D1 on
@@ -354,35 +370,100 @@ brought back to the owner before the sequence-number fallback is used.
 ## Constraints that are not open
 
 - **Performance.** The parse cost is the byte-offset bookkeeping and a per-entry check on lines the parsers already
-  decode. T3 measures a large real transcript before and after (`docs/specs/11-performance.md` method) and has a fallback
-  (a per-session event sequence number instead of a byte offset) if the offset bookkeeping costs more than the plan's
-  budget. The write cost is bounded by the caps and by writing only when the aggregate changed.
+  decode. It was measured on a large real transcript before and after (`docs/specs/11-performance.md` method) against a
+  budget of 10 percent on a full parse and nothing measurable on an incremental append. The budget held: a full Claude parse
+  cost about two percent more, Codex and Pi no more, and an incremental read stayed inside the noise, so the fallback (a
+  per-session event sequence number instead of a byte offset) was not needed. The write cost is bounded by the caps and by
+  writing only when the aggregate changed.
 - **No new IPC in `src/main.js`**, no backend id outside its folder, English only, no personal paths.
 - **Privacy of the stored data.** Paths are stored as the transcript spelled them (they are already in the transcript and
   in `session_cache`); nothing from `session_change_*` leaves the machine except through the existing exports, which
   do not include it.
 
-## Known gaps (written down now, before building)
+## As built
+
+**Scan side.** `src/backends/change-events.js` is the accumulator and `src/backends/git-command-events.js` reads git's
+commands and output; `claude/`, `codex/` and `pi/` each have a `change-events.js` that finds that CLI's edits and shell
+calls. `claude-native` and `pi-native` resolve through their owner. The Claude, Codex and Pi parsers are bumped, and the
+index write (`src/index/index-writes.js`) calls `replaceSessionChanges` when a row carries `changes`. A push event
+stores the pushed SHA read from git's ref line, and a snapshot of the per-file counts at that position.
+
+**Storage.** Migrations in `src/db/migrations.js`, the store `src/db/changes-store.js`, the pure shapes and caps
+`src/db/changes-record.js`. Derived and user-state rows are separated as in section 3.
+
+**Version control.** The git provider (`src/vcs/git.js`) has the argv hooks named in section 4 and `src/vcs/parse-git-changes.js`
+reads their output. `fileVersions` in `src/app/vcs.js` has a `rev` mode, so a diff window can show the baseline side.
+
+**Model and module.** `src/app/session-changes-model.js` is pure (ranges, All and Split, snapshot differences, the states
+table, rewritten and pushed marks, truncation). `src/app/session-changes.js` gathers the lineage, the rows and the git
+facts, keeps what it answered per session so a diff is asked by row id, and registers the IPC. A refresh makes at most
+`SPAWN_BOUND` git calls; the constant is exported and `test/session-changes-git.test.js` holds it, so its value is not
+written here.
+
+**IPC channels** (bound in `src/preload.js`, handlers registered by the module, none in `src/main.js`):
+`session-changes-summary` (the header figure, database only), `-state` (the group's view model), `-details`, `-diff`
+(by row id), `-open` (a file row's contained path, for the editor), `-open-details`, `-open-diff-window`, `-versions`
+(the two sides for the CodeMirror diff window), `-clear`, `-entries`, `-view-get` / `-view-set`, `-follow` / `-unfollow`.
+Main sends `session-changes-updated` { sessionId } to the windows that follow a session. The renderer sends a session id
+and a row id, never a path or a SHA.
+
+**The group.** `src/renderer/lib/session-changes-rows.js` is the pure row model and markup; `src/renderer/session/session-sidebar.js`
+builds the group, with the range select and the All / Split toggle above its rows, the *Details* and *Clear* buttons, and
+the header figure. Following starts when the group is open and shown and ends when it is closed, hidden, the sidebar
+closes or the tab is destroyed.
+
+**Details.** One window per session (`src/renderer/session-changes.html` and `session-changes.js`, opened through
+`vcs.js`), with Commits, Files and a diff pane, and the timeline strip. `src/renderer/diff-render.js` is the diff
+colouring and the large-diff bar shared with the changes window. A large diff opens in the CodeMirror diff window by row id.
+The range and view are the same ones the sidebar group uses: a change in one window is read again in the other.
+
+**Review reopened.** A range from the previous entry to a Clear is a past review. It opens read-only: the commits of
+`from..to`, the files with the counts stored at that Clear, and the committed part of the diff. Uncommitted content of that
+time is not reconstructible, and the view says so. A review whose SHAs are gone says that instead.
+
+## Known gaps
 
 - A commit or push made **outside** the session (another terminal) is invisible by design (O1).
-- A tool that edits a file indirectly (a code generator, `sed -i` in a shell) is an edit git sees and the transcript
-  extractor may not. v1 counts only the edit tools and `Write`-like calls; shell-made writes are not attributed (a known
-  under-report, not a wrong claim).
-- Hermes answers nothing (T1: no edit or shell call exists in its local store); agy and Codex answer in part (section 2).
+- A shell command that writes a file (a code generator, `sed -i`) is an edit git sees and the extractor does not. Only the
+  edit tools and `Write`-like calls count, so shell-made writes are not attributed: an under-report, not a wrong claim.
+- **Backends.** Hermes has no signal (no edit or shell call exists in its local store). agy declines (`reportsChanges:
+  false`); a readable but schema-less protobuf string signal exists, and building the extractor is an owner decision still
+  pending. Codex counts edits by the patch text only and ties a command to its output only in a one-command script; a
+  failed patch inside a script that catches it itself still reports success, and so over-counts. Pi does not see what a
+  delegated agent (the `subagent` tool, run with `--no-session`) changes.
+- **Two sessions on one file** cannot be split in the diff; the row says another session also edited it (E8), and the
+  diff is the combined one.
+- **A baseline is lost with its session.** A deliberate session delete drops the timeline entries, and a database restore
+  does the same.
+- **An earlier own period of an old fork** is not counted: a fork first seen after it already worked starts at first sight
+  (G3).
+- **A background tab keeps its follow.** A group in a tab that is not visible marks itself stale and does not read; it
+  reads when shown again. It does not end its subscription.
+- **An unrecorded Clear** (one whose SHA was not known when it was made) shows its stored counts and no diffs when reopened.
+- **The Details header has no branch**, and the diff bar shows the line count, not "path · base → working tree".
 - A transcript path on a network share is answered "outside this checkout" lexically, before any filesystem call; a
   mapped network drive letter is not detected that way (the same limit as `src/app/network-path.js` everywhere else).
 - A session row that is dropped (a failed stat, a removal and bring-back) while the index worker's read memo is still
   alive, and that the watcher lane re-creates before a reconcile pass reaches it, comes back without its change rows. It
   heals when the next edit, commit or push settles, after an app restart, or with a parser bump. The reconcile pass
   itself forces the rows back for a file that has no cached row (`forceChanges` in `src/backends/claude/folder-parse.js`).
+  The watcher-lane row that is re-created with no changes at all is the same case.
 
-## Files (planned)
+## Files
 
-src/backends/change-events.js, src/backends/git-command-events.js, src/backends/<backend>/change-events.js;
-src/db/changes-record.js, src/db/changes-store.js, `src/db/migrations.js`; `src/index/index-writes.js`;
-`src/vcs/git.js`, `src/vcs/index.js`; src/app/session-changes.js, src/app/session-changes-model.js, `src/app/vcs.js`
-(follow list, `fileVersions` rev mode); `src/preload.js`; `src/renderer/session/session-sidebar.js`,
-`src/renderer/lib/sidebar-groups.js`, src/renderer/session-changes.{html,js}, src/renderer/diff-render.js,
-`src/renderer/style.css`. Tests: test/change-events.test.js, test/git-command-events.test.js,
-test/<backend>-change-events.test.js, test/changes-record.test.js, test/session-changes-model.test.js,
-test/session-changes-git.test.js, test/session-changes-rows.test.js, plus the parity and migration pins.
+Scan: `src/backends/change-events.js`, `src/backends/git-command-events.js`, `src/backends/claude/change-events.js`,
+`src/backends/codex/change-events.js`, `src/backends/pi/change-events.js`, the three parsers and `src/backends/claude/session-reader.js`,
+`src/backends/capabilities.js`, the descriptors' `reportsChanges`.
+Storage: `src/db/changes-record.js`, `src/db/changes-store.js`, `src/db/migrations.js`, `src/index/index-writes.js`.
+Version control: `src/vcs/git.js`, `src/vcs/parse-git-changes.js`, `src/app/vcs.js` (the Details window, follow list,
+`fileVersions` `rev` mode).
+App: `src/app/session-changes.js`, `src/app/session-changes-model.js`, `src/preload.js`.
+Renderer: `src/renderer/session/session-sidebar.js`, `src/renderer/lib/session-changes-rows.js`,
+`src/renderer/lib/sidebar-groups.js`, `src/renderer/session-changes.html`, `src/renderer/session-changes.js`,
+`src/renderer/diff-render.js`, `src/renderer/style.css`.
+Tests, by name: `test/change-events.test.js`, `test/git-command-events.test.js`, `test/changes-record.test.js`,
+`test/claude-change-events.test.js`, `test/codex-change-events.test.js`, `test/pi-change-events.test.js`,
+`test/vcs-session-changes-args.test.js`, `test/session-changes-model.test.js`, `test/session-changes-git.test.js`,
+`test/session-changes-ipc.test.js`, `test/session-changes-follow.test.js`, `test/session-changes-rows.test.js`,
+`test/session-changes-window.test.js`, `test/session-changes-details-page.test.js`, and the parity and migration pins
+(`test/backend-parity.test.js`, `test/db-migrations.test.js`). Fixtures: `test/fixtures/change-events/`.

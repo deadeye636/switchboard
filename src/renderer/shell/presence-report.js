@@ -11,9 +11,9 @@
 // in every other application but notices a return only on its next poll. A keystroke here is announced
 // at once.
 //
-// A PLAIN CLASSIC SCRIPT, self-contained in an IIFE: it is loaded by four pages with four different
-// script lists (`index.html`, `settings.html`, `changed-files.html`, `diff-window.html`), so it reaches
-// for nothing but the preload.
+// A PLAIN CLASSIC SCRIPT, self-contained in an IIFE: it is loaded by every page, each with its own
+// script list (`index.html`, `settings.html`, `changed-files.html`, `diff-window.html`, `session-changes.html`;
+// `test/presence-reporting.test.js` is the list that counts), so it reaches for nothing but the preload.
 //
 //   preload                  reportPresenceActivity
 //
