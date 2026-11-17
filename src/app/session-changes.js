@@ -59,6 +59,7 @@ const MSG = Object.freeze({
   outside: 'This file is outside this checkout: no diff.',
   openOutside: 'This file is outside this checkout.',
   noDiff: 'No diff is available for this item.',
+  gone: 'A commit this diff needs is no longer in this repository’s history: no diff.',
   stale: 'This item is no longer listed. Refresh and try again.',
   quitting: 'The app is closing.',
 });
@@ -357,9 +358,9 @@ function pathMapOf(rawPaths, cwd, root) {
  */
 function othersInScope(row, base, hasRoot, since) {
   const touched = (o) => (toMs(o.modified) ?? toMs(o.lastEntryAt) ?? 0);
-  if (hasRoot && typeof ctx.getAllCached === 'function') {
+  if (hasRoot && typeof ctx.getSessionScopeRows === 'function') {
     let all = [];
-    try { all = ctx.getAllCached() || []; } catch { all = []; }
+    try { all = ctx.getSessionScopeRows() || []; } catch { all = []; }
     const baseKey = pathKey(base);
     if (!baseKey) return [];
     const prefix = baseKey.endsWith(path.sep) ? baseKey : baseKey + path.sep;
@@ -717,6 +718,27 @@ async function cutRevisions(co, file, look) {
   return { from, to };
 }
 
+/**
+ * After a read over two revisions failed with git's "unknown revision" exit: is one of them gone from history? A trusted
+ * SHA the app recorded is not checked before use, so a rewritten and collected commit shows up here first. A repository
+ * git refuses as a whole (a broken `.git`, `safe.directory`) also exits 128 for every question, so "gone" needs the
+ * repository to answer something: the other revision, or HEAD when the other side is the working tree. At most three
+ * calls, only on that failure.
+ */
+async function revisionGone(co, revs) {
+  const held = async (args) => {
+    const r = await run(co.provider, co.root, args, CAP_SMALL);
+    if (r.ok) return true;
+    return r.code === 128 || r.code === 1 || r.refused ? false : null;   // null: the question itself failed
+  };
+  const shas = [revs.from, revs.to].filter(Boolean);
+  const answers = [];
+  for (const sha of shas) answers.push(await held(() => co.provider.revExistsArgs(sha)));
+  if (!answers.includes(false)) return false;
+  if (answers.includes(true)) return true;
+  return (await held(() => co.provider.headArgs())) === true;
+}
+
 async function diff(sessionId, targetId) {
   if (quitting()) return { ok: false, error: MSG.quitting };
   const found = findTarget(sessionId, targetId);
@@ -744,7 +766,11 @@ async function diff(sessionId, targetId) {
   if (!revs) return { ok: false, error: MSG.noDiff };
   const { from, to } = revs;
   const r = await run(co.provider, co.root, () => co.provider.diffArgs({ path: file.key, rev: from, to }), CAP_DIFF);
-  if (!r.ok) return { ok: false, error: r.refused ? MSG.noDiff : MSG.failed };
+  if (!r.ok) {
+    if (r.refused) return { ok: false, error: MSG.noDiff };
+    if (r.code === 128 && await revisionGone(co, revs)) return { ok: false, error: MSG.gone };
+    return { ok: false, error: MSG.failed };
+  }
   return { ok: true, kind: 'file', text: r.stdout, base: from.slice(0, model.SHORT_SHA), working: !to };
 }
 

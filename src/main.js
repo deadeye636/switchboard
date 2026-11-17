@@ -199,7 +199,7 @@ const {
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
-  isCachePopulated, getAllCached, getCachedByFolder, getFolderLineage, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
+  isCachePopulated, getAllCached, getSessionScopeRows, getCachedByFolder, getFolderLineage, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, setSessionLineage, replaceSessionMetrics, replaceSessionChanges, deleteChangesStateForSession,
   getSessionChanges, addChangeEntry, setChangeStartSha, listChangeEntries, getChangesView, setChangesView,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
@@ -2439,7 +2439,7 @@ flowRead.registerIpc(ipcMain);
 // control reads behind the session sidebar's Changes group and its Details window.
 const sessionChanges = require('./app/session-changes');
 sessionChanges.init({
-  getCachedSession, getFolderLineage, getCachedByParent, getCachedByProjectPath, getAllCached,
+  getCachedSession, getFolderLineage, getCachedByParent, getCachedByProjectPath, getSessionScopeRows,
   store: { getSessionChanges, addChangeEntry, setChangeStartSha, listChangeEntries, getChangesView, setChangesView },
   getVcsStatus: (cwd) => { const s = vcsPoll._scheduler(); return s ? s.getCached(cwd) : null; },
   onVcsStatus: (fn) => vcsPoll.onStatus(fn),

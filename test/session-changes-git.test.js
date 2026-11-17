@@ -238,6 +238,49 @@ test('a file diff runs the provider diff against the cut\'s baseline, by row id'
   assert.deepEqual(last.args.slice(-3), [FULL('a'), '--', 'src/a.js']);
 });
 
+test('a file diff whose baseline was collected after the answer says the commit is gone, not that git failed', async () => {
+  let collected = false;
+  setup({ answers: {
+    'rev-list': ok(FULL('a')),
+    'cat-file': () => (collected ? { code: 128 } : ok('')),
+    'rev-parse': ok(FULL('c') + '\n'),
+    log: ok(''),
+    diff: (args) => (args.includes('--numstat') ? ok('1\t0\tsrc/a.js\0') : (collected ? { code: 128 } : ok('+x\n'))),
+  } });
+  const st = await sc.state('S', {});
+  collected = true;
+  const d = await sc.diff('S', st.files[0].id);
+  assert.equal(d.ok, false);
+  assert.match(d.error, /no longer in this repository/);
+});
+
+test('a repository git refuses as a whole is a plain failure, not a gone commit', async () => {
+  let broken = false;
+  setup({ answers: {
+    'rev-list': ok(FULL('a')),
+    'cat-file': () => (broken ? { code: 128 } : ok('')),
+    'rev-parse': () => (broken ? { code: 128 } : ok(FULL('c') + '\n')),
+    log: ok(''),
+    diff: (args) => (args.includes('--numstat') ? ok('1\t0\tsrc/a.js\0') : (broken ? { code: 128 } : ok('+x\n'))),
+  } });
+  const st = await sc.state('S', {});
+  broken = true;
+  const d = await sc.diff('S', st.files[0].id);
+  assert.equal(d.error, 'Version control could not be read.');
+});
+
+test('a file diff that fails while both revisions are held stays a plain failure', async () => {
+  let broken = false;
+  setup({ answers: {
+    'rev-list': ok(FULL('a')), 'cat-file': ok(''), log: ok(''),
+    diff: (args) => (args.includes('--numstat') ? ok('1\t0\tsrc/a.js\0') : (broken ? { code: 128 } : ok('+x\n'))),
+  } });
+  const st = await sc.state('S', {});
+  broken = true;
+  const d = await sc.diff('S', st.files[0].id);
+  assert.equal(d.error, 'Version control could not be read.');
+});
+
 // --- the fix round of the T9 verify ---
 
 const UNC = String.fromCharCode(92, 92) + 'evil-host' + String.fromCharCode(92) + 'share' + String.fromCharCode(92) + 'x.js';

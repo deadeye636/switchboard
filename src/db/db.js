@@ -139,6 +139,7 @@ module.exports = {
   // --- the indexed session cache, metrics and folder bookkeeping (session-store.js) ---
   isCachePopulated: sessionStore.isCachePopulated,
   getAllCached: sessionStore.getAllCached,
+  getSessionScopeRows: sessionStore.getSessionScopeRows,
   getCachedByFolder: sessionStore.getCachedByFolder,
   getFolderLineage: sessionStore.getFolderLineage,
   getCachedByParent: sessionStore.getCachedByParent,

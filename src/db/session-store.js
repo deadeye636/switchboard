@@ -26,6 +26,9 @@ const stmts = {
   // Session cache statements
   cacheCount: db.prepare('SELECT COUNT(*) as cnt FROM session_cache'),
   cacheGetAll: db.prepare('SELECT * FROM session_cache'),
+  // The four columns spec 47 E8 needs to file other sessions by checkout root (#870): read per Changes refresh, so it
+  // leaves the summary, prompt and metric columns of `SELECT *` behind.
+  cacheGetScope: db.prepare('SELECT sessionId, projectPath, modified, lastEntryAt FROM session_cache WHERE projectPath IS NOT NULL'),
   // backendId / filePath (multi-LLM, v10 + v11) are COALESCEd on update, never overwritten with NULL:
   // the scanner passes NULL when it cannot tell (no launch overlay, Claude root), and a NULL must not
   // downgrade a row that already carries an Axis-A profile id — the row is the authoritative
@@ -231,6 +234,11 @@ function isCachePopulated() {
 
 function getAllCached() {
   return normalizeCacheRows(stmts.cacheGetAll.all());
+}
+
+/** Every session with a project path, as `{ sessionId, projectPath, modified, lastEntryAt }` only (spec 47 E8). */
+function getSessionScopeRows() {
+  return stmts.cacheGetScope.all();
 }
 
 const upsertCachedSessionsBatch = db.transaction((sessions) => {
@@ -483,7 +491,7 @@ function setFolderMeta(folder, projectPath, indexMtimeMs) {
 }
 
 module.exports = {
-  isCachePopulated, getAllCached, getCachedByFolder, getFolderLineage, getCachedByParent,
+  isCachePopulated, getAllCached, getSessionScopeRows, getCachedByFolder, getFolderLineage, getCachedByParent,
   getCachedByProjectPath, getPlanRefAttributions,
   getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, setSessionLineage,

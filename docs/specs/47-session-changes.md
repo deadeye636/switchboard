@@ -306,6 +306,7 @@ one tick per entry, the range highlighted.
 | Commits pushed | commits with "pushed" and the time of the last push |
 | Not under version control | transcript-derived files and counts, no diff, "No repository: diffs are not available." |
 | Baseline gone (garbage-collected, history rewritten) | transcript-derived list stays; "The review point is no longer in this repository's history." and a **Set review point to now** action (same as Clear without a log entry for a missing SHA, E2) |
+| A file diff whose baseline or end commit is gone (a row from an answer taken before the rewrite) | "A commit this diff needs is no longer in this repository's history: no diff." Only when the repository still answers (the other revision or HEAD); otherwise the generic failure below |
 | Git unavailable / a read failed | the last good view stays with a note; the failure's text is generic (git's stderr carries paths) |
 | Backend does not report | one sentence, no figure |
 | Truncated | "Only the first N files are listed." |

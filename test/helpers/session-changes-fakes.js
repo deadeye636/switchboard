@@ -95,7 +95,8 @@ function makeCtx({ root, sessions, provider, exec, store, status, reports = true
       .map((s) => ({ sessionId: s.sessionId, lineageParentId: s.lineageParentId, lineageKind: s.lineageKind })),
     getCachedByParent: (id) => sessions.filter((s) => s.parentSessionId === id),
     getCachedByProjectPath: (p) => [...sessions, ...others].filter((s) => s.projectPath === p),
-    getAllCached: () => [...sessions, ...others],
+    getSessionScopeRows: () => [...sessions, ...others].filter((s) => s.projectPath)
+      .map((s) => ({ sessionId: s.sessionId, projectPath: s.projectPath, modified: s.modified, lastEntryAt: s.lastEntryAt })),
     store: store.api,
     getVcsStatus: () => status || null,
     vcs: { detect: () => provider },
