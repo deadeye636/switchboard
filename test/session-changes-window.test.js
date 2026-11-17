@@ -206,7 +206,7 @@ test('a two-entry pick round-trips through setView: the ids stay what the strip 
   const { store } = setup({ files: FILE });
   seedEntries(store);
   store.entries.push(entry({ id: 3, kind: 'clear', position: 30, at: 3, toSha: FULL('c'), files: { files: [['src/a.js', 2]], truncated: false } }));
-  const ticks = sc.entries('S', {}).ticks;
+  const ticks = (await sc.state('S', {})).ticks;
   const start = ticks.find((t) => t.kind === 'start');
   const clears = ticks.filter((t) => t.kind === 'clear');
   assert.equal(typeof clears[0].id, 'number', 'a stored entry\'s id is a number: the page must send it back as one');

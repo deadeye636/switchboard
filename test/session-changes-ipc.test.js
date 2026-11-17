@@ -43,7 +43,6 @@ const BINDINGS = {
   sessionChangesVersions: ['session-changes-versions'],
   sessionChangesFollow: ['session-changes-follow'],
   sessionChangesClear: ['session-changes-clear'],
-  sessionChangesEntries: ['session-changes-entries'],
   sessionChangesView: ['session-changes-view-get', 'session-changes-view-set'],
 };
 

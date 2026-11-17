@@ -2439,11 +2439,12 @@ flowRead.registerIpc(ipcMain);
 // control reads behind the session sidebar's Changes group and its Details window.
 const sessionChanges = require('./app/session-changes');
 sessionChanges.init({
-  getCachedSession, getFolderLineage, getCachedByParent, getCachedByProjectPath,
+  getCachedSession, getFolderLineage, getCachedByParent, getCachedByProjectPath, getAllCached,
   store: { getSessionChanges, addChangeEntry, setChangeStartSha, listChangeEntries, getChangesView, setChangesView },
   getVcsStatus: (cwd) => { const s = vcsPoll._scheduler(); return s ? s.getCached(cwd) : null; },
   onVcsStatus: (fn) => vcsPoll.onStatus(fn),
   followFolder: (key, cwd) => vcsPoll.followFolder(key, cwd),
+  refreshFolder: (cwd) => { const s = vcsPoll._scheduler(); if (s) s.refresh(cwd); },
   getAppQuitting: () => appQuitting,
   log,
 });

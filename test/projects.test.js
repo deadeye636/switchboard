@@ -70,6 +70,7 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
         cachedRows = cachedRows.filter(r => r.sessionId !== sid);
       },
       deleteSearchSession: (sid) => calls.deletedSearchSessions.push(sid),
+      deleteChangesStateForSession: (sid) => (calls.deletedChangesState = calls.deletedChangesState || []).push(sid),
       getProjectMeta: (p) => states.get(p) || null,
       setProjectAutoHidden: (p, on) => {
         if (on) autoHidden.add(p); else autoHidden.delete(p);
@@ -2608,6 +2609,7 @@ test('#679: rows whose transcript is already gone are dropped, and the entry is 
     assert.strictEqual(r.removed, 1, 'the stale row counts as removed');
     assert.strictEqual(asked, 0, 'the backend is not asked to delete a file that is not there');
     assert.deepStrictEqual(t.calls.deletedSessions, ['s1']);
+    assert.deepStrictEqual(t.calls.deletedChangesState, ['s1'], 'the change-tracking user state goes with a deliberate cleanup (#870)');
   } finally { t.cleanup(); }
 });
 

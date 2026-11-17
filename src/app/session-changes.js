@@ -29,7 +29,7 @@
 const path = require('path');
 const { execFile } = require('child_process');
 const model = require('./session-changes-model');
-const { isAtOrInside } = require('./path-containment');
+const { isAtOrInside, pathKey } = require('./path-containment');
 const { networkShareOf } = require('./network-path');
 const { cleanChangesView } = require('../db/changes-record');
 const { closeProbeStdin } = require('./terminal/shell-profiles');
@@ -48,7 +48,8 @@ const MAX_RESOLVE = 16;              // SHA lookups per refresh (history hits ar
 const MAX_CUT_RESOLVE = 8;           // lookups for the cut SHAs (push tips) per refresh, before the commit marks
 const MAX_NUMSTAT_CUTS = 12;         // numstat reads per refresh (All + the newest Split blocks)
 const MAX_LINEAGE = 200;             // sessions followed in one lineage
-const MAX_OTHER_SESSIONS = 300;      // other sessions of the project asked for E8
+const MAX_OTHER_SESSIONS = 300;      // other sessions of the repository asked for E8
+const MAX_OTHER_PROJECTS = 200;      // distinct project directories keyed per E8 read
 const FULL_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const RECORDED_SHA_RE = /^[0-9a-f]{7,64}$/;
 
@@ -346,13 +347,48 @@ function pathMapOf(rawPaths, cwd, root) {
   return out;
 }
 
-/** E8: how many OTHER sessions of the same project edited each key since `sinceMs` (a database read, no version control). */
-function editedByOthers(row, excluded, keys, sinceMs, base) {
+/**
+ * The cached sessions E8 counts: those whose project directory is at or inside the checkout root `base` (the repository
+ * root, spec 47 E8), so a session in a subfolder counts for one at the top. Containment is a KEY compare (`pathKey`, the
+ * memoised real path, `.claude/rules/main-process.md`): it files rows into project buckets, it guards nothing. Bounded:
+ * only rows touched since `since` are looked at, at most `MAX_OTHER_PROJECTS` distinct project directories (newest
+ * first) are keyed, and the caller keeps `MAX_OTHER_SESSIONS` sessions. Without a checkout (`hasRoot` false) the
+ * directory itself is the whole scope.
+ */
+function othersInScope(row, base, hasRoot, since) {
+  const touched = (o) => (toMs(o.modified) ?? toMs(o.lastEntryAt) ?? 0);
+  if (hasRoot && typeof ctx.getAllCached === 'function') {
+    let all = [];
+    try { all = ctx.getAllCached() || []; } catch { all = []; }
+    const baseKey = pathKey(base);
+    if (!baseKey) return [];
+    const prefix = baseKey.endsWith(path.sep) ? baseKey : baseKey + path.sep;
+    const verdict = new Map();   // project directory -> in scope
+    const recent = all.filter((o) => o && o.sessionId && o.projectPath && touched(o) >= since)
+      .sort((a, b) => touched(b) - touched(a));
+    const kept = [];
+    for (const o of recent) {
+      let inScope = verdict.get(o.projectPath);
+      if (inScope === undefined) {
+        if (verdict.size >= MAX_OTHER_PROJECTS) continue;
+        const k = pathKey(o.projectPath);
+        inScope = k === baseKey || k.startsWith(prefix);
+        verdict.set(o.projectPath, inScope);
+      }
+      if (inScope) kept.push(o);
+    }
+    return kept;
+  }
+  if (typeof ctx.getCachedByProjectPath !== 'function' || !row.projectPath) return [];
+  try { return ctx.getCachedByProjectPath(row.projectPath) || []; } catch { return []; }
+}
+
+/** E8: how many OTHER sessions of the same repository edited each key since `sinceMs` (a database read, no version control). */
+function editedByOthers(row, excluded, keys, sinceMs, base, hasRoot) {
   const out = new Map();
-  if (typeof ctx.getCachedByProjectPath !== 'function' || !row.projectPath || !keys.size) return out;
-  let others = [];
-  try { others = ctx.getCachedByProjectPath(row.projectPath) || []; } catch { others = []; }
+  if (!row.projectPath || !keys.size) return out;
   const since = sinceMs || 0;
+  let others = othersInScope(row, base, hasRoot, since);
   others = others.filter((o) => o && o.sessionId && !excluded.has(o.sessionId) && (toMs(o.modified) ?? toMs(o.lastEntryAt) ?? 0) >= since)
     .sort((a, b) => (toMs(b.modified) || 0) - (toMs(a.modified) || 0)).slice(0, MAX_OTHER_SESSIONS);
   if (!others.length) return out;
@@ -568,8 +604,10 @@ async function computeState(sessionId, opts) {
   input.facts.outside = outside;
   const first = model.buildModel(input);
   input.facts.editedByOthers = editedByOthers(row, new Set([...lin.order, ...input.subagents.map((s) => s.sessionId)]),
-    keys, first.range.fromAt, co ? co.root : cwd);
-  // E7 and the "new" mark come from the poller's last status of this directory; no status run of our own.
+    keys, first.range.fromAt, co ? co.root : cwd, !!co);
+  // E7 and the "new" mark come from the poller's last status of this directory. `fresh` (Refresh) asks the poller for a
+  // poll now; its result reaches a followed session through `onVcsStatus`, which asks again, so this read stays cached.
+  if (opts && opts.fresh === true && cwd && typeof ctx.refreshFolder === 'function') { try { ctx.refreshFolder(cwd); } catch { /* best effort */ } }
   let status = null;
   try { status = typeof ctx.getVcsStatus === 'function' ? ctx.getVcsStatus(cwd) : null; } catch { status = null; }
   if (status && Array.isArray(status.files) && !status.truncated) {
@@ -642,21 +680,9 @@ function summary(sessionId) {
   return { ok: true, ...model.summaryOf(g.input) };
 }
 
-/** Details: the state plus the timeline strip. */
-async function details(sessionId, opts) {
-  const st = await state(sessionId, opts);
-  if (!st.ok) return st;
-  const per = targets.get(sessionId);
-  const t = per ? per.get(requestKey(st.request)) : null;
-  return { ...st, timeline: t ? model.timeline(t.input).ticks : [] };
-}
-
-/** The timeline ticks alone (for "Pick entries"), from the database only. */
-function entries(sessionId, opts) {
-  if (quitting()) return { ok: false, error: MSG.quitting };
-  const g = typeof sessionId === 'string' && sessionId ? gatherDb(sessionId, requestOf(sessionId, opts)) : null;
-  if (!g) return { ok: false, error: MSG.notFound };
-  return { ok: true, ticks: model.timeline(g.input).ticks };
+/** Details: the state, whose `ticks` are the timeline strip. */
+function details(sessionId, opts) {
+  return state(sessionId, opts);
 }
 
 /**
@@ -996,7 +1022,6 @@ function registerIpc(ipc) {
   ipc.handle('session-changes-open-diff-window', (_e, sessionId, targetId) => openDiffWindow(sessionId, typeof targetId === 'string' ? targetId : null));
   ipc.handle('session-changes-versions', (_e, sessionId, targetId) => versions(sessionId, typeof targetId === 'string' ? targetId : null));
   ipc.handle('session-changes-clear', (_e, sessionId, opts) => clear(sessionId, { missing: !!(opts && opts.missing === true) }));
-  ipc.handle('session-changes-entries', (_e, sessionId, opts) => entries(sessionId, optsOf(opts)));
   ipc.handle('session-changes-view-get', (_e, sessionId) => getView(sessionId));
   ipc.handle('session-changes-view-set', (e, sessionId, value) => setView(sessionId, value, e && e.sender));
   // The Changes group follows while it is open and shown (spec 47 section 4); fire-and-forget like `vcs-follow`.
@@ -1005,7 +1030,7 @@ function registerIpc(ipc) {
 }
 
 module.exports = {
-  init, registerIpc, summary, state, details, entries, diff, versions, open, openDetails, openDiffWindow, clear, getView, setView, forget, follow, unfollow, noteScanWrite,
+  init, registerIpc, summary, state, details, diff, versions, open, openDetails, openDiffWindow, clear, getView, setView, forget, follow, unfollow, noteScanWrite,
   // + 1: a range that ends at a recorded SHA (a reopened review) asks once whether the repository still holds that end.
   SPAWN_BOUND: 2 + 2 + 2 * (MAX_CUT_RESOLVE + MAX_RESOLVE) + MAX_NUMSTAT_CUTS + 1,
   _lineageOf: (id) => lineageOf(id),

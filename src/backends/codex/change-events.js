@@ -291,4 +291,4 @@ function createCodexChangeExtractor() {
   };
 }
 
-module.exports = { createCodexChangeExtractor, patchPathsIn, patchArgsOfScript };
+module.exports = { createCodexChangeExtractor, patchPathsIn };

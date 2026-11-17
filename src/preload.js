@@ -319,7 +319,6 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('session-changes-details-at', listener);
   },
   sessionChangesClear: (sessionId, opts) => ipcRenderer.invoke('session-changes-clear', sessionId, opts),
-  sessionChangesEntries: (sessionId, opts) => ipcRenderer.invoke('session-changes-entries', sessionId, opts),
   // V4: without `value` it reads the kept range and view; with one it keeps it (`null` = back to the default).
   sessionChangesView: (sessionId, value) => (value === undefined
     ? ipcRenderer.invoke('session-changes-view-get', sessionId)

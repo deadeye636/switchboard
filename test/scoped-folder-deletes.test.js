@@ -151,4 +151,6 @@ test('the deliberate history delete drops the user state per session, and the sc
   assert.match(bodyOf(projects, 'removeProject'), /deleteChangesStateForSession/, 'removeProject purges the user state of the rows it purges');
   assert.match(main, /deleteSearchSession\(row\.sessionId\);\s*deleteChangesStateForSession\(row\.sessionId\)/,
     'the worktree delete drops the user state of the sessions it deletes');
+  assert.match(bodyOf(projects, 'dropRowsWithoutTranscript'), /deleteChangesStateForSession/,
+    'the "clean up missing" action is a deliberate delete: the user state of the rows it drops goes with them');
 });

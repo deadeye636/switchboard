@@ -604,6 +604,6 @@ function timeline(input) {
 }
 
 module.exports = {
-  buildModel, summaryOf, timeline, cleanRequest, buildTicks, resolveRange,
-  RANGES, VIEWS, DEFAULT_RANGE, DEFAULT_VIEW, SHORT_SHA,
+  buildModel, summaryOf, timeline, cleanRequest,
+  VIEWS, SHORT_SHA,
 };

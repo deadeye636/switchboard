@@ -1639,6 +1639,8 @@ function dropRowsWithoutTranscript(projectPath, backendIds) {
     if (!file || fs.existsSync(file)) continue;
     try { ctx.db.deleteCachedSession(r.sessionId); } catch { continue; }
     try { ctx.db.deleteSearchSession(r.sessionId); } catch { /* best effort */ }
+    // A deliberate delete (the user's "clean up missing"): the change-tracking user state goes too (#870), like the other delete paths.
+    try { if (ctx.db.deleteChangesStateForSession) ctx.db.deleteChangesStateForSession(r.sessionId); } catch { /* best effort */ }
     dropped++;
   }
   return dropped;

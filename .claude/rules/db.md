@@ -138,7 +138,8 @@ for a value nothing stores, and the storage step then has to force a second full
 - **User state, written by the app:** `session_change_entry` (the timeline: start, Clear and `/clear` entries, with the SHAs and
   the per-file counts at that moment) and `session_meta.changesView` (the range and view picked per session). A rescan, a
   folder wipe and the "source gone" delete do **not** touch them. Only a deliberate delete does (`deleteChangesStateForSession`,
-  called from the session delete in `src/main.js` and the project removal paths in `src/projects/projects.js`; grep it rather
+  called from the session delete in `src/main.js` and the project removal paths and the "clean up missing" action
+  (`dropRowsWithoutTranscript`) in `src/projects/projects.js`; grep it rather
   than trusting this list; `test/scoped-folder-deletes.test.js`). Losing one with
   the session, or in a database restore, loses the review point for good (spec 47, known gaps).
 - **The pure shapes and caps are `src/db/changes-record.js`**, outside the store because no test loads a module that opens the

@@ -16,8 +16,8 @@
 //
 // D6 (spec 47): a `position` is comparable only inside ONE session id. A lineage is ordered by its entries, each entry belongs
 // to exactly one session, and `rangeSessions` says which sessions a range takes whole and which it cuts by position. A
-// subagent session is atomic (`subagentInRange`, by its last activity time). `touchedSince` / `eventsSince` therefore take
-// `{ sessionId, position }` and never compare positions of two sessions.
+// subagent session is atomic (`subagentInRange`, by its last activity time). Positions of two sessions are never compared:
+// the model applies both (`session-changes-model.js`, its range cuts).
 
 const {
   MAX_FILES, MAX_COMMITS, MAX_PUSHES, MAX_SNAPSHOT_FILES, MAX_PATH_CHARS, MAX_SUBJECT_CHARS, MAX_BRANCH_CHARS,
@@ -108,11 +108,6 @@ function normalizeChanges(row) {
   return { files, commits, pushes, truncated };
 }
 
-/** True when a normalised `changes` holds nothing: the store writes nothing for it (and a parser emits nothing). */
-function isEmptyChanges(changes) {
-  return !changes || (!changes.files.length && !changes.commits.length && !changes.pushes.length);
-}
-
 /**
  * A push that moved something and so ends a Split block (D2): it succeeded and was not "Everything up-to-date", or it was
  * partial (one ref refused, another moved: `moved`). A push that moved nothing cuts nothing.
@@ -179,36 +174,6 @@ function diffCounts(to, from) {
   return out.sort((a, b) => b.count - a.count || byPath(a, b)).concat(unknown.sort(byPath));
 }
 
-/** Several count lists summed per path (a lineage's sessions, a parent and its subagents): `[[path, count]]`. */
-function sumCounts(lists) {
-  const total = new Map();
-  for (const list of Array.isArray(lists) ? lists : []) {
-    for (const [path, count] of countsOf(list)) total.set(path, (total.get(path) || 0) + count);
-  }
-  return Array.from(total);
-}
-
-const sameSession = (a, b) => !!a && !!b && typeof a.sessionId === 'string' && a.sessionId !== '' && a.sessionId === b.sessionId;
-
-/**
- * D6: a file (`{ sessionId, last }`) is touched since a boundary (`{ sessionId, position }`) when its last edit lies after
- * the boundary position. Positions of two sessions are never compared: another session's file answers `null` ("not
- * comparable, the lineage order decides", see `rangeSessions`). An unknown position answers `false`.
- */
-function touchedSince(file, from) {
-  if (!sameSession(file, from)) return null;
-  return num(file.last) !== null && num(from.position) !== null && file.last > from.position;
-}
-
-/**
- * D6: the events (`{ sessionId, position }`) of the boundary's OWN session recorded after its position, in their given order.
- * An event of another session is not returned (that session is taken whole or not at all by `rangeSessions`); an event without
- * a position is not after anything.
- */
-function eventsSince(events, from) {
-  return (Array.isArray(events) ? events : []).filter((e) => sameSession(e, from) && num(from.position) !== null && num(e.position) !== null && e.position > from.position);
-}
-
 /**
  * D6: which sessions of a lineage a range covers. `order` is the lineage's session ids in order (root first), `from` / `to` are
  * the boundary entries (`{ sessionId, position }`; `null` = the start / the end of the lineage). Returns
@@ -268,8 +233,8 @@ function cleanChangesView(v) {
 
 module.exports = {
   cleanChangesView,
-  normalizeChanges, normalizeSnapshot, isEmptyChanges, isCuttingPush, makeEntry, isEntryKind,
-  pairsOf, countsOf, diffCounts, sumCounts, touchedSince, eventsSince, rangeSessions, subagentInRange,
-  ENTRY_KINDS, MAX_TIMELINE_ENTRIES, MAX_SNAPSHOT_BYTES, MAX_SHA_CHARS,
+  normalizeChanges, normalizeSnapshot, isCuttingPush, makeEntry,
+  pairsOf, diffCounts, rangeSessions, subagentInRange,
+  ENTRY_KINDS, MAX_TIMELINE_ENTRIES, MAX_SNAPSHOT_BYTES,
   MAX_FILES, MAX_COMMITS, MAX_PUSHES, MAX_SNAPSHOT_FILES, MAX_PATH_CHARS, MAX_SUBJECT_CHARS, MAX_BRANCH_CHARS, MAX_SUMMARY_CHARS,
 };

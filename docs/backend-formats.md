@@ -1548,7 +1548,7 @@ missing in its capability row (spec 47, section 2).
   stay as written, relative to that directory, and are not rebased). A refusal in words (`patch rejected`, `aborted`) as the
   first output line of a function call is not a success; a completed script's own printed text is never read for it.
 - **Commands.** A command is `tools.exec_command({ cmd, workdir, … })` (JSON or a JavaScript literal; `shellCallsOf` in
-  `src/backends/codex/flow-flags.js` already reads it). The output of one command is `r.output`, which the script
+  `src/backends/codex/shell-calls.js` already reads it). The output of one command is `r.output`, which the script
   must print with `text(r.output)` for it to be in the transcript. With two commands in one script the printed parts
   carry no command id (`exec-two-commands.jsonl`): pair by order only when the script has exactly one command.
 - **No `git commit` or `git push` exists in the local rollouts** (checked across every local rollout), so the Codex

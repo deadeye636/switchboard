@@ -257,8 +257,9 @@ Mockup: docs/plans/870-session-changes/mockups/timeline.html (local). Recorded i
   snapshots, D4); a session of the lineage wholly between the boundaries is included whole; one wholly outside is
   excluded (`rangeSessions` in `src/db/changes-record.js`). A **subagent** session is atomic: included whole when its last
   activity time falls inside the range, otherwise excluded. This is an approximation, stated: a subagent's edits are not in
-  the parent's push snapshots, so they cannot be cut by position. `touchedSince` / `eventsSince` take
-  `{ sessionId, position }` and never compare positions of two sessions. A push snapshot that was cut by a cap carries
+  the parent's push snapshots, so they cannot be cut by position. D6 is applied where the model resolves a range
+  (`rangeSessions` for the lineage, `subagentInRange` for the subagents, both used by `session-changes-model.js`), and
+  positions of two sessions are never compared. A push snapshot that was cut by a cap carries
   `truncated`, and a file missing from such a snapshot is unknown in a difference (never its full total).
   A partial push (one ref refused, another moved) still ends a Split block (`moved`).
 - **G3. A fork is a timeline of its own, starting at its first own position.** (Main session, from the T4 verify.) A
@@ -355,7 +356,9 @@ brought back to the owner before the sequence-number fallback is used.
   summary, no diff. **Recommend (b),** one line, because a reviewer who sees a clean list and a dirty tree should know why.
 - **E8. Two sessions edited the same file.** The diff cannot be split by session. (a) show it as is; (b) mark the row
   "also edited by N other sessions" from `session_change_file` rows of other sessions in the same repository root since the
-  baseline (a DB read, no git). **Recommend (b):** it states the limit instead of leaving the user to find it.
+  baseline (a DB read, no git; sessions whose project directory is at or inside the checkout root, decided on real
+  paths through `pathKey`, capped per read by `MAX_OTHER_PROJECTS` and `MAX_OTHER_SESSIONS` in
+  `src/app/session-changes.js`). **Recommend (b):** it states the limit instead of leaving the user to find it.
 - **E9. Baseline is a commit, not a snapshot.** Clear sets the baseline to `HEAD`. Uncommitted edits made before Clear
   still differ from `HEAD`; they are not listed (transcript position) but appear inside the diff of a file the session
   edits again afterwards. The alternative is a working-tree snapshot (a tree object written with a temporary index), which
@@ -373,8 +376,8 @@ brought back to the owner before the sequence-number fallback is used.
   decode. It was measured on a large real transcript before and after (`docs/specs/11-performance.md` method) against a
   budget of 10 percent on a full parse and nothing measurable on an incremental append. The budget held: a full Claude parse
   cost about two percent more, Codex and Pi no more, and an incremental read stayed inside the noise, so the fallback (a
-  per-session event sequence number instead of a byte offset) was not needed. The write cost is bounded by the caps and by
-  writing only when the aggregate changed.
+  per-session event sequence number instead of a byte offset) was not needed. The write cost is bounded by the caps: an
+  incremental read writes only when the aggregate moved; a full parse always replaces the session's rows.
 - **No new IPC in `src/main.js`**, no backend id outside its folder, English only, no personal paths.
 - **Privacy of the stored data.** Paths are stored as the transcript spelled them (they are already in the transcript and
   in `session_cache`); nothing from `session_change_*` leaves the machine except through the existing exports, which

@@ -206,6 +206,28 @@ test('E8: another session of the project that edited the same file since the ran
   assert.equal(st.files[0].otherSessions, 1);
 });
 
+test('E8: a session in a subfolder of the checkout counts, one in a sibling repository does not', async () => {
+  const root = makeCheckout();
+  roots.push(root);
+  const provider = makeProvider(root);
+  const { exec } = makeExec({ 'rev-list': ok(FULL('a')), 'cat-file': ok(''), log: ok(''), diff: ok('') });
+  const store = makeStore();
+  const sessions = [{ sessionId: 'S', folder: 'F', projectPath: root, startedAt: START }];
+  const modified = Date.UTC(2026, 10, 16, 10);
+  const others = [
+    { sessionId: 'SUB', folder: 'G', projectPath: path.join(root, 'sub'), modified },
+    { sessionId: 'SIB', folder: 'H', projectPath: root + '-sibling', modified },
+  ];
+  const at = Date.UTC(2026, 10, 16, 9);
+  store.changes.set('S', { files: [{ path: 'src/a.js', count: 1, first: 1, last: 2, at }], commits: [], pushes: [], truncated: false });
+  const theirs = { files: [{ path: path.join(root, 'src', 'a.js'), count: 4, first: 1, last: 2, at: modified }], commits: [], pushes: [], truncated: false };
+  store.changes.set('SUB', theirs);
+  store.changes.set('SIB', theirs);
+  sc.init(makeCtx({ root, sessions, provider, exec, store, others }));
+  const st = await sc.state('S', {});
+  assert.equal(st.files[0].otherSessions, 1, 'the subfolder session only');
+});
+
 test('a file diff runs the provider diff against the cut\'s baseline, by row id', async () => {
   const { calls } = setup({ answers: { 'rev-list': ok(FULL('a')), 'cat-file': ok(''), log: ok(''), diff: (args) => (args.includes('--numstat') ? ok('1\t0\tsrc/a.js\0') : ok('+x\n')) } });
   const st = await sc.state('S', {});

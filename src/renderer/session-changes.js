@@ -157,7 +157,7 @@
   // --- the strip ---
 
   function stripHtml(v) {
-    const ticks = (v.ticks || v.timeline || []).slice();
+    const ticks = (v.ticks || []).slice();
     if (!ticks.length) return '';
     const fromAt = v.range ? ticks.findIndex((t) => t.id === v.range.fromId) : -1;
     const toAt = v.range && v.range.toId ? ticks.findIndex((t) => t.id === v.range.toId) : -1;
@@ -328,7 +328,7 @@
   function pickTick(domId) {
     const v = state.view;
     if (!v) return;
-    const ticks = v.ticks || v.timeline || [];
+    const ticks = v.ticks || [];
     // A stored entry's id is a NUMBER, and `dataset` hands it back as text: the id kept for the pick must be the tick's own,
     // or main's cleaning drops it and the range falls back to "from the start".
     const found = domId === NOW_TICK ? null : ticks.find((t) => String(t.id) === domId);

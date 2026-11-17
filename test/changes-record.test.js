@@ -37,12 +37,8 @@ test('normalizeChanges drops bad entries and cuts to the caps', () => {
   assert.deepEqual(n.pushes[1].files, [['a', 1], ['c', 3]]);
 });
 
-test('an empty or missing list normalises to empty and isEmptyChanges says so', () => {
-  const n = rec.normalizeChanges({});
-  assert.deepEqual(n, { files: [], commits: [], pushes: [], truncated: false });
-  assert.equal(rec.isEmptyChanges(n), true);
-  assert.equal(rec.isEmptyChanges(null), true);
-  assert.equal(rec.isEmptyChanges({ files: [{ path: 'a', count: 1 }], commits: [], pushes: [] }), false);
+test('an empty or missing list normalises to empty', () => {
+  assert.deepEqual(rec.normalizeChanges({}), { files: [], commits: [], pushes: [], truncated: false });
 });
 
 test('the caps are the accumulator\'s: one source', () => {
@@ -117,11 +113,6 @@ test('a push keeps its pushed SHA when valid and drops a malformed one (#870)', 
   assert.equal(rec.normalizeChanges({ pushes: [{ ok: true, sha: 'x'.repeat(10) }] }).pushes[0].sha, undefined);
 });
 
-test('sumCounts adds lists per path (a lineage, a parent and its subagents)', () => {
-  assert.deepEqual(rec.sumCounts([[['a', 1], ['b', 2]], [['a', 4]], new Map([['c', 1]])]), [['a', 5], ['b', 2], ['c', 1]]);
-  assert.deepEqual(rec.sumCounts(null), []);
-});
-
 test('a truncated "from" snapshot makes a missing file unknown, not new (G3)', () => {
   const to = [['a.js', 5], ['new.js', 2], ['b.js', 1]];
   const prev = { files: [['a.js', 2]], truncated: true };
@@ -149,23 +140,6 @@ test('isCuttingPush: a partial push (moved) cuts although it is not ok', () => {
   assert.equal(rec.isCuttingPush({ ok: false, moved: true }), true);
   assert.equal(rec.isCuttingPush({ ok: false }), false);
   assert.equal(rec.normalizeChanges({ pushes: [{ ok: false, moved: true, files: [['a', 1]] }] }).pushes[0].moved, true);
-});
-
-test('D6: touchedSince and eventsSince never compare positions of two sessions', () => {
-  const from = { sessionId: 'S1', position: 10 };
-  assert.equal(rec.touchedSince({ sessionId: 'S1', last: 11 }, from), true);
-  assert.equal(rec.touchedSince({ sessionId: 'S1', last: 10 }, from), false);
-  assert.equal(rec.touchedSince({ sessionId: 'S1', last: null }, from), false);
-  assert.equal(rec.touchedSince({ sessionId: 'S1', last: 11 }, { sessionId: 'S1', position: null }), false);
-  assert.equal(rec.touchedSince({ sessionId: 'S2', last: 9999 }, from), null); // another session: not comparable
-  assert.equal(rec.touchedSince({ last: 11 }, from), null);
-  const ev = [
-    { sessionId: 'S1', sha: 'a', position: 5 }, { sessionId: 'S1', sha: 'b', position: 15 }, { sessionId: 'S1', sha: 'c', position: null },
-    { sessionId: 'S2', sha: 'd', position: 99999 },
-  ];
-  assert.deepEqual(rec.eventsSince(ev, from).map((e) => e.sha), ['b']);
-  assert.deepEqual(rec.eventsSince(ev, { sessionId: 'S1', position: null }), []);
-  assert.deepEqual(rec.eventsSince(ev, { position: 1 }), []);
 });
 
 test('D6 rangeSessions: the lineage is cut by entries, sessions between are whole', () => {
