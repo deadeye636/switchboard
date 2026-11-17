@@ -143,6 +143,24 @@ test('a builder that refuses an untrusted value (TypeError) is "not available", 
   assert.equal(st.commits[0].rewritten, false, 'unknown: no mark rather than a guess');
 });
 
+test('a commit row’s detail carries its time in milliseconds, as every other time the page formats', async () => {
+  const full = 'abcdef1' + '9'.repeat(33);
+  const EPOCH_S = 1794910496;       // git prints `%at` in seconds
+  setup({
+    commits: [{ sha: 'abcdef1', subject: 's', branch: 'main', position: 5, at: Date.UTC(2026, 10, 16, 9) }],
+    answers: {
+      'rev-list': ok(FULL('a')), 'cat-file': ok(''), log: ok(''), diff: ok(''), 'rev-parse': ok(full),
+      show: ok(`${full}\0${EPOCH_S}\0The subject\0The body\n\0`),
+    },
+  });
+  const st = await sc.state('S', { range: 'whole' });
+  const d = await sc.diff('S', st.commits[0].id);
+  assert.equal(d.ok, true);
+  assert.equal(d.commit.time, EPOCH_S * 1000);
+  assert.equal(new Date(d.commit.time).getTime(), Date.UTC(2026, 10, 17, 10, 14, 56));
+  assert.equal(d.commit.subject, 'The subject');
+});
+
 test('E10: a path outside the checkout is listed as outside and never reaches version control', async () => {
   const outsideDir = makeCheckout();
   roots.push(outsideDir);

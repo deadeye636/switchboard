@@ -705,7 +705,7 @@ async function diff(sessionId, targetId) {
     const r = await run(co.provider, co.root, () => co.provider.showCommitArgs(sha), CAP_LOG);
     if (!r.ok) return { ok: false, error: MSG.failed };
     const c = co.provider.parseLog(r.stdout, 4)[0];
-    return c ? { ok: true, kind: 'commit', commit: { sha: c.sha.slice(0, model.SHORT_SHA), time: c.time, subject: c.subject, body: c.body } } : { ok: false, error: MSG.noDiff };
+    return c ? { ok: true, kind: 'commit', commit: { sha: c.sha.slice(0, model.SHORT_SHA), time: c.time * 1000, subject: c.subject, body: c.body } } : { ok: false, error: MSG.noDiff };
   }
   const abs = path.resolve(co.root, file.key);
   if (file.outside || !isAtOrInside(abs, co.root)) return { ok: false, error: MSG.outside };

@@ -23,7 +23,7 @@
 
 const { createAccumulator, MAX_PENDING } = require('../change-events');
 const { gitCommandsIn, commitFrom, pushFrom } = require('../git-command-events');
-const { shellCallsOf, looksPowerShell, SHELL_NAMES, SCRIPT_TOOL } = require('./flow-flags');
+const { shellCallsOf, looksPowerShell, SHELL_NAMES, SCRIPT_TOOL } = require('./shell-calls');   // not `./flow-flags`: that pulls the flow reader's primitives into descriptor load
 
 const MAX_TEXT_CHARS = 200000;      // a script, an argument blob or an output read for a call
 const MAX_PATCH_PATHS = 64;         // paths one call may name
