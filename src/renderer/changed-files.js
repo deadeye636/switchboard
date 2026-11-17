@@ -22,8 +22,6 @@
     { kind: 'untracked', title: 'Untracked', color: 'var(--faint)' },
   ];
   const LETTER = { staged: 'M', unstaged: 'M', untracked: '?', conflicted: 'U' };
-  // Above this many lines the inline pane is cramped, so it offers "open in a window" (#287).
-  const DIFF_WINDOW_THRESHOLD = 200;
 
   function fileRow(f) {
     const path = f.origPath ? '<span class="ren">' + esc(f.origPath) + ' → </span>' + splitPath(f.path) : splitPath(f.path);
@@ -116,30 +114,10 @@
       const res = await window.api.vcsDiff({ cwd, path: row.dataset.path, kind, staged: kind === 'staged' });
       if (!res || !res.ok) { pane.innerHTML = '<div class="diff-empty">' + esc((res && res.error) || 'Diff failed.') + '</div>'; return; }
       if (res.note) { pane.innerHTML = '<div class="diff-empty">' + esc(res.note) + '</div>'; return; }
-      const lineCount = res.text ? res.text.split('\n').length : 0;
-      const bar = lineCount > DIFF_WINDOW_THRESHOLD
-        ? '<div class="diff-bar"><span class="diff-bar-info">' + lineCount + ' lines</span>'
-          + '<button class="diff-expand" title="Open this diff in a side-by-side window">Open in window ⤢</button></div>'
-        : '';
-      pane.innerHTML = bar + renderDiff(res.text);
+      pane.innerHTML = diffBarHtml(res.text) + renderDiff(res.text);
     } catch (err) {
       pane.innerHTML = '<div class="diff-empty">Diff failed.</div>';
     }
-  }
-
-  function renderDiff(text) {
-    if (!text || !text.trim()) return '<div class="diff-empty">No textual changes.</div>';
-    const lines = text.split('\n').slice(0, 4000);
-    const html = lines.map((l) => {
-      const e = esc(l);
-      if (l.startsWith('+++') || l.startsWith('---')) return '<span class="d-meta">' + e + '</span>';
-      if (l[0] === '+') return '<span class="d-add">' + e + '</span>';
-      if (l[0] === '-') return '<span class="d-del">' + e + '</span>';
-      if (l.startsWith('@@')) return '<span class="d-hunk">' + e + '</span>';
-      if (/^(diff |index |new file|deleted |rename |similarity |Binary )/.test(l)) return '<span class="d-meta">' + e + '</span>';
-      return e;
-    }).join('\n');
-    return '<pre class="diff-pre">' + html + '</pre>';
   }
 
   el('refresh').addEventListener('click', async () => {

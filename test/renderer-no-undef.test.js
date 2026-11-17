@@ -214,3 +214,8 @@ test('renderer classic scripts: no undefined references in the diff-window.html 
   const undef = lintEnvironment('diff-window.html', 'diff-window.html');
   assert.deepEqual(undef, [], `undefined references found:\n${undef.join('\n')}`);
 });
+
+test('renderer classic scripts: no undefined references in the session-changes.html environment', () => {
+  const undef = lintEnvironment('session-changes.html', 'session-changes.html');
+  assert.deepEqual(undef, [], `undefined references found:\n${undef.join('\n')}`);
+});

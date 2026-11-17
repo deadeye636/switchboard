@@ -188,3 +188,65 @@ test('fileVersions: a non-repo directory is refused', async () => {
     assert.match(r.error, /no diff support/i);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// --- the `rev` mode (#870, session Details): a cut's baseline against the working copy or a later revision ---
+
+const headOf = (dir) => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+
+test('fileVersions rev: old is the baseline revision, new is the working copy', { skip: !HAVE_GIT }, async () => {
+  const { dir, run } = mkGitRepo();
+  try {
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'v1\n');
+    run('add', 'a.txt');
+    run('commit', '-qm', 'v1');
+    const base = headOf(dir);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'v2\n');
+    run('commit', '-qam', 'v2');                                  // committed after the baseline
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'v3 working\n');    // and edited again, uncommitted
+    const r = await fileVersions(dir, 'a.txt', '', false, { from: base });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.old, 'v1\n');
+    assert.strictEqual(r.new, 'v3 working\n');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('fileVersions rev: a pushed block reads both ends from history, not the working copy', { skip: !HAVE_GIT }, async () => {
+  const { dir, run } = mkGitRepo();
+  try {
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'v1\n');
+    run('add', 'a.txt');
+    run('commit', '-qm', 'v1');
+    const from = headOf(dir);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'v2\n');
+    run('commit', '-qam', 'v2');
+    const to = headOf(dir);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'later\n');
+    const r = await fileVersions(dir, 'a.txt', '', false, { from, to });
+    assert.strictEqual(r.old, 'v1\n');
+    assert.strictEqual(r.new, 'v2\n');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('fileVersions rev: a file added after the baseline has an empty old side', { skip: !HAVE_GIT }, async () => {
+  const { dir } = mkGitRepo();
+  try {
+    const base = headOf(dir);
+    fs.writeFileSync(path.join(dir, 'n.txt'), 'fresh\n');
+    const r = await fileVersions(dir, 'n.txt', '', false, { from: base });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.old, '');
+    assert.strictEqual(r.new, 'fresh\n');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('fileVersions rev: a revision that is not a SHA is refused, and the new side keeps the hardening', { skip: !HAVE_GIT }, async () => {
+  const { dir } = mkGitRepo();
+  try {
+    const bad = await fileVersions(dir, 'seed.txt', '', false, { from: '--output=x' });
+    assert.strictEqual(bad.ok, false);
+    assert.ok(!fs.existsSync(path.join(dir, 'x')));
+    const out = await fileVersions(dir, '../escape.txt', '', false, { from: headOf(dir) });
+    assert.strictEqual(out.ok, false);
+    assert.match(out.error, /outside/i);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

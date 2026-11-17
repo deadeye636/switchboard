@@ -73,7 +73,12 @@ moved (`vcs.js` `onStatus`; an unchanged status sends nothing) or a scan wrote `
 unfollow end it, call `forget` and release the folder. Following also makes main follow the session's folder with the poller
 itself (`ctx.followFolder`, key `changes:<sessionId>`, a main-side subscriber of `vcs.js`'s follow union beside the windows'
 Repository lists), so the renderer never calls `vcsFollow` for it). The model is pure: ranges, All and Split, snapshot differences and the states of the spec.
-`summary` reads the database only (the header figure)),
+`summary` reads the database only (the header figure). The Details window (`session-changes-open-details`) is one per session,
+built in `vcs.js` beside the changes and diff windows (`openDetailsWindow`, focus-if-exists and told where to land through
+`session-changes-details-at`, destroyed by `destroyAllVcsWindows`); its URL carries a session id, never a path. A large diff
+opens in the CodeMirror diff window by row id (`session-changes-open-diff-window`), which asks the two sides through
+`session-changes-versions` -> `vcs.js` `fileVersions` with a `rev`: a SHA main resolved itself, the working copy or a later SHA
+as the new side)),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
 menu on a marked word; since #839 also the plain text field menu, `editable-edit-menu`, opened only when a window asks

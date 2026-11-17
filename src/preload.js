@@ -307,6 +307,17 @@ contextBridge.exposeInMainWorld('api', {
   sessionChangesDiff: (sessionId, targetId) => ipcRenderer.invoke('session-changes-diff', sessionId, targetId),
   // The contained absolute path of a file row (by its id), for Open: `{ ok, path }`; a stale or foreign id is refused.
   sessionChangesOpen: (sessionId, targetId) => ipcRenderer.invoke('session-changes-open', sessionId, targetId),
+  // The Details window: `at` is `{ id }` (a row), `{ pick: true }` or `{}`. A window already open for the session is focused and
+  // told through `onSessionChangesDetailsAt` (returns its unsubscribe). A large diff opens side by side by row id; the two
+  // sides come from `sessionChangesVersions` (`{ ok, old, new }` or a `note`).
+  sessionChangesOpenDetails: (sessionId, at) => ipcRenderer.invoke('session-changes-open-details', sessionId, at),
+  sessionChangesOpenDiffWindow: (sessionId, targetId) => ipcRenderer.invoke('session-changes-open-diff-window', sessionId, targetId),
+  sessionChangesVersions: (sessionId, targetId) => ipcRenderer.invoke('session-changes-versions', sessionId, targetId),
+  onSessionChangesDetailsAt: (cb) => {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('session-changes-details-at', listener);
+    return () => ipcRenderer.removeListener('session-changes-details-at', listener);
+  },
   sessionChangesClear: (sessionId, opts) => ipcRenderer.invoke('session-changes-clear', sessionId, opts),
   sessionChangesEntries: (sessionId, opts) => ipcRenderer.invoke('session-changes-entries', sessionId, opts),
   // V4: without `value` it reads the kept range and view; with one it keeps it (`null` = back to the default).

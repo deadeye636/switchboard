@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <title>Changes</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --border:#30363d; --border2:#21262d;
+      --text:#e6edf3; --muted:#8b949e; --faint:#6e7681; --accent:#58a6ff;
+      --green:#3fb950; --amber:#d29922; --red:#f85149; --violet:#c49cf0;
+      --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+      --ui:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:var(--ui); font-size:13px; }
+    .head { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; z-index:3; }
+    .repo { font-weight:650; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:30%; }
+    .spacer { flex:1; }
+    .updated { font-size:11px; color:var(--faint); font-family:var(--mono); white-space:nowrap; }
+    .btn { border:1px solid var(--border); background:var(--panel2); color:var(--text); border-radius:6px; font-family:var(--ui); font-size:12px; padding:4px 10px; cursor:pointer; }
+    .btn:hover { border-color:var(--accent); color:var(--accent); }
+    .btn[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
+    .btn:disabled { opacity:.5; cursor:default; }
+    .seg { display:inline-flex; }
+    .seg .btn { border-radius:0; }
+    .seg .btn:first-child { border-radius:6px 0 0 6px; }
+    .seg .btn:last-child { border-radius:0 6px 6px 0; margin-left:-1px; }
+    .sel { border:1px solid var(--border); background:var(--panel2); color:var(--text); border-radius:6px; font-family:var(--ui); font-size:12px; padding:4px 8px; }
+    .sub { padding:8px 14px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--border2); background:var(--panel); }
+    .sub b { color:var(--text); }
+    .note { padding:8px 14px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--border2); }
+    .note.warn { color:var(--amber); }
+    /* The timeline strip: one tick per entry (V2: a Clear tick is a review-log entry). */
+    .strip { display:flex; align-items:flex-start; padding:12px 14px 6px; border-bottom:1px solid var(--border2); overflow-x:auto; }
+    .tick { display:flex; flex-direction:column; align-items:center; min-width:100px; flex:none; font-family:var(--ui); font-size:10px; color:var(--faint); position:relative; cursor:pointer; background:none; border:0; padding:0; }
+    .tick::before { content:""; position:absolute; top:6px; left:0; right:0; height:2px; background:var(--border); }
+    .tick:first-child::before { left:50%; }
+    .tick:last-child::before { right:50%; }
+    .tick.in::before { background:var(--accent); }
+    .tick.in-l::before { left:50%; background:var(--accent); }
+    .tick:hover .lbl, .tick:focus-visible .lbl { color:var(--accent); }
+    .dot { width:14px; height:14px; border-radius:50%; background:var(--bg); border:2px solid var(--muted); z-index:1; }
+    .dot.push { border-color:var(--green); } .dot.clear { border-color:var(--accent); } .dot.cli { border-color:var(--violet); }
+    .dot.now { border-color:var(--text); background:var(--text); }
+    .tick.marker { cursor:default; min-width:70px; }
+    .tick.marker .dot { width:8px; height:8px; margin:3px 0; border-style:dotted; }
+    .tick.marker:hover .lbl { color:var(--muted); }
+    .tick.picked .dot { box-shadow:0 0 0 3px rgba(88,166,255,.45); }
+    .tick .lbl { margin-top:4px; color:var(--muted); white-space:nowrap; }
+    .tick .tm { font-family:var(--mono); }
+    .strip-note { display:flex; align-items:center; gap:10px; padding:4px 14px 8px; font-size:11px; color:var(--faint); border-bottom:1px solid var(--border2); }
+    .strip-note.picking { color:var(--accent); }
+    .seg-head { display:flex; align-items:center; gap:10px; padding:8px 14px; background:var(--panel2); border-bottom:1px solid var(--border2); font-size:12px; }
+    .seg-head .t { font-weight:600; }
+    .seg-head .range { font-family:var(--mono); color:var(--faint); font-size:11.5px; }
+    .seg-head .tot { margin-left:auto; color:var(--muted); font-size:11.5px; white-space:nowrap; }
+    .tag { font-size:10px; border:1px solid var(--border); border-radius:4px; padding:0 5px; color:var(--muted); white-space:nowrap; }
+    .tag.push { color:var(--green); border-color:rgba(63,185,80,.4); }
+    .tag.clear { color:var(--accent); border-color:rgba(88,166,255,.4); }
+    .tag.cli { color:var(--violet); border-color:rgba(196,156,240,.4); }
+    .tag.new { color:var(--green); border-color:rgba(63,185,80,.4); }
+    .tag.shared { color:var(--amber); border-color:rgba(210,153,34,.4); }
+    .file, .commit { display:flex; align-items:center; gap:11px; padding:5px 14px 5px 30px; min-height:30px; font-family:var(--mono); font-size:12.5px; border-bottom:1px solid var(--border2); cursor:pointer; }
+    .file:hover, .commit:hover, .expanded, .selected { background:var(--panel2); }
+    .selected { box-shadow:inset 3px 0 0 var(--accent); }
+    .fpath { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .fpath .dir { color:var(--faint); }
+    .cnt { margin-left:auto; display:flex; gap:14px; align-items:center; font-size:11.5px; color:var(--muted); white-space:nowrap; }
+    .cnt .add { color:var(--green); } .cnt .del { color:var(--red); }
+    .cnt .edits { color:var(--faint); min-width:56px; text-align:right; }
+    .sha { color:var(--accent); font-size:12px; }
+    .subj { font-family:var(--ui); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .m { font-family:var(--ui); font-size:10px; border-radius:4px; padding:1px 6px; }
+    .m.pushed { color:var(--green); background:rgba(63,185,80,.12); }
+    .m.local { color:var(--amber); background:rgba(210,153,34,.12); }
+    .m.rewritten { color:var(--red); background:rgba(248,81,73,.12); }
+    /* The diff pane and its "Open in window" bar are the changes window's (#285, #287), drawn by diff-render.js */
+    .diff-pane { border-bottom:1px solid var(--border2); background:#0b0e13; max-height:420px; overflow:auto; }
+    .diff-bar { position:sticky; top:0; display:flex; align-items:center; gap:10px; padding:6px 14px 6px 30px; background:var(--panel2); border-bottom:1px solid var(--border2); z-index:1; }
+    .diff-bar-info { font-family:var(--mono); font-size:11px; color:var(--faint); }
+    .diff-expand { margin-left:auto; font-family:var(--ui); font-size:11px; color:var(--muted); border:1px solid var(--border); border-radius:5px; padding:2px 9px; cursor:pointer; background:var(--bg); }
+    .diff-expand:hover { color:var(--accent); border-color:var(--accent); }
+    .diff-pre { margin:0; padding:8px 14px 8px 30px; font-family:var(--mono); font-size:12px; line-height:1.5; white-space:pre; tab-size:4; }
+    .diff-pre .d-add { color:var(--green); }
+    .diff-pre .d-del { color:var(--red); }
+    .diff-pre .d-hunk { color:#8b7cf6; }
+    .diff-pre .d-meta { color:var(--faint); }
+    .diff-empty { padding:12px 14px 12px 30px; color:var(--faint); font-family:var(--ui); font-size:12px; }
+    .empty { padding:8px 14px 8px 30px; color:var(--faint); font-size:12px; border-bottom:1px solid var(--border2); }
+    .empty.big { padding:40px 14px; text-align:center; }
+    .foot { padding:8px 14px; font-family:var(--mono); font-size:12px; color:var(--muted); border-top:1px solid var(--border); background:var(--panel2); position:sticky; bottom:0; display:flex; gap:14px; }
+    .foot .hint { margin-left:auto; font-family:var(--ui); color:var(--faint); font-size:11px; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <span class="repo" id="repo">…</span>
+    <span class="spacer"></span>
+    <span class="updated" id="updated"></span>
+    <select class="sel" id="range" aria-label="Range" title="What the lists cover"></select>
+    <span class="seg" id="views"></span>
+    <button type="button" class="btn" id="refresh">Refresh</button>
+    <button type="button" class="btn" id="clear" hidden>Clear</button>
+  </div>
+  <div id="strip-host"></div>
+  <div id="body"><div class="empty big">Loading…</div></div>
+  <div class="foot" id="foot"></div>
+  <!-- Review in this window is presence too (#673). -->
+  <script src="shell/presence-report.js"></script>
+  <script src="lib/session-changes-rows.js"></script>
+  <script src="diff-render.js"></script>
+  <script src="session-changes.js"></script>
+</body>
+</html>

@@ -188,10 +188,17 @@
   ],
   "changed-files.html": [
     "presence-report.js",
+    "diff-render.js",
     "changed-files.js"
   ],
   "diff-window.html": [
     "presence-report.js",
     "diff-window.js"
+  ],
+  "session-changes.html": [
+    "presence-report.js",
+    "session-changes-rows.js",
+    "diff-render.js",
+    "session-changes.js"
   ]
 }

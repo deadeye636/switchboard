@@ -28,7 +28,7 @@ const path = require('node:path');
 const { pageRefsOf } = require('./helpers/page-scripts');
 
 const ROOT = path.join(__dirname, '..');
-const PAGES = ['index.html', 'settings.html', 'changed-files.html', 'diff-window.html'];
+const PAGES = ['index.html', 'settings.html', 'changed-files.html', 'diff-window.html', 'session-changes.html'];
 
 /** Where the renderer's pages live. One constant, so a move is a one-line change here. */
 function pageDir() {

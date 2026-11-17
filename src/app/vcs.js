@@ -135,14 +135,25 @@ function gitShow(provider, cwd, ref, rel) {
 //   untracked → old empty, new = the working copy;
 //   staged    → old = HEAD (committed), new = the index (`git diff --cached`);
 //   otherwise → old = the index, new = the working copy (`git diff`).
+//   rev       → (#870, session Details) old = `<rev.from>:<path>`, new = the working copy, or `<rev.to>:<path>` when the
+//               block ended at a push. The revisions are full SHAs main resolved itself (the provider's `showArgs`
+//               refuses anything that is not a SHA); the renderer never names one, `session-changes.js` does.
 // A `note` on either side (binary / too large / symlink) short-circuits to that note.
-async function fileVersions(cwd, rel, kind, staged) {
+async function fileVersions(cwd, rel, kind, staged, rev) {
   const provider = vcs.detect(cwd);
   if (!provider || typeof provider.showArgs !== 'function') {
     return { ok: false, error: 'No diff support for this working directory' };
   }
   let oldSide, newSide;
-  if (kind === 'untracked') {
+  if (rev && typeof rev.from === 'string') {
+    try {
+      oldSide = await gitShow(provider, cwd, rev.from, rel);
+      newSide = typeof rev.to === 'string' && rev.to ? await gitShow(provider, cwd, rev.to, rel) : readWorkingFile(cwd, rel);
+    } catch {
+      // `showArgs` throws on a revision that is not a SHA: not available, in words that carry no path.
+      return { ok: false, error: 'No diff is available for this item.' };
+    }
+  } else if (kind === 'untracked') {
     oldSide = { ok: true, text: '' };
     newSide = readWorkingFile(cwd, rel);
   } else if (staged === true) {
@@ -492,14 +503,88 @@ function openDiffWindow(payload) {
   diffWindows.set(key, win);
 }
 
+// --- The session Details window (#870, spec 47 section 7): one per session, destroy-on-close, like the changes window ---
+// It names a session id and nothing else: the page asks main for everything by that id, so no path travels through it.
+// `at` says where it opens: `{ id }` a row, `{ pick: true }` the timeline strip in pick mode, `{}` the top.
+const detailsWindows = new Map();   // sessionId -> BrowserWindow
+const DETAILS_AT_CHANNEL = 'session-changes-details-at';
+
+function cleanAt(at) {
+  if (!at || typeof at !== 'object') return {};
+  if (typeof at.id === 'string' && at.id && at.id.length <= 300) return { id: at.id };
+  return at.pick === true ? { pick: true } : {};
+}
+
+function openDetailsWindow(sessionId, opts) {
+  const BrowserWindow = ctx && ctx.BrowserWindow;
+  if (!BrowserWindow || typeof sessionId !== 'string' || !sessionId) return false;
+  const at = cleanAt(opts && opts.at);
+  const label = opts && typeof opts.label === 'string' ? opts.label : '';
+  const existing = detailsWindows.get(sessionId);
+  if (existing && !existing.isDestroyed()) {
+    existing.show(); existing.focus();
+    // Already open: point it at the new item rather than reloading it.
+    try { existing.webContents.send(DETAILS_AT_CHANNEL, at); } catch { /* the page is gone; the next open builds it again */ }
+    return true;
+  }
+  const parent = ctx.getMainWindow && ctx.getMainWindow();
+  const win = new BrowserWindow({
+    width: 1020, height: 760, minWidth: 560, minHeight: 360,
+    title: `Changes — ${label || 'session'}`,
+    parent: parent && !parent.isDestroyed() ? parent : undefined,
+    show: false,
+    backgroundColor: '#0d1117',
+    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), nodeIntegration: false, contextIsolation: true },
+  });
+  win.setMenu(null);
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'session-changes.html'), {
+    query: { session: sessionId, label, at: JSON.stringify(at) },
+  });
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  win.on('closed', () => { if (detailsWindows.get(sessionId) === win) detailsWindows.delete(sessionId); });
+  detailsWindows.set(sessionId, win);
+  return true;
+}
+
+// A large diff of a Details row, side by side (#287 for a session): keyed by session and row id, like the file windows are
+// by path. The page asks `session-changes-versions` for the two sides by the same ids.
+const sessionDiffWindows = new Map();
+
+function openSessionDiffWindow(sessionId, rowId, title) {
+  const BrowserWindow = ctx && ctx.BrowserWindow;
+  if (!BrowserWindow || typeof sessionId !== 'string' || !sessionId || typeof rowId !== 'string' || !rowId) return false;
+  const key = `${sessionId} ${rowId}`;
+  const existing = sessionDiffWindows.get(key);
+  if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return true; }
+  const parent = ctx.getMainWindow && ctx.getMainWindow();
+  const win = new BrowserWindow({
+    width: 1000, height: 720, minWidth: 520, minHeight: 320,
+    title: `Diff — ${title || 'file'}`,
+    parent: parent && !parent.isDestroyed() ? parent : undefined,
+    show: false,
+    backgroundColor: '#0d1117',
+    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), nodeIntegration: false, contextIsolation: true },
+  });
+  win.setMenu(null);
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'diff-window.html'), { query: { session: sessionId, row: rowId, label: title || '' } });
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  win.on('closed', () => { if (sessionDiffWindows.get(key) === win) sessionDiffWindows.delete(key); });
+  sessionDiffWindows.set(key, win);
+  return true;
+}
+
 // Called from src/app/windows.js when the main window closes — a lingering child would keep
 // `window-all-closed` from firing (same reason the settings window is destroyed there).
 function destroyAllVcsWindows() {
-  for (const win of [...changesWindows.values(), ...diffWindows.values()]) {
+  for (const win of [...changesWindows.values(), ...diffWindows.values(), ...detailsWindows.values(), ...sessionDiffWindows.values()]) {
     try { if (win && !win.isDestroyed()) win.destroy(); } catch { /* already gone */ }
   }
   changesWindows.clear();
   diffWindows.clear();
+  detailsWindows.clear();
+  sessionDiffWindows.clear();
 }
 
 // The heartbeat runs while the chip is on or any group (Repository or Changes) of any window is followed.
@@ -676,4 +761,4 @@ function registerIpc(ipc) {
   });
 }
 
-module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, readUntrackedDiff, readWorkingFile, fileVersions, _readConfig: readConfig, _scheduler: () => scheduler, _push: pushStatus, onStatus, followFolder, _followedCwds: followedCwds, _pollWanted: pollWanted };
+module.exports = { init, registerIpc, stop, destroyAllVcsWindows, openDetailsWindow, openSessionDiffWindow, createScheduler, runStatusReal, readUntrackedDiff, readWorkingFile, fileVersions, _readConfig: readConfig, _scheduler: () => scheduler, _push: pushStatus, onStatus, followFolder, _followedCwds: followedCwds, _pollWanted: pollWanted };

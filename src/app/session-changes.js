@@ -650,19 +650,38 @@ function entries(sessionId, opts) {
  * its cut and key) or a commit (`c:<recorded SHA>`). The renderer never names a path or a SHA of its own: an id no kept
  * answer holds is refused as stale before anything runs.
  */
+/** The kept answer that holds a row id (the newest first): `{ t, file, commit }`, or null when no kept answer lists it. */
+function findTarget(sessionId, targetId) {
+  const per = targets.get(sessionId);
+  if (!per || typeof targetId !== 'string') return null;
+  for (const cand of [...per.values()].reverse()) {
+    const file = cand.files.get(targetId) || null;
+    const commit = file ? null : cand.commits.get(targetId) || null;
+    if (file || commit) return { t: cand, file, commit };
+  }
+  return null;
+}
+
+/** The two revisions a file row's cut names, as full SHAs: `{ from, to }` (`to` null = the working tree), or null. */
+async function cutRevisions(co, file, look) {
+  const cut = file.cut;
+  // An end the app wrote from version-control output is used as it is; one out of a transcript (a push) is resolved.
+  const trustedOr = async (sha, trusted) => (trusted && sha && FULL_SHA_RE.test(sha) ? sha : resolveSha(co, sha, look));
+  const from = cut ? await trustedOr(cut.fromSha, cut.fromTrusted) : null;
+  if (!from) return null;
+  let to = null;
+  if (cut && !cut.working) {
+    to = await trustedOr(cut.toSha, cut.toTrusted);
+    if (!to) return null;
+  }
+  return { from, to };
+}
+
 async function diff(sessionId, targetId) {
   if (quitting()) return { ok: false, error: MSG.quitting };
-  const per = targets.get(sessionId);
-  if (!per || typeof targetId !== 'string') return { ok: false, error: MSG.stale };
-  let t = null;
-  let file = null;
-  let commit = null;
-  for (const cand of [...per.values()].reverse()) {   // the newest answer first
-    file = cand.files.get(targetId) || null;
-    commit = file ? null : cand.commits.get(targetId) || null;
-    if (file || commit) { t = cand; break; }
-  }
-  if (!t) return { ok: false, error: MSG.stale };
+  const found = findTarget(sessionId, targetId);
+  if (!found) return { ok: false, error: MSG.stale };
+  const { t, file, commit } = found;
   if (!t.provider || !t.root) return { ok: false, error: MSG.noDiff };
   const co = { provider: t.provider, root: t.root };
   const look = newLookup(4);
@@ -681,19 +700,60 @@ async function diff(sessionId, targetId) {
     const res = require('./vcs').readUntrackedDiff(co.root, file.key);
     return res && res.ok ? { ok: true, kind: 'file', text: res.text || '', note: res.note || null } : { ok: false, error: MSG.noDiff };
   }
-  const cut = file.cut;
-  // An end the app wrote from version-control output is used as it is; one out of a transcript (a push) is resolved.
-  const trustedOr = async (sha, trusted) => (trusted && sha && FULL_SHA_RE.test(sha) ? sha : resolveSha(co, sha, look));
-  const from = cut ? await trustedOr(cut.fromSha, cut.fromTrusted) : null;
-  if (!from) return { ok: false, error: MSG.noDiff };
-  let to = null;
-  if (cut && !cut.working) {
-    to = await trustedOr(cut.toSha, cut.toTrusted);
-    if (!to) return { ok: false, error: MSG.noDiff };
-  }
+  const revs = await cutRevisions(co, file, look);
+  if (!revs) return { ok: false, error: MSG.noDiff };
+  const { from, to } = revs;
   const r = await run(co.provider, co.root, () => co.provider.diffArgs({ path: file.key, rev: from, to }), CAP_DIFF);
   if (!r.ok) return { ok: false, error: r.refused ? MSG.noDiff : MSG.failed };
   return { ok: true, kind: 'file', text: r.stdout, base: from.slice(0, model.SHORT_SHA), working: !to };
+}
+
+/**
+ * The old and new text of a file row for the side-by-side window (`vcs.js` `fileVersions`): the cut's baseline against the
+ * working copy, or against the push that ended the block. By row id, like `diff`; an untracked file has no old side.
+ */
+async function versions(sessionId, targetId) {
+  if (quitting()) return { ok: false, error: MSG.quitting };
+  const found = findTarget(sessionId, targetId);
+  if (!found || !found.file) return { ok: false, error: MSG.stale };
+  const { t, file } = found;
+  if (!t.provider || !t.root) return { ok: false, error: MSG.noDiff };
+  const co = { provider: t.provider, root: t.root };
+  const abs = path.resolve(co.root, file.key);
+  if (file.outside || !isAtOrInside(abs, co.root)) return { ok: false, error: MSG.outside };
+  const vcsApp = require('./vcs');
+  if (file.isNew) return vcsApp.fileVersions(co.root, file.key, 'untracked', false);
+  const revs = await cutRevisions(co, file, newLookup(4));
+  if (!revs) return { ok: false, error: MSG.noDiff };
+  if (quitting()) return { ok: false, error: MSG.quitting };
+  return vcsApp.fileVersions(co.root, file.key, '', false, revs);
+}
+
+/** A name for a window title: the checkout's folder name, nothing from the session's text. */
+function labelOf(sessionId) {
+  const row = ctx && typeof ctx.getCachedSession === 'function' ? ctx.getCachedSession(sessionId) : null;
+  if (!row) return null;
+  const p = String(row.projectPath || '').replace(/[\\/]+$/, '');
+  return p ? p.split(/[\\/]/).pop() : '';
+}
+
+/** Open (or focus) the Details window of a session. The renderer sends a session id and where to land, never a path. */
+function openDetails(sessionId, at) {
+  if (quitting() || typeof sessionId !== 'string' || !sessionId) return { ok: false };
+  const label = labelOf(sessionId);
+  if (label === null) return { ok: false, error: MSG.notFound };
+  return { ok: require('./vcs').openDetailsWindow(sessionId, { at, label }) === true };
+}
+
+/** A large diff of a listed file row in its own side-by-side window; the id must be one a kept answer holds. */
+function openDiffWindow(sessionId, targetId) {
+  if (quitting()) return { ok: false, error: MSG.quitting };
+  const found = findTarget(sessionId, targetId);
+  if (!found || !found.file) return { ok: false, error: MSG.stale };
+  if (!found.t.provider || !found.t.root) return { ok: false, error: MSG.noDiff };
+  if (found.file.outside) return { ok: false, error: MSG.outside };
+  const name = String(found.file.key).split('/').pop();
+  return { ok: require('./vcs').openSessionDiffWindow(sessionId, targetId, name) === true };
 }
 
 /**
@@ -778,9 +838,14 @@ function setView(sessionId, value) {
   if (typeof sessionId !== 'string' || !sessionId || quitting()) return { ok: false };
   const s = store();
   if (typeof s.setChangesView !== 'function') return { ok: false };
-  if (value === null) { s.setChangesView(sessionId, null); return { ok: true }; }
-  const r = model.cleanRequest(value || {});
-  s.setChangesView(sessionId, cleanChangesView({ range: r.range, view: r.view, pickFrom: r.pickFrom, pickTo: r.pickTo }));
+  if (value === null) s.setChangesView(sessionId, null);
+  else {
+    const r = model.cleanRequest(value || {});
+    s.setChangesView(sessionId, cleanChangesView({ range: r.range, view: r.view, pickFrom: r.pickFrom, pickTo: r.pickTo }));
+  }
+  // The range and view are shared by every window that shows this session (the sidebar group, Details): the ones that
+  // follow it read again, so a change made in one is seen in the other.
+  notifyFollowers(sessionId);
   return { ok: true };
 }
 
@@ -909,6 +974,11 @@ function registerIpc(ipc) {
   ipc.handle('session-changes-details', (_e, sessionId, opts) => details(sessionId, optsOf(opts)));
   ipc.handle('session-changes-diff', (_e, sessionId, targetId) => diff(sessionId, typeof targetId === 'string' ? targetId : null));
   ipc.handle('session-changes-open', (_e, sessionId, targetId) => open(sessionId, typeof targetId === 'string' ? targetId : null));
+  // The Details window (spec 47 section 7): `at` is `{ id }` of a row, `{ pick: true }` or `{}`; the window holds a session id only.
+  ipc.handle('session-changes-open-details', (_e, sessionId, at) => openDetails(sessionId, at));
+  // A large diff in the side-by-side window, and the two sides it draws, both by row id.
+  ipc.handle('session-changes-open-diff-window', (_e, sessionId, targetId) => openDiffWindow(sessionId, typeof targetId === 'string' ? targetId : null));
+  ipc.handle('session-changes-versions', (_e, sessionId, targetId) => versions(sessionId, typeof targetId === 'string' ? targetId : null));
   ipc.handle('session-changes-clear', (_e, sessionId, opts) => clear(sessionId, { missing: !!(opts && opts.missing === true) }));
   ipc.handle('session-changes-entries', (_e, sessionId, opts) => entries(sessionId, optsOf(opts)));
   ipc.handle('session-changes-view-get', (_e, sessionId) => getView(sessionId));
@@ -919,7 +989,7 @@ function registerIpc(ipc) {
 }
 
 module.exports = {
-  init, registerIpc, summary, state, details, entries, diff, open, clear, getView, setView, forget, follow, unfollow, noteScanWrite,
+  init, registerIpc, summary, state, details, entries, diff, versions, open, openDetails, openDiffWindow, clear, getView, setView, forget, follow, unfollow, noteScanWrite,
   SPAWN_BOUND: 2 + 2 + 2 * (MAX_CUT_RESOLVE + MAX_RESOLVE) + MAX_NUMSTAT_CUTS,
   _lineageOf: (id) => lineageOf(id),
   _followedSessions: () => [...followed.keys()],

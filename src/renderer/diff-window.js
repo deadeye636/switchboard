@@ -9,12 +9,16 @@
   const kind = params.get('kind') || '';
   const staged = params.get('staged') === '1';
   const label = params.get('label') || '';
-  document.title = 'Diff — ' + rel;
+  // Opened from a session's Details window (#870): the two sides are asked by session and row id, never by a path.
+  const sessionId = params.get('session') || '';
+  const rowId = params.get('row') || '';
+  const shown = sessionId ? label : rel;
+  document.title = 'Diff — ' + shown;
 
   const el = (id) => document.getElementById(id);
-  const filename = rel.split('/').pop() || rel;
-  el('path').textContent = rel;
-  el('sub').textContent = [label, kind + (staged ? ' (staged)' : '')].filter(Boolean).join(' · ');
+  const filename = shown.split('/').pop() || shown;
+  el('path').textContent = shown;
+  el('sub').textContent = sessionId ? 'session changes' : [label, kind + (staged ? ' (staged)' : '')].filter(Boolean).join(' · ');
 
   function showMsg(m) {
     const host = el('diff');
@@ -42,7 +46,9 @@
 
   (async () => {
     try {
-      const res = await window.api.vcsFileVersions({ cwd, path: rel, kind, staged });
+      const res = sessionId
+        ? await window.api.sessionChangesVersions(sessionId, rowId)
+        : await window.api.vcsFileVersions({ cwd, path: rel, kind, staged });
       if (!res || !res.ok) { showMsg((res && res.error) || 'Could not load diff.'); return; }
       if (res.note) { showMsg(res.note); return; }
       await loadBundle();
