@@ -323,7 +323,9 @@ module.exports = {
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
-  // Spec 47 (#870): declines, the readable strings of a step are schema-less and unverified (docs/backend-formats.md, File edits, commits and pushes).
+  // Spec 47 (#870): declines by owner decision (2026-11-17). A step's readable strings are scraped from a schema-less
+  // protobuf blob, so an agy update could make an extractor under-report silently (docs/backend-formats.md, File edits,
+  // commits and pushes; spec 47 section 2).
   reportsChanges: false,
   capabilities: {
     fork: { state: 'no', note: 'no confirmed fork flag' },

@@ -45,8 +45,8 @@ The other decisions are written where they apply and collected here by name:
   per-file aggregate (a planner decision, reported to the owner); one `PARSER_SCHEMA_VERSION` bump after
   the storage and every extractor, then a second one when the push SHA came from the push output; D6 and G3 in
   "Timeline, range and views".
-- **Hermes and agy** declare `reportsChanges: false` (T1 found no Hermes signal; agy has a readable but schema-less one and
-  the plan default stood, see "Known gaps").
+- **Hermes and agy** declare `reportsChanges: false`. T1 found no Hermes signal. agy has a readable but schema-less one, and
+  the owner decided on 2026-11-17 not to build an extractor for it (see section 2).
 
 ## Design (approved by the owner on 2026-11-12, with the open points below decided)
 
@@ -105,8 +105,10 @@ signal that cannot be verified is an honest `no` (the descriptor rule in `.claud
 | agy | `replace_file_content`, `write_to_file` (`TargetFile`); call, status and result are in one `steps` row; `status` 7 is a failed edit | `run_command` (`CommandLine`) with `The command exited with code N.` and the output lines in the same row | `steps.idx` | **limited**: readable only by scraping strings out of a protobuf blob; no failed commit or rejected push seen |
 
 The first pass of this table said agy was `no` (no verified signal). T1 found one: agy's tool steps carry the tool name, the
-JSON arguments and the command result as readable strings, so agy is `limited`, not `no`. The plan default
-stood for v1: agy declares `reportsChanges: false`, and whether to build the extractor is still the owner's call.
+JSON arguments and the command result as readable strings, so the signal is `limited`, not `no`. **Decided by the owner
+(2026-11-17): agy keeps `reportsChanges: false`.** The strings are scraped out of a protobuf blob with no schema, so an agy
+update can change what they hold without notice, and the extractor would then report less without saying so. That is the
+silent under-report R2 exists to avoid. Revisit it if agy publishes a schema or its users ask for the group.
 
 A subagent of a Claude session writes its own file (`isSidechain: true`, an `agentId` on every line) and its edits never
 appear in the parent's, so they are told apart by file and cannot be counted twice (E4). Pi's transcript is a tree; a file
@@ -431,8 +433,7 @@ time is not reconstructible, and the view says so. A review whose SHAs are gone 
 - A shell command that writes a file (a code generator, `sed -i`) is an edit git sees and the extractor does not. Only the
   edit tools and `Write`-like calls count, so shell-made writes are not attributed: an under-report, not a wrong claim.
 - **Backends.** Hermes has no signal (no edit or shell call exists in its local store). agy declines (`reportsChanges:
-  false`); a readable but schema-less protobuf string signal exists, and building the extractor is an owner decision still
-  pending. Codex counts edits by the patch text only and ties a command to its output only in a one-command script; a
+  false`): a readable but schema-less protobuf string signal exists, and the owner decided not to read it (section 2). Codex counts edits by the patch text only and ties a command to its output only in a one-command script; a
   failed patch inside a script that catches it itself still reports success, and so over-counts. Pi does not see what a
   delegated agent (the `subagent` tool, run with `--no-session`) changes.
 - **Two sessions on one file** cannot be split in the diff; the row says another session also edited it (E8), and the
