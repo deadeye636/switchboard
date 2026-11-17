@@ -18,8 +18,11 @@
 // issueQueryOf, issueLabels, issueCountLabel, readIssueFilter, patchIssueFilter, ISSUE_FILTER_EVENT, and since #874
 // filterTasks, sortTasks, issuePreviewMarkdown (views/tasks-logic.js, loaded after this file: every reference is inside a
 // function; the window listener spells the event name itself), and openTextInPanel (views/file-panel.js, #874).
+// The Changes group (#870, spec 47) reads changesHeadFigure, changesRowModel, changesRowIndex, changesModelHtml and
+// changesClearedText (lib/session-changes-rows.js, loaded before this file).
 //
-// Read from outside: `SESSION_SIDEBAR_GROUP_MIME` by `isPaneTabDrag` (terminal/terminal-manager.js).
+// Read from outside: `SESSION_SIDEBAR_GROUP_MIME` by `isPaneTabDrag` (terminal/terminal-manager.js), and
+// `sidebarUnfollowVcs` and `sidebarUnfollowChanges` by the tab teardown in the same file (the subscriptions hold the entry).
 //
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
 // toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
@@ -758,6 +761,161 @@ function sidebarUnfollowVcs(entry) {
   sidebarReportFollowed();
 }
 
+// The Changes group (#870, spec 47). Rows, states and markup are lib/session-changes-rows.js (pure); this is the surface.
+//
+// It follows main while it is open and shown: main follows the session's folder with the poller itself and sends
+// `session-changes-updated` when the status or a scan moved, so the renderer never calls `vcsFollow` for it. Closing the
+// group, hiding it, closing the sidebar and destroying the tab each end the subscription. A closed group reads only the
+// header figure, from the database.
+const sidebarChangesFollowers = new Map();   // entry -> the session id main follows it under (a re-key unfollows the old one)
+const sidebarChangesPending = new Set();     // entries whose follow is out; main may refuse it, and the group may close meanwhile
+let sidebarChangesOff = null;
+const sidebarChangesFigureAt = new WeakMap();   // entry -> when the figure was last asked, so a busy index asks at most so often
+const SIDEBAR_CHANGES_FIGURE_MS = 2000;
+
+function sidebarChangesGroup() {
+  return SESSION_SIDEBAR_GROUPS.find((g) => g.id === 'changes');
+}
+
+// Is the group open and shown right now, with the session still this entry's? The one question every follow asks again
+// after an await: a read or a follow that was out when the group closed or hid must not leave main following it.
+function sidebarChangesWanted(entry) {
+  const section = entry.sidebar && entry.sidebar.querySelector('.ssb-group[data-group="changes"]');
+  return !!(section && section.open && !sidebarSectionHidden(section) && openSessions.get(sidebarSessionOf(entry).sessionId) === entry);
+}
+
+function sidebarOnChangesUpdated(payload) {
+  const id = payload && payload.sessionId;
+  for (const [entry, followedId] of [...sidebarChangesFollowers]) {
+    const root = entry.sidebar;
+    const section = root && root.querySelector('.ssb-group[data-group="changes"]');
+    if (!section || !section.open || sidebarSectionHidden(section)) { sidebarUnfollowChanges(entry); continue; }
+    // Matched against what main follows, not the entry's current id: after a re-key the old id is what is followed.
+    if (!id || followedId !== id) continue;
+    if (!sidebarInView(entry)) { section._stale = true; continue; }
+    loadSidebarGroup(entry, sidebarChangesGroup(), section);
+  }
+}
+
+async function sidebarFollowChanges(entry) {
+  if (!window.api || typeof window.api.sessionChangesFollow !== 'function' || sidebarChangesPending.has(entry)) return;
+  const id = sidebarSessionOf(entry).sessionId;
+  if (sidebarChangesFollowers.get(entry) === id) return;
+  sidebarChangesPending.add(entry);
+  if (sidebarChangesFollowers.has(entry)) sidebarUnfollowChanges(entry);   // re-keyed: the old id is not this session any more
+  // Subscribed before the ask, so a push that follows the answer is not missed; given back when nothing follows.
+  if (!sidebarChangesOff && typeof window.api.onSessionChangesUpdated === 'function') {
+    const off = window.api.onSessionChangesUpdated(sidebarOnChangesUpdated);
+    sidebarChangesOff = typeof off === 'function' ? off : null;
+  }
+  const release = () => { if (!sidebarChangesFollowers.size && !sidebarChangesPending.size && sidebarChangesOff) { sidebarChangesOff(); sidebarChangesOff = null; } };
+  let res = null;
+  try { res = await window.api.sessionChangesFollow(id); } catch { res = null; }
+  sidebarChangesPending.delete(entry);
+  // Main refused (a session it does not know): not recorded, so nothing claims a follow that does not exist.
+  if (!res || res.ok !== true) { release(); return; }
+  // The group closed, hid or moved on while the ask was out: main follows now, so say it stops.
+  if (!sidebarChangesWanted(entry) || sidebarSessionOf(entry).sessionId !== id) {
+    if (typeof window.api.sessionChangesUnfollow === 'function') window.api.sessionChangesUnfollow(id);
+    release();
+    return;
+  }
+  sidebarChangesFollowers.set(entry, id);
+}
+
+function sidebarUnfollowChanges(entry) {
+  if (!sidebarChangesFollowers.has(entry)) return;
+  const id = sidebarChangesFollowers.get(entry);
+  sidebarChangesFollowers.delete(entry);
+  if (window.api && typeof window.api.sessionChangesUnfollow === 'function') window.api.sessionChangesUnfollow(id);
+  if (!sidebarChangesFollowers.size && !sidebarChangesPending.size && sidebarChangesOff) { sidebarChangesOff(); sidebarChangesOff = null; }
+}
+
+// The collapsed header's figure: the database only, no git (V1: always "Since last review"). Asked when the sidebar is
+// shown, when the sessions were refreshed and when the group comes back from hidden; not while the group is open (its
+// body draws the same figure from its own answer). A sidebar out of view asks when it is revealed; a busy index asks at
+// most every SIDEBAR_CHANGES_FIGURE_MS, and one trailing ask follows a call that was held back, so the last change shows.
+function sidebarUpdateChangesHead(entry, force = false) {
+  const section = entry.sidebar && entry.sidebar.querySelector('.ssb-group[data-group="changes"]');
+  if (!section || section.open || sidebarSectionHidden(section)) return;
+  if (!window.api || typeof window.api.sessionChangesSummary !== 'function') return;
+  if (!sidebarInView(entry)) { entry.sidebarChangesFigureStale = true; return; }
+  const now = Date.now();
+  const last = sidebarChangesFigureAt.get(entry) || 0;
+  if (!force && now - last < SIDEBAR_CHANGES_FIGURE_MS) {
+    if (!entry.sidebarChangesFigureTimer) {
+      entry.sidebarChangesFigureTimer = setTimeout(() => {
+        entry.sidebarChangesFigureTimer = null;
+        if (entry.sidebar) sidebarUpdateChangesHead(entry, true);
+      }, SIDEBAR_CHANGES_FIGURE_MS - (now - last));
+    }
+    return;
+  }
+  sidebarChangesFigureAt.set(entry, now);
+  entry.sidebarChangesFigureStale = false;
+  const id = sidebarSessionOf(entry).sessionId;
+  Promise.resolve(window.api.sessionChangesSummary(id)).catch(() => null).then((answer) => {
+    if (entry.sidebar && sidebarSessionOf(entry).sessionId === id) sidebarSetHeadFigure(entry, 'changes', changesHeadFigure(answer));
+  });
+}
+
+// A click on a row opens Details at that item (E5). The Details window is T12's: until it exists this asks for it through
+// one binding and does nothing when there is none. `at` is `{ id }` of a row, or `{ pick: true }` for "Pick entries".
+function sessionSidebarOpenChangesDetails(entry, at) {
+  const id = sidebarSessionOf(entry).sessionId;
+  if (window.api && typeof window.api.sessionChangesOpenDetails === 'function') window.api.sessionChangesOpenDetails(id, at || {});
+}
+
+// The range and the view are kept per session by main (V4); a change is written, then the group reads again.
+async function sidebarChangesSetView(entry, patch) {
+  const id = sidebarSessionOf(entry).sessionId;
+  const current = entry.sidebarChangesRequest || { range: 'since-review', view: 'all', pickFrom: null, pickTo: null };
+  if (patch.range === 'pick') {
+    // The picks are made on Details' timeline strip; the select goes back to what is kept.
+    sessionSidebarOpenChangesDetails(entry, { pick: true });
+  } else {
+    try { await window.api.sessionChangesView(id, { ...current, ...patch }); } catch { /* the group reads what is kept */ }
+  }
+  const section = entry.sidebar && entry.sidebar.querySelector('.ssb-group[data-group="changes"]');
+  if (section && section.open) loadSidebarGroup(entry, sidebarChangesGroup(), section);
+}
+
+async function sidebarChangesClear(entry, missing) {
+  const id = sidebarSessionOf(entry).sessionId;
+  let res = null;
+  try { res = await window.api.sessionChangesClear(id, { missing: missing === true }); } catch { res = null; }
+  if (res && res.ok) window.showControlToast?.({ message: changesClearedText(entry.sidebarChangesView), timeoutMs: 2000 });
+  else window.showControlToast?.({ message: 'It could not be marked as reviewed.', timeoutMs: 3000 });
+  const section = entry.sidebar && entry.sidebar.querySelector('.ssb-group[data-group="changes"]');
+  if (section && section.open) loadSidebarGroup(entry, sidebarChangesGroup(), section);
+}
+
+// A row of the Changes group: a click opens Details at it, Shift+click puts the path or the short SHA in the prompt (E5).
+function sessionSidebarChangesRowClick(entry, key, shift) {
+  const row = entry.sidebarChangeRows && entry.sidebarChangeRows.get(key);
+  if (!row) return;
+  if (shift) { if (row.insert) sidebarInsert(entry, row.insert); return; }
+  sessionSidebarOpenChangesDetails(entry, { id: row.id });
+}
+
+async function sessionSidebarChangesRowAct(entry, key, act) {
+  const row = entry.sidebarChangeRows && entry.sidebarChangeRows.get(key);
+  if (!row) return;
+  if (act === 'copy') {
+    if (!row.copy) return;
+    try { await window.api.writeClipboard(row.copy); window.showControlToast?.({ message: 'Copied.', timeoutMs: 1500 }); } catch { /* nothing to copy into */ }
+    return;
+  }
+  if (act === 'open' && row.kind === 'file' && typeof openFileInPanel === 'function' && typeof window.api.sessionChangesOpen === 'function') {
+    // Main names the file: a row's path is relative to the checkout root, which only main knows (a session may run in a
+    // subfolder). A row that is no longer listed or lies outside the checkout is refused with a sentence.
+    let res = null;
+    try { res = await window.api.sessionChangesOpen(sidebarSessionOf(entry).sessionId, row.id); } catch { res = null; }
+    if (res && res.ok && res.path) openFileInPanel(entry.session.sessionId, res.path);
+    else window.showControlToast?.({ message: (res && res.error) || 'The file could not be opened.', timeoutMs: 3000 });
+  }
+}
+
 // Each group reads when it is open, in view and not hidden (#835), and answers markup. All of it is escaped: a task
 // title, an issue and a skill name are all text somebody else may have written. The groups' NAMES are in
 // lib/sidebar-groups.js, which the settings window loads too; these ids are the same ones in the same order.
@@ -778,6 +936,30 @@ const SESSION_SIDEBAR_GROUPS = [
       const rows = repositoryRows(answer);
       if (!rows) return sidebarNote('This project is not under version control.');
       return rows.length ? rows.map(repositoryRowHtml).join('') : sidebarNote('Nothing to show.');
+    },
+  },
+  {
+    // #870 (spec 47): what the session changed since the last review. Closed, it reads only the header figure (database);
+    // open and shown, one read of main's view model, and it follows main's notices for this session.
+    id: 'changes',
+    async load(entry, draw, force, current = () => true) {
+      const id = sidebarSessionOf(entry).sessionId;
+      const view = await Promise.resolve(window.api.sessionChanges(id, force === true ? { fresh: true } : {})).catch(() => null);
+      if (!current()) return '';
+      entry.sidebarChangesView = view;
+      if (view && view.ok && view.request) entry.sidebarChangesRequest = view.request;
+      sidebarSetHeadFigure(entry, 'changes', changesHeadFigure(view));
+      // Asked again here: the group may have closed or hidden while the read was out, and main must not follow it then.
+      if (sidebarChangesWanted(entry)) sidebarFollowChanges(entry);
+      // The split blocks keep what the user opened across a redraw; a block never drawn opens when it is the newest.
+      const root = entry.sidebar;
+      const drawn = root ? [...root.querySelectorAll('.ssb-group[data-group="changes"] .ssb-block')] : [];
+      const model = changesRowModel(view, {
+        open: new Set(drawn.filter((d) => d.open).map((d) => d.dataset.block)),
+        seen: new Set(drawn.map((d) => d.dataset.block)),
+      });
+      entry.sidebarChangeRows = changesRowIndex(model);
+      return changesModelHtml(model);
     },
   },
   {
@@ -945,7 +1127,7 @@ function loadSidebarGroup(entry, group, section, force = false) {
 // The figure is drawn for the eye and spoken apart from the name (#842): the drawn span is `aria-hidden`, and a
 // visually hidden one beside it says what the number is, so a screen reader reads "Processes, CPU 3.2 %" rather
 // than "Processes3.2 %". No figure, no spoken text.
-const SIDEBAR_HEAD_FIGURE_WORDS = { processes: (t) => `CPU ${t}`, context: (t) => `${t} used` };
+const SIDEBAR_HEAD_FIGURE_WORDS = { processes: (t) => `CPU ${t}`, context: (t) => `${t} used`, changes: (t) => `${t} since the last review` };
 function sidebarHeadFigureSpoken(groupId, text) {
   if (!text) return '';
   const words = SIDEBAR_HEAD_FIGURE_WORDS[groupId];
@@ -1204,6 +1386,8 @@ function applySidebarHidden(entry, ids) {
     // A collapsed Processes group shown again starts its slow poll for the header figure (#840).
     if (!hide && section && !section.open && section.dataset.group === 'processes') sidebarStartCollapsedProcesses(entry);
     if (hide && section && section.dataset.group === 'repository') sidebarUnfollowVcs(entry);
+    if (hide && section && section.dataset.group === 'changes') sidebarUnfollowChanges(entry);
+    if (!hide && section && !section.open && section.dataset.group === 'changes') sidebarUpdateChangesHead(entry, true);
     if (hide || !section || !section.open) continue;
     const group = SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group);
     if (inView && group) loadSidebarGroup(entry, group, section);
@@ -1487,6 +1671,7 @@ function buildSidebar(entry) {
     // A group drawn open fires this once by itself, and `showSidebar` has already read it.
     const action = sidebarToggleAction({ open: section.open, closedOnce: !!section._closedOnce, inView: sidebarInView(entry) });
     if (!section.open && section.dataset.group === 'repository') sidebarUnfollowVcs(entry);
+    if (!section.open && section.dataset.group === 'changes') { sidebarUnfollowChanges(entry); sidebarUpdateChangesHead(entry, true); }
     if (action === 'closed') section._closedOnce = true;
     else if (action === 'load') loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group), section);
     else if (action === 'stale') section._stale = true;
@@ -1502,6 +1687,11 @@ function buildSidebar(entry) {
       case 'row': sessionSidebarRowClick(entry, el.dataset.key, e.shiftKey === true); break;
       case 'act': sessionSidebarRowAct(entry, el.dataset.key, el.dataset.act); break;
       case 'servers': sessionSidebarOpenServers(entry); break;
+      case 'chg-row': sessionSidebarChangesRowClick(entry, el.dataset.key, e.shiftKey === true); break;
+      case 'chg-act': sessionSidebarChangesRowAct(entry, el.dataset.key, el.dataset.act); break;
+      case 'changes-details': sessionSidebarOpenChangesDetails(entry, {}); break;
+      case 'changes-clear': sidebarChangesClear(entry, el.dataset.missing === '1'); break;
+      case 'changes-view': if (el.getAttribute('aria-pressed') !== 'true') sidebarChangesSetView(entry, { view: el.dataset.view }); break;
       case 'open-file':
         sessionSidebarOpenInstruction(entry, { path: el.dataset.path });
         break;
@@ -1539,6 +1729,7 @@ function buildSidebar(entry) {
     if (!t.classList) return;
     if (t.classList.contains('ssb-issue-state')) sidebarChangeIssueFilter(entry, { state: t.value });
     else if (t.classList.contains('ssb-issue-label')) sidebarChangeIssueFilter(entry, { label: t.value });
+    else if (t.classList.contains('ssb-changes-range')) sidebarChangesSetView(entry, { range: t.value });
     else if (t.classList.contains('ssb-sort')) sidebarChangeIssueFilter(entry, { sort: t.value });
   });
   // Escape closes the popover and hands the caret back to its button; it never reaches the session.
@@ -1593,6 +1784,7 @@ function buildSidebar(entry) {
       if (section && section.open && section._stale) loadSidebarGroup(entry, group, section);
     }
     sidebarUpdateContextHead(entry);
+    if (entry.sidebarChangesFigureStale) sidebarUpdateChangesHead(entry, true);
     if (entry.sidebarProcessDue) {
       entry.sidebarProcessDue = false;
       sidebarStartCollapsedProcesses(entry);
@@ -1608,12 +1800,17 @@ function showSidebar(entry, width) {
   entry.element.classList.add('sidebar-open');
   loadOpenSidebarGroups(entry);
   sidebarUpdateContextHead(entry);
+  sidebarUpdateChangesHead(entry, true);
   sidebarStartCollapsedProcesses(entry);
   refitForSidebar(entry);
 }
 
 function hideSidebar(entry) {
   sidebarUnfollowVcs(entry);
+  sidebarUnfollowChanges(entry);
+  clearTimeout(entry.sidebarChangesFigureTimer);
+  entry.sidebarChangesFigureTimer = null;
+  entry.sidebarChangesFigureStale = false;
   if (sidebarGroupsPop && sidebarGroupsPop.root === entry.sidebar) closeSidebarGroupsPop(false);
   clearTimeout(entry.sidebarProcessTimer);
   entry.sidebarProcessTimer = null;
@@ -1660,7 +1857,7 @@ function sessionSidebarToggle(sessionId) {
 // only there, so every sidebar's Context header follows it (#840). No read: it is the object the header reads anyway.
 function sessionSidebarSessionsChanged() {
   for (const entry of openSessions.values()) {
-    if (entry && entry.sidebar) sidebarUpdateContextHead(entry);
+    if (entry && entry.sidebar) { sidebarUpdateContextHead(entry); sidebarUpdateChangesHead(entry); }
   }
 }
 
@@ -1674,6 +1871,11 @@ function sessionSidebarContextChanged(sessionId) {
 }
 
 function rekeySessionSidebar(oldId, newId) {
+  // A followed Changes group moves to the new id. The caller re-keys `openSessions` and the session object right after
+  // this returns, so the switch waits for the end of that synchronous work.
+  for (const [entry, followedId] of sidebarChangesFollowers) {
+    if (followedId === oldId) Promise.resolve().then(() => { if (entry.sidebar) sidebarFollowChanges(entry); });
+  }
   const map = readSidebarStates();
   const next = rekeySidebarState(map, oldId, newId);
   if (next === map) return;

@@ -85,3 +85,12 @@ test('the surface keeps one way in: no second insert, no backend id, memory file
   assert.ok(src.includes('data-ssb="servers"') && src.includes('openSessionServers('));
   assert.ok(src.includes("cat: 'plugins-skills'"));
 });
+
+test('the Changes rows are a pattern of their own: a plain click opens Details, only Shift inserts (E5), and Changes never follows through vcsFollow', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../src/renderer/session/session-sidebar.js'), 'utf8');
+  const click = src.slice(src.indexOf('function sessionSidebarChangesRowClick'), src.indexOf('async function sessionSidebarChangesRowAct'));
+  assert.ok(/if \(shift\) \{[^}]*sidebarInsert\(/.test(click) && click.includes('sessionSidebarOpenChangesDetails'));
+  const group = src.slice(src.indexOf('const sidebarChangesFollowers'), src.indexOf('// Each group reads when it is open'));
+  assert.ok(!/vcsFollow/.test(group), 'main follows the folder itself');
+  assert.equal((src.match(/insertResolvedText\(/g) || []).length, 1, 'the Changes group goes through the same one insert');
+});

@@ -238,6 +238,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/terminal/variable-palette.js': [],
   'src/renderer/lib/variable-order.js': [],
   'src/renderer/lib/sidebar-groups.js': [],
+  'src/renderer/lib/session-changes-rows.js': [],
   'src/renderer/terminal/plan-palette.js': [],
   'src/renderer/terminal/skill-palette.js': [],
   'src/renderer/terminal/task-palette.js': [],

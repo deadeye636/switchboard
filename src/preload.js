@@ -305,6 +305,8 @@ contextBridge.exposeInMainWorld('api', {
   sessionChanges: (sessionId, opts) => ipcRenderer.invoke('session-changes-state', sessionId, opts),
   sessionChangesDetails: (sessionId, opts) => ipcRenderer.invoke('session-changes-details', sessionId, opts),
   sessionChangesDiff: (sessionId, targetId) => ipcRenderer.invoke('session-changes-diff', sessionId, targetId),
+  // The contained absolute path of a file row (by its id), for Open: `{ ok, path }`; a stale or foreign id is refused.
+  sessionChangesOpen: (sessionId, targetId) => ipcRenderer.invoke('session-changes-open', sessionId, targetId),
   sessionChangesClear: (sessionId, opts) => ipcRenderer.invoke('session-changes-clear', sessionId, opts),
   sessionChangesEntries: (sessionId, opts) => ipcRenderer.invoke('session-changes-entries', sessionId, opts),
   // V4: without `value` it reads the kept range and view; with one it keeps it (`null` = back to the default).
@@ -315,7 +317,8 @@ contextBridge.exposeInMainWorld('api', {
   // checkout and a scan write with `session-changes-updated` { sessionId }; the group then asks `sessionChanges` again.
   // Main also follows the session's folder with the poller while it is followed: the group never calls `vcsFollow` for it.
   // `onSessionChangesUpdated` returns its unsubscribe.
-  sessionChangesFollow: (sessionId) => ipcRenderer.send('session-changes-follow', sessionId),
+  // `follow` answers `{ ok }` (a session main does not know is refused, so the group must not record it as followed).
+  sessionChangesFollow: (sessionId) => ipcRenderer.invoke('session-changes-follow', sessionId),
   sessionChangesUnfollow: (sessionId) => ipcRenderer.send('session-changes-unfollow', sessionId),
   onSessionChangesUpdated: (cb) => {
     const listener = (_e, payload) => cb(payload);

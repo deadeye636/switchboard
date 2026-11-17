@@ -1863,6 +1863,7 @@ function destroySession(sessionId, opts) {
   // The sidebar's Repository group follows the VCS poller while open (#858); the subscription holds this entry, so it
   // ends with it. A session moved to another window passes through here as well.
   if (typeof sidebarUnfollowVcs === 'function') sidebarUnfollowVcs(entry);
+  if (typeof sidebarUnfollowChanges === 'function') sidebarUnfollowChanges(entry);
   window.api.closeTerminal(sessionId);
   // Drop any pending write buffer before disposing — a scheduled rAF/timeout
   // flush would otherwise call terminal.write() on a disposed instance if

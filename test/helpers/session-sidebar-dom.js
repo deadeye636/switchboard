@@ -21,14 +21,17 @@ const windows = [];
  * @param {string[]} [opts.hidden]  the stored `sessionSidebarHidden`
  * @param {boolean} [opts.mergeFails]  `mergeSetting` rejects
  * @param {(ids: string[]) => object} [opts.processUsage]  main's answer to `processUsage`
+ * @param {string[]} [opts.openGroups]  the groups the stored state opens (default: all)
+ * @param {object|Function} [opts.changesAnswer]  main's answer to `sessionChanges` (a function may return a promise)
+ * @param {(id: string) => object} [opts.followAnswer]  main's answer to `sessionChangesFollow`
  */
-function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage } = {}) {
+function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage, openGroups = ALL_GROUPS, changesAnswer, followAnswer } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   windows.push(dom.window);
   const w = dom.window;
   // A window in view: jsdom reports `document.hidden` unless told otherwise. A test of a hidden window redefines it.
   Object.defineProperty(w.document, 'hidden', { configurable: true, get: () => false });
-  const calls = { reads: [], merged: [], notified: 0, toasts: [], usage: [] };
+  const calls = { reads: [], merged: [], notified: 0, toasts: [], usage: [], follows: [], followIds: [], summaries: [], subscriptions: 0, changesListener: null };
   const reading = (group, answer) => (...a) => { calls.reads.push(group); return Promise.resolve(typeof answer === 'function' ? answer(...a) : answer); };
   w.api = {
     vcsDescribe: reading('repository', { ok: false }),
@@ -41,6 +44,14 @@ function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage } =
       calls.usage.push(JSON.parse(JSON.stringify(ids)));
       return processUsage ? processUsage(ids) : { ok: true, supported: false, message: 'Not here.' };
     }),
+    sessionChanges: reading('changes', changesAnswer || { ok: true, reports: true, state: 'nothing-since-review', request: { range: 'since-review', view: 'all' }, notes: [{ code: 'nothing-since-review' }], actions: {}, files: [], commits: [], blocks: [], figure: null }),
+    sessionChangesSummary: (id) => { calls.summaries.push(id); return Promise.resolve({ ok: true, reports: true, figure: { files: 2, commits: 1 } }); },
+    sessionChangesView: () => Promise.resolve({ ok: true }),
+    sessionChangesClear: () => Promise.resolve({ ok: true }),
+    sessionChangesFollow: (id) => { calls.follows.push('follow'); calls.followIds.push(id); return Promise.resolve(followAnswer ? followAnswer(id) : { ok: true }); },
+    sessionChangesUnfollow: (id) => { calls.follows.push('unfollow'); calls.followIds.push(id); },
+    // The one subscription of the window; a test fires it through `calls.pushChanges`.
+    onSessionChangesUpdated: (cb) => { calls.changesListener = cb; calls.subscriptions++; return () => { calls.changesListener = null; }; },
     agent: { servers: () => Promise.resolve(null) },
     // Through JSON: a value built in the vm's realm is not deepStrictEqual to one built here.
     mergeSetting: (key, partial) => { calls.merged.push([key, JSON.parse(JSON.stringify(partial))]); return mergeFails ? Promise.reject(new Error('no')) : Promise.resolve(); },
@@ -48,7 +59,7 @@ function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage } =
   };
   w.showControlToast = (m) => calls.toasts.push(m);
   w.ResizeObserver = class { observe() {} disconnect() {} };
-  w.localStorage.setItem('sessionSidebar', JSON.stringify({ s1: { open: true, width: 280, groups: ALL_GROUPS, at: 1 } }));
+  w.localStorage.setItem('sessionSidebar', JSON.stringify({ s1: { open: true, width: 280, groups: openGroups, at: 1 } }));
   const ctx = vm.createContext(w);
   ctx.__hidden = hidden;
   vm.runInContext(`
@@ -57,7 +68,7 @@ function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage } =
     var appGlobalSettings = { sessionSidebarHidden: __hidden };
     function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
   `, ctx);
-  for (const f of ['lib/sidebar-groups.js', 'lib/variable-order.js', 'session/session-sidebar.js']) vm.runInContext(read(f), ctx);
+  for (const f of ['lib/sidebar-groups.js', 'lib/session-changes-rows.js', 'lib/variable-order.js', 'session/session-sidebar.js']) vm.runInContext(read(f), ctx);
   const element = w.document.createElement('div');
   element.className = 'terminal-container visible';
   w.document.body.appendChild(element);

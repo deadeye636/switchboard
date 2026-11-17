@@ -111,6 +111,7 @@
     "servers-dialog.js",
     "conversation-view.js",
     "sidebar-groups.js",
+    "session-changes-rows.js",
     "session-sidebar.js",
     "settings-project-tags.js",
     "dialogs.js",

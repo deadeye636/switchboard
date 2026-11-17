@@ -56,6 +56,7 @@ const MSG = Object.freeze({
   notFound: 'This session is not known.',
   failed: 'Version control could not be read.',
   outside: 'This file is outside this checkout: no diff.',
+  openOutside: 'This file is outside this checkout.',
   noDiff: 'No diff is available for this item.',
   stale: 'This item is no longer listed. Refresh and try again.',
   quitting: 'The app is closing.',
@@ -584,7 +585,7 @@ async function computeState(sessionId, opts) {
   const view = model.buildModel(input);
   const t = targetsOf(view);
   const perSession = targets.get(sessionId) || new Map();
-  remember(perSession, reqKey, { root: co ? co.root : null, provider: co ? co.provider : null, files: t.files, commits: t.commits, input }, MAX_REQUESTS_PER_SESSION);
+  remember(perSession, reqKey, { root: co ? co.root : null, cwd, provider: co ? co.provider : null, files: t.files, commits: t.commits, input }, MAX_REQUESTS_PER_SESSION);
   remember(targets, sessionId, perSession, MAX_REMEMBERED_SESSIONS);
   return publicView(view);
 }
@@ -693,6 +694,29 @@ async function diff(sessionId, targetId) {
   const r = await run(co.provider, co.root, () => co.provider.diffArgs({ path: file.key, rev: from, to }), CAP_DIFF);
   if (!r.ok) return { ok: false, error: r.refused ? MSG.noDiff : MSG.failed };
   return { ok: true, kind: 'file', text: r.stdout, base: from.slice(0, model.SHORT_SHA), working: !to };
+}
+
+/**
+ * The file a row names, for Open: the contained absolute path, by the id of a file row of a recent answer (never a path from
+ * the renderer). The row's key is relative to the checkout root, so only main can say which file it is when a session
+ * runs in a subfolder. The renderer hands the path to the preview, whose reader has its own guards.
+ */
+function open(sessionId, targetId) {
+  if (quitting()) return { ok: false, error: MSG.quitting };
+  const per = targets.get(sessionId);
+  if (!per || typeof targetId !== 'string') return { ok: false, error: MSG.stale };
+  let file = null;
+  let t = null;
+  for (const cand of [...per.values()].reverse()) {
+    file = cand.files.get(targetId) || null;
+    if (file) { t = cand; break; }
+  }
+  if (!file) return { ok: false, error: MSG.stale };
+  const base = t.root || t.cwd;
+  if (file.outside || !base) return { ok: false, error: MSG.openOutside };
+  const abs = path.resolve(base, file.key);
+  if (!isAtOrInside(abs, base)) return { ok: false, error: MSG.openOutside };
+  return { ok: true, path: abs };
 }
 
 /**
@@ -884,17 +908,18 @@ function registerIpc(ipc) {
   ipc.handle('session-changes-state', (_e, sessionId, opts) => state(sessionId, optsOf(opts)));
   ipc.handle('session-changes-details', (_e, sessionId, opts) => details(sessionId, optsOf(opts)));
   ipc.handle('session-changes-diff', (_e, sessionId, targetId) => diff(sessionId, typeof targetId === 'string' ? targetId : null));
+  ipc.handle('session-changes-open', (_e, sessionId, targetId) => open(sessionId, typeof targetId === 'string' ? targetId : null));
   ipc.handle('session-changes-clear', (_e, sessionId, opts) => clear(sessionId, { missing: !!(opts && opts.missing === true) }));
   ipc.handle('session-changes-entries', (_e, sessionId, opts) => entries(sessionId, optsOf(opts)));
   ipc.handle('session-changes-view-get', (_e, sessionId) => getView(sessionId));
   ipc.handle('session-changes-view-set', (_e, sessionId, value) => setView(sessionId, value));
   // The Changes group follows while it is open and shown (spec 47 section 4); fire-and-forget like `vcs-follow`.
-  ipc.on('session-changes-follow', (e, sessionId) => { follow(sessionId, e && e.sender); });
+  ipc.handle('session-changes-follow', (e, sessionId) => follow(sessionId, e && e.sender));
   ipc.on('session-changes-unfollow', (e, sessionId) => { unfollow(sessionId, e && e.sender); });
 }
 
 module.exports = {
-  init, registerIpc, summary, state, details, entries, diff, clear, getView, setView, forget, follow, unfollow, noteScanWrite,
+  init, registerIpc, summary, state, details, entries, diff, open, clear, getView, setView, forget, follow, unfollow, noteScanWrite,
   SPAWN_BOUND: 2 + 2 + 2 * (MAX_CUT_RESOLVE + MAX_RESOLVE) + MAX_NUMSTAT_CUTS,
   _lineageOf: (id) => lineageOf(id),
   _followedSessions: () => [...followed.keys()],

@@ -37,6 +37,8 @@ const BINDINGS = {
   sessionChanges: ['session-changes-state'],
   sessionChangesDetails: ['session-changes-details'],
   sessionChangesDiff: ['session-changes-diff'],
+  sessionChangesOpen: ['session-changes-open'],
+  sessionChangesFollow: ['session-changes-follow'],
   sessionChangesClear: ['session-changes-clear'],
   sessionChangesEntries: ['session-changes-entries'],
   sessionChangesView: ['session-changes-view-get', 'session-changes-view-set'],
@@ -55,8 +57,9 @@ test('every preload binding exists and invokes a channel the module registers', 
     }
   }
   assert.deepEqual([...handlers.keys()].sort(), Object.values(BINDINGS).flat().sort());
-  // The follow pair is fire-and-forget (`ipc.on`), like `vcs-follow`; the push comes back as `session-changes-updated`.
-  assert.deepEqual([...handlers.listened].sort(), ['session-changes-follow', 'session-changes-unfollow']);
+  // Follow answers `{ ok }` (invoke), so a refused follow is not recorded; unfollow is fire-and-forget (`ipc.on`). The push
+  // comes back as `session-changes-updated`.
+  assert.deepEqual([...handlers.listened].sort(), ['session-changes-unfollow']);
   for (const ch of ['session-changes-follow', 'session-changes-unfollow', 'session-changes-updated']) assert.ok(preload.includes(`'${ch}'`), `preload names ${ch}`);
 });
 
@@ -80,6 +83,56 @@ test('a diff takes a row id: a path or a SHA from the renderer is refused before
   assert.equal(calls.length, before, 'nothing ran for a forged target');
   const good = await handlers.get('session-changes-diff')({}, 'S', st.files[0].id);
   assert.equal(good.ok, true);
+});
+
+test('Open answers the contained absolute path of a listed file row; a path, a commit id or a forged id is refused', async () => {
+  const { calls } = setup();
+  const handlers = registered();
+  const st = await handlers.get('session-changes-state')({}, 'S', {});
+  const before = calls.length;
+  const good = await handlers.get('session-changes-open')({}, 'S', st.files[0].id);
+  assert.equal(good.ok, true);
+  assert.ok(path.isAbsolute(good.path) && good.path.replace(/\\/g, '/').endsWith('/src/a.js'), good.path);
+  for (const forged of ['src/a.js', '../../secret', 'f:deadbeef', FULL('a'), { id: st.files[0].id }, null]) {
+    const r = await handlers.get('session-changes-open')({}, 'S', forged);
+    assert.equal(r.ok, false, `refused: ${JSON.stringify(forged)}`);
+    assert.ok(!/[\\/]/.test(r.error), 'the refusal says no path');
+  }
+  assert.equal((await handlers.get('session-changes-open')({}, 'other', st.files[0].id)).ok, false, 'another session has no such row');
+  assert.equal(calls.length, before, 'Open runs no version control');
+});
+
+test('Open in a session that runs in a subfolder resolves the root-relative key against the checkout root', async () => {
+  const root = makeCheckout();
+  roots.push(root);
+  fs.mkdirSync(path.join(root, 'pkg', 'src'), { recursive: true });
+  const { exec } = makeExec({ 'rev-list': { out: FULL('a') }, 'cat-file': { out: '' }, log: { out: '' }, diff: { out: '' }, 'rev-parse': { out: FULL('b') } });
+  const store = makeStore();
+  // The transcript names `src/a.js`, relative to the session's folder: the row's key is `pkg/src/a.js`.
+  store.changes.set('S', { files: [{ path: 'src/a.js', count: 1, first: 1, last: 4, at: 1 }], commits: [], pushes: [], truncated: false });
+  sc.init(makeCtx({ root, sessions: [{ sessionId: 'S', folder: 'F', projectPath: path.join(root, 'pkg'), startedAt: '2026-11-16T08:00:00.000Z' }], provider: makeProvider(root), exec, store }));
+  const handlers = registered();
+  const st = await handlers.get('session-changes-state')({}, 'S', {});
+  assert.equal(st.files[0].key, 'pkg/src/a.js');
+  const r = await handlers.get('session-changes-open')({}, 'S', st.files[0].id);
+  assert.equal(r.ok, true);
+  assert.equal(path.normalize(r.path), path.join(root, 'pkg', 'src', 'a.js'));
+});
+
+test('Open\'s refusal of an outside file has its own sentence, not the diff\'s', async () => {
+  const root = makeCheckout();
+  roots.push(root);
+  const { exec } = makeExec({ 'rev-list': { out: FULL('a') }, 'cat-file': { out: '' }, log: { out: '' }, diff: { out: '' }, 'rev-parse': { out: FULL('b') } });
+  const store = makeStore();
+  const outside = path.join(path.dirname(root), 'sc-elsewhere', 'x.js');
+  store.changes.set('S', { files: [{ path: outside, count: 1, first: 1, last: 4, at: 1 }], commits: [], pushes: [], truncated: false });
+  sc.init(makeCtx({ root, sessions: [{ sessionId: 'S', folder: 'F', projectPath: root, startedAt: '2026-11-16T08:00:00.000Z' }], provider: makeProvider(root), exec, store }));
+  const handlers = registered();
+  const st = await handlers.get('session-changes-state')({}, 'S', {});
+  const row = st.files.find((f) => f.outside);
+  assert.ok(row, 'the file is listed as outside');
+  const r = await handlers.get('session-changes-open')({}, 'S', row.id);
+  assert.deepEqual([r.ok, r.error], [false, 'This file is outside this checkout.']);
 });
 
 test('Clear writes exactly one clear entry, with the review data', async () => {

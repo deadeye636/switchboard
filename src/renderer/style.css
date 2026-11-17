@@ -12718,3 +12718,18 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 /* A catalog entry's and a registry hit's page (#803 T8): one column, long commands wrap inside it. */
 .sv-addon, .sv-addon-detail, .sv-registry-result { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .sv-addon-search .sv-mcp-row .settings-input { flex: 1; min-width: 0; }
+/* #870: the session sidebar's Changes group. The select and the All / Split toggle reuse .ssb-sort and .ssb-issue-toggle;
+   what is here is only what those cannot say: the control row, the dimmed folder, the pushed marks, a split block's edges. */
+.ssb-ctl { display: flex; align-items: center; gap: 4px; margin: 2px 0 4px; }
+.ssb-ctl .ssb-sort { flex: 1; max-width: none; }
+.ssb-seg { display: inline-flex; gap: 2px; }
+.ssb-actions { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+.ssb-actions .ssb-spacer { flex: 1; }
+.ssb-note.warn { color: #e5c07b; }
+.ssb-dir { color: #6a6a80; }
+.ssb-mark { font-size: 10px; }
+.ssb-mark[data-tone="local"] { color: #e5c07b; }
+.ssb-mark[data-tone="pushed"] { color: #3ecf5a; }
+.ssb-mark[data-tone="rewritten"] { color: #e06c75; }
+.ssb-block > summary .ssb-edge { flex-shrink: 0; font-size: 10px; color: #7a7a90; }
+.ssb-block > summary .ssb-edge[data-kind="clear"] { color: #61afef; }

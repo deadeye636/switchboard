@@ -108,7 +108,7 @@ test('the keys: the context-menu key opens it under the heading, arrows move, Es
   assert.ok(h.pop());
   const key = (k) => h.pop().dispatchEvent(new h.w.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
   key('ArrowDown');
-  assert.equal(h.w.document.activeElement, h.item('processes'));
+  assert.equal(h.w.document.activeElement, h.item('changes'));
   key('End');
   assert.equal(h.w.document.activeElement, h.item('connectors'));
   key('ArrowDown');
@@ -123,12 +123,12 @@ test('the keys: the context-menu key opens it under the heading, arrows move, Es
 });
 
 test('Alt+Down on a grip steps past a hidden neighbour, which keeps its place', async () => {
-  const h = setup({ hidden: ['processes'] });
+  const h = setup({ hidden: ['changes', 'processes'] });
   await flush();
   const grip = h.slot('repository').querySelector('.ssb-grip');
   grip.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }));
   await flush();
-  assert.deepEqual(h.calls.merged.at(-1), ['global', { sessionSidebarOrder: ['processes', 'context', 'repository', 'tasks', 'handoffs', 'instructions', 'connectors'] }]);
+  assert.deepEqual(h.calls.merged.at(-1), ['global', { sessionSidebarOrder: ['changes', 'processes', 'context', 'repository', 'tasks', 'handoffs', 'instructions', 'connectors'] }]);
 });
 
 test('a change from another window is applied and not written back; a failed write puts the old list back', async () => {

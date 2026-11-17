@@ -19,6 +19,7 @@
   // order (`sessionSidebarOrder`, #829) is kept as it is.
   const SESSION_SIDEBAR_GROUP_NAMES = Object.freeze([
     Object.freeze({ id: 'repository', label: 'Repository' }),
+    Object.freeze({ id: 'changes', label: 'Changes' }),
     Object.freeze({ id: 'processes', label: 'Processes' }),
     Object.freeze({ id: 'context', label: 'Context' }),
     Object.freeze({ id: 'tasks', label: 'Tasks & notes' }),
