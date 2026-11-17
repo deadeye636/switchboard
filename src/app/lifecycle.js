@@ -303,6 +303,8 @@ function registerQuitHandlers(ctx) {
     // `will-quit` closed the database threw "The database connection is not open" — the #76 class.
     try { ctx.stopVcsPoll?.(); } catch { /* best effort */ }
     try { ctx.stopIdleMaintenance?.(); } catch { /* best effort */ }
+    // The issues refresh timers (#882): a tick starts a CLI and reads the settings, so it ends before `will-quit` closes the database.
+    try { ctx.stopForgeIssues?.(); } catch { /* best effort */ }
 
     // Close filesystem watchers
     ctx.stopProjectsWatcher();

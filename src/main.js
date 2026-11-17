@@ -1471,7 +1471,11 @@ const conventionDirs = require('./app/convention-dirs');
 conventionDirs.init({ effectiveSettings: (projectPath) => effectiveSettings(projectPath) });
 // A project's GitHub or GitLab issues, read-only (#816).
 const forgeIssues = require('./app/forge-issues');
-forgeIssues.init({ effectiveSettings: (projectPath) => effectiveSettings(projectPath), getSetting, isForeignNetworkFile, log });
+forgeIssues.init({
+  effectiveSettings: (projectPath) => effectiveSettings(projectPath), getSetting, isForeignNetworkFile, log,
+  // The refresh timer of an open, visible issues list (#882) pauses while the user is away and ends with the quit.
+  isUserAway: () => presence.isUserAway(), getAppQuitting: () => appQuitting,
+});
 forgeIssues.registerIpc(ipcMain);
 conventionDirs.registerIpc(ipcMain);
 
@@ -2648,6 +2652,7 @@ const lifecycleCtx = {
   stopPresencePoll: () => presence.stopSystemIdlePoll(),
   stopVcsPoll: () => vcsPoll.stop(),
   stopIdleMaintenance: () => idleMaintenance.stop(),
+  stopForgeIssues: () => forgeIssues.stop(),
   stopProjectsWatcher,
   stopBackendWatchers,
   flushSessionBackends: () => sessionBackends.flushNow(),

@@ -226,6 +226,16 @@ contextBridge.exposeInMainWorld('api', {
   // #816: a project's forge issues, and whether the saved CLI path answers. #830: `query` is { state, assignee,
   // author }, `options.force` skips main's short cache.
   forgeIssuesList: (projectPath, query, options) => ipcRenderer.invoke('forge-issues-list', projectPath, query, options),
+  // An open, visible issues list follows (#882): `tier` is 'focused' or 'visible', and calling again changes it. Main reads
+  // on a timer for the fastest follower and sends `forge-issues-updated` { projectPath, query }; the window asks the list
+  // again. `onForgeIssuesUpdated` returns its unsubscribe.
+  forgeIssuesFollow: (followerId, projectPath, query, tier) => ipcRenderer.invoke('forge-issues-follow', followerId, projectPath, query, tier),
+  forgeIssuesUnfollow: (followerId) => ipcRenderer.send('forge-issues-unfollow', followerId),
+  onForgeIssuesUpdated: (cb) => {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('forge-issues-updated', listener);
+    return () => ipcRenderer.removeListener('forge-issues-updated', listener);
+  },
   forgeIssueRead: (projectPath, number) => ipcRenderer.invoke('forge-issue-read', projectPath, number),
   forgeCliCheck: (providerId) => ipcRenderer.invoke('forge-cli-check', providerId),
   // #815: the languages the spell check would use for the field's text, and what a right click in a text field was.

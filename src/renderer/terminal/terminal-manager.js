@@ -1864,6 +1864,7 @@ function destroySession(sessionId, opts) {
   // ends with it. A session moved to another window passes through here as well.
   if (typeof sidebarUnfollowVcs === 'function') sidebarUnfollowVcs(entry);
   if (typeof sidebarUnfollowChanges === 'function') sidebarUnfollowChanges(entry);
+  if (typeof sidebarUnfollowIssues === 'function') sidebarUnfollowIssues(entry);
   window.api.closeTerminal(sessionId);
   // Drop any pending write buffer before disposing — a scheduled rAF/timeout
   // flush would otherwise call terminal.write() on a disposed instance if

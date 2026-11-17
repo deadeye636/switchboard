@@ -22,7 +22,8 @@
 // changesClearedText (lib/session-changes-rows.js, loaded before this file).
 //
 // Read from outside: `SESSION_SIDEBAR_GROUP_MIME` by `isPaneTabDrag` (terminal/terminal-manager.js), and
-// `sidebarUnfollowVcs` and `sidebarUnfollowChanges` by the tab teardown in the same file (the subscriptions hold the entry).
+// `sidebarUnfollowVcs`, `sidebarUnfollowChanges` and `sidebarUnfollowIssues` by the tab teardown in the same file (the
+// subscriptions hold the entry), and `sessionSidebarActiveChanged` by `setActiveSession` (app.js).
 //
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
 // toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
@@ -487,10 +488,18 @@ function sidebarForgeButtonsHtml(entry) {
     + '</span>';
 }
 
+// Reads only the issues again (#882), through the same button style as the head's other controls.
+const FORGE_ICON_REFRESH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg>';
+
+function sidebarIssueHeadHtml(entry, parts = sidebarIssueListParts(entry)) {
+  return `<div class="ssb-subhead ssb-issue-head"><span>Issues · read-only</span><span class="ssb-issue-count">${escapeHtml(parts.count)}</span>`
+    + `<button type="button" class="ssb-head-btn ssb-forge-btn" data-ssb="issues-refresh" data-ssb-focus="issue-refresh" title="Reload the issues" aria-label="Reload the issues">${FORGE_ICON_REFRESH}</button>`
+    + `${sidebarForgeButtonsHtml(entry)}</div>`;
+}
+
 function sidebarIssuesBlockHtml(entry) {
   const parts = sidebarIssueListParts(entry);
-  return `<div class="ssb-subhead ssb-issue-head"><span>Issues · read-only</span><span class="ssb-issue-count">${escapeHtml(parts.count)}</span>${sidebarForgeButtonsHtml(entry)}</div>`
-    + `<div class="ssb-issue-list">${parts.list}</div>`;
+  return sidebarIssueHeadHtml(entry, parts) + `<div class="ssb-issue-list">${parts.list}</div>`;
 }
 
 // The whole group (#874): the bar, the tasks, and the issues while they are on.
@@ -519,6 +528,142 @@ function sidebarReloadTasksGroup(entry) {
   if (!section || !section.open) return;
   if (!sidebarInView(entry)) { section._stale = true; return; }
   loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === 'tasks'), section);
+}
+
+// --- The issues list follows main's refresh timer while it is open and shown (#882, spec 42). ---
+// The Tasks & notes group follows only while it is open, not hidden, its sidebar in view and the window not hidden; any
+// other state unfollows, so main starts nothing for it. Each follow says how closely it is watched: `focused` (the window
+// has focus and this is the active session) or `visible`; main picks the fastest of its followers and sends
+// `forge-issues-updated` when it read, and this window then asks for the list again (main's cache answers: one CLI start
+// however many sidebars). Becoming visible or active reads again when the last read is older than 2 minutes. The
+// follower id is the entry's own, so a re-key moves nothing. Per entry: `sidebarIssueFollowerId`, `sidebarIssuesReadAt`.
+const SIDEBAR_ISSUES_REREAD_MS = 2 * 60 * 1000;
+const sidebarIssueFollowers = new Map();   // entry -> { sig, projectPath, query }
+let sidebarIssuesOff = null;
+let sidebarIssueFollowerCount = 0;
+
+function sidebarIssuesDesired(entry) {
+  const root = entry.sidebar;
+  const section = root && root.querySelector('.ssb-group[data-group="tasks"]');
+  if (!section || !section.open || sidebarSectionHidden(section) || !sidebarInView(entry)) return null;
+  if (entry.sidebarIssuesOn !== true || document.hidden) return null;
+  const id = sidebarSessionOf(entry).sessionId;
+  if (openSessions.get(id) !== entry) return null;
+  const projectPath = sidebarSessionOf(entry).projectPath;
+  if (!projectPath) return null;
+  const focused = typeof document.hasFocus === 'function' && document.hasFocus()
+    && typeof activeSessionId !== 'undefined' && activeSessionId === id;
+  return { projectPath, query: issueQueryOf(entry.sidebarIssueFilter), tier: focused ? 'focused' : 'visible' };
+}
+
+function sidebarIssuesRelease() {
+  if (!sidebarIssueFollowers.size && sidebarIssuesOff) { sidebarIssuesOff(); sidebarIssuesOff = null; }
+}
+
+function sidebarUnfollowIssues(entry) {
+  if (!sidebarIssueFollowers.has(entry)) return;
+  sidebarIssueFollowers.delete(entry);
+  if (window.api && typeof window.api.forgeIssuesUnfollow === 'function') window.api.forgeIssuesUnfollow(entry.sidebarIssueFollowerId);
+  sidebarIssuesRelease();
+}
+
+// Follow, change the tier or the query, or unfollow: whatever the entry's state asks for now. Asking main again with
+// the same record sends nothing.
+function sidebarIssuesSync(entry) {
+  const want = sidebarIssuesDesired(entry);
+  if (!want) { sidebarUnfollowIssues(entry); return; }
+  if (!window.api || typeof window.api.forgeIssuesFollow !== 'function') return;
+  const sig = JSON.stringify([want.projectPath, want.query, want.tier]);
+  const have = sidebarIssueFollowers.get(entry);
+  if (have && have.sig === sig) return;
+  if (!entry.sidebarIssueFollowerId) entry.sidebarIssueFollowerId = `issues-${++sidebarIssueFollowerCount}`;
+  const record = { sig, projectPath: want.projectPath, query: want.query };
+  sidebarIssueFollowers.set(entry, record);
+  // Subscribed before the ask, so a notice that follows the answer is not missed; given back when nothing follows.
+  if (!sidebarIssuesOff && typeof window.api.onForgeIssuesUpdated === 'function') {
+    const off = window.api.onForgeIssuesUpdated(sidebarOnIssuesUpdated);
+    sidebarIssuesOff = typeof off === 'function' ? off : null;
+  }
+  // Main may refuse: then nothing claims a follow that does not exist.
+  const refused = () => { if (sidebarIssueFollowers.get(entry) === record) { sidebarIssueFollowers.delete(entry); sidebarIssuesRelease(); } };
+  Promise.resolve(window.api.forgeIssuesFollow(entry.sidebarIssueFollowerId, want.projectPath, want.query, want.tier))
+    .then((res) => { if (!res || res.ok !== true) refused(); }, refused);
+}
+
+function sidebarOnIssuesUpdated(payload) {
+  if (!payload) return;
+  for (const [entry, record] of [...sidebarIssueFollowers]) {
+    if (record.projectPath !== payload.projectPath || JSON.stringify(record.query) !== JSON.stringify(issueQueryOf(payload.query))) continue;
+    if (!sidebarIssuesDesired(entry)) { sidebarIssuesSync(entry); continue; }
+    sidebarReadIssues(entry, false);
+  }
+}
+
+// Reads ONLY the issues and redraws only their head and list; the tasks, the bar and the group's other reads stay.
+// `force` is the refresh control (main's cache is skipped); a notice asks without it and is answered from main's one read.
+// `background` marks a re-read the window made on its own (not the user's click or a notice): main starts no CLI for it
+// while the user is away and answers what it holds, or nothing (null), which leaves the list as it is.
+async function sidebarReadIssues(entry, force, background = false) {
+  if (!entry.sidebar || entry.sidebarIssuesOn !== true) return;
+  const projectPath = sidebarSessionOf(entry).projectPath;
+  if (!projectPath) return;
+  const owner = entry.sidebarIssueOwner;
+  const token = (entry.sidebarIssueReadToken || 0) + 1;
+  entry.sidebarIssueReadToken = token;
+  const readAtBefore = entry.sidebarIssuesReadAt;
+  entry.sidebarIssuesReadAt = Date.now();   // at the start too: a burst of class changes must not queue reads
+  let issues;
+  try {
+    issues = await window.api.forgeIssuesList(projectPath, issueQueryOf(entry.sidebarIssueFilter), background ? { force: false, background: true } : { force: force === true });
+  } catch {
+    issues = { enabled: true, ok: false, message: 'The issues could not be read.' };
+  }
+  // Declined (null), or a background read that failed: the list on screen and the read time stay as they were, so the
+  // next becoming-active still re-reads. An answer main marks `held` (an old one, handed over while the user is away)
+  // is drawn, but is not a read: the read time stays too.
+  if (entry.sidebarIssueReadToken === token && (issues === null || (background && !(issues && issues.enabled && issues.ok)))) {
+    entry.sidebarIssuesReadAt = readAtBefore;
+    return;
+  }
+  const heldOnly = !!(issues && issues.held === true);
+  if (entry.sidebarIssueReadToken !== token || !entry.sidebar || entry.sidebarIssueOwner !== owner || entry.sidebarIssuesOn !== true) return;
+  entry.sidebarIssueAnswer = issues && issues.enabled ? issues : { ok: false, message: 'The issues could not be read.' };
+  if (entry.sidebarIssueAnswer.ok && entry.sidebarIssueAnswer.supports) entry.sidebarIssueSupports = entry.sidebarIssueAnswer.supports;
+  entry.sidebarIssuesReadAt = heldOnly ? readAtBefore : Date.now();
+  const root = entry.sidebar;
+  const head = root.querySelector('.ssb-issue-head');
+  const list = root.querySelector('.ssb-issue-list');
+  if (!head || !list) return;
+  const mark = sidebarFocusMark(root);
+  const parts = sidebarIssueListParts(entry);
+  head.outerHTML = sidebarIssueHeadHtml(entry, parts);
+  list.innerHTML = parts.list;
+  if (mark) sidebarRestoreFocus(root, mark);
+}
+
+// Becoming visible or active: read again only when the last read is older than 2 minutes.
+function sidebarIssuesRereadIfOld(entry) {
+  if (!sidebarIssuesDesired(entry)) return;
+  if (Date.now() - (entry.sidebarIssuesReadAt || 0) >= SIDEBAR_ISSUES_REREAD_MS) sidebarReadIssues(entry, false, true);
+}
+
+// Every sidebar's tier is asked again; only the ACTIVE session's sidebar may re-read (the others did not become active).
+function sidebarIssuesRefreshAll(becameActive) {
+  if (typeof openSessions === 'undefined') return;
+  const activeId = typeof activeSessionId !== 'undefined' ? activeSessionId : null;
+  for (const entry of openSessions.values()) {
+    if (!entry || !entry.sidebar) continue;
+    sidebarIssuesSync(entry);
+    if (becameActive && activeId && sidebarSessionOf(entry).sessionId === activeId) sidebarIssuesRereadIfOld(entry);
+  }
+}
+
+// The window's focus, its visibility and (from app.js, `setActiveSession`) the active session decide the tier.
+function sessionSidebarActiveChanged() { sidebarIssuesRefreshAll(true); }
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', () => sidebarIssuesRefreshAll(true));
+  window.addEventListener('blur', () => sidebarIssuesRefreshAll(false));
+  document.addEventListener('visibilitychange', () => sidebarIssuesRefreshAll(!document.hidden));
 }
 
 // A filter change in this sidebar: stored, told to the rest of this window, and read again when the CLI half moved.
@@ -1019,6 +1164,8 @@ const SESSION_SIDEBAR_GROUPS = [
       entry.sidebarTaskRows = openTaskRows(res && res.tasks);
       entry.sidebarIssueFilter = stored;
       entry.sidebarIssuesOn = !!(settings && settings.forgeIssuesEnabled === true);
+      // Follows main's refresh timer while the group is open and shown, and with the query just read (#882).
+      sidebarIssuesSync(entry);
       let html = sidebarTasksGroupHtml(entry);
       if (entry.sidebarIssuesOn) {
         if (entry.sidebarIssueAnswer && entry.sidebarIssueAnswer.ok && entry.sidebarIssueAnswer.supports) entry.sidebarIssueSupports = entry.sidebarIssueAnswer.supports;
@@ -1034,6 +1181,7 @@ const SESSION_SIDEBAR_GROUPS = [
         }
         if (!current()) return html;
         entry.sidebarIssueAnswer = issues && issues.enabled ? issues : { ok: false, message: 'The issues could not be read.' };
+        entry.sidebarIssuesReadAt = Date.now();
         html = sidebarTasksGroupHtml(entry);
       }
       return html;
@@ -1387,6 +1535,7 @@ function applySidebarHidden(entry, ids) {
     if (!hide && section && !section.open && section.dataset.group === 'processes') sidebarStartCollapsedProcesses(entry);
     if (hide && section && section.dataset.group === 'repository') sidebarUnfollowVcs(entry);
     if (hide && section && section.dataset.group === 'changes') sidebarUnfollowChanges(entry);
+    if (hide && section && section.dataset.group === 'tasks') sidebarUnfollowIssues(entry);
     if (!hide && section && !section.open && section.dataset.group === 'changes') sidebarUpdateChangesHead(entry, true);
     if (hide || !section || !section.open) continue;
     const group = SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group);
@@ -1672,6 +1821,7 @@ function buildSidebar(entry) {
     const action = sidebarToggleAction({ open: section.open, closedOnce: !!section._closedOnce, inView: sidebarInView(entry) });
     if (!section.open && section.dataset.group === 'repository') sidebarUnfollowVcs(entry);
     if (!section.open && section.dataset.group === 'changes') { sidebarUnfollowChanges(entry); sidebarUpdateChangesHead(entry, true); }
+    if (!section.open && section.dataset.group === 'tasks') sidebarUnfollowIssues(entry);
     if (action === 'closed') section._closedOnce = true;
     else if (action === 'load') loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group), section);
     else if (action === 'stale') section._stale = true;
@@ -1684,6 +1834,7 @@ function buildSidebar(entry) {
     if (!el) return;
     switch (el.dataset.ssb) {
       case 'refresh': loadOpenSidebarGroups(entry, true); break;
+      case 'issues-refresh': sidebarReadIssues(entry, true); break;
       case 'row': sessionSidebarRowClick(entry, el.dataset.key, e.shiftKey === true); break;
       case 'act': sessionSidebarRowAct(entry, el.dataset.key, el.dataset.act); break;
       case 'servers': sessionSidebarOpenServers(entry); break;
@@ -1778,11 +1929,15 @@ function buildSidebar(entry) {
   entry.sidebarResizeObserver.observe(entry.element);
   // A session coming into view reads what it skipped while hidden.
   entry.sidebarObserver = new MutationObserver(() => {
+    // Out of view (another tab, a grid card) unfollows the issues; back in view follows and reads when the last read is old.
+    sidebarIssuesSync(entry);
     if (!sidebarInView(entry)) return;
+    const tasksSection = root.querySelector('.ssb-group[data-group="tasks"]');
     for (const group of SESSION_SIDEBAR_GROUPS) {
       const section = root.querySelector(`.ssb-group[data-group="${group.id}"]`);
       if (section && section.open && section._stale) loadSidebarGroup(entry, group, section);
     }
+    if (!(tasksSection && tasksSection._stale)) sidebarIssuesRereadIfOld(entry);
     sidebarUpdateContextHead(entry);
     if (entry.sidebarChangesFigureStale) sidebarUpdateChangesHead(entry, true);
     if (entry.sidebarProcessDue) {
@@ -1808,6 +1963,7 @@ function showSidebar(entry, width) {
 function hideSidebar(entry) {
   sidebarUnfollowVcs(entry);
   sidebarUnfollowChanges(entry);
+  sidebarUnfollowIssues(entry);
   clearTimeout(entry.sidebarChangesFigureTimer);
   entry.sidebarChangesFigureTimer = null;
   entry.sidebarChangesFigureStale = false;

@@ -3182,7 +3182,7 @@ body.restoring-sessions #restore-progress { display: flex; }
 .ssb-sort:focus,
 .ssb-issue-pop select:focus { outline: none; border-color: rgba(120, 160, 230, 0.6); }
 .ssb-forge-btns { display: inline-flex; gap: 2px; align-self: center; }
-.ssb-forge-btn { display: inline-flex; align-items: center; padding: 2px 4px; }
+.ssb-forge-btn { display: inline-flex; align-items: center; align-self: center; padding: 2px 4px; }
 .ssb-forge-btn svg { display: block; }
 .ssb-issue-filter-btn { font-size: 11px; white-space: nowrap; }
 .ssb-issue-filter-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.08); color: #e0e0ec; }

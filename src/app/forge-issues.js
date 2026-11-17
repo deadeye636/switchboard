@@ -1,7 +1,8 @@
 // app/forge-issues.js — a project's GitHub or GitLab issues, read-only (#816, spec 42).
 //
 // Read through the `gh` and `glab` CLIs: the login stays with the CLI and the app stores no token. Asked when the
-// Tasks & notes view or the session sidebar's group opens and on a refresh, never on a timer, and nothing is stored. The answer says why when
+// Tasks & notes view or the session sidebar's group opens, on a refresh, and (#882) on a timer that runs only for an
+// open, visible sidebar group (`forge-issues-follow.js`), and nothing is stored. The answer says why when
 // there is no list, because a missing CLI, a missing login and a remote that fits nobody need different moves.
 //
 // Which provider, which remote and whether it is on come from the cascade; the binary paths are global only,
@@ -20,6 +21,7 @@
 const { execFile } = require('child_process');
 const path = require('path');
 const { closeProbeStdin } = require('./terminal/shell-profiles');
+const { createFollowers } = require('./forge-issues-follow');
 
 const LIST_LIMIT = 100;
 const BODY_LIMIT = 64 * 1024;
@@ -244,7 +246,28 @@ let ctx;
 // Project and query to { at, promise }; a host's user name to { at, promise, name }. Both start empty with every init.
 const answers = new Map();
 const names = new Map();
-function init(context) { ctx = context; answers.clear(); names.clear(); }
+// Who wants the list kept fresh (#882). Built with every init; the timers end in `stop()`.
+let followers = null;
+function init(context) {
+  if (followers) followers.stop();
+  ctx = context;
+  answers.clear();
+  names.clear();
+  followers = createFollowers({
+    // NOT forced: a read of the last 30 s (a window's own, one still in flight) answers the timer, so a tick and a
+    // window's re-read share one CLI start, and the cached GitLab user name is kept (a forced read looks it up again).
+    read: (projectPath, query) => listIssues(projectPath, query),
+    normalizeQuery,
+    isAway: () => (typeof ctx.isUserAway === 'function' ? ctx.isUserAway() === true : false),
+    quitting: () => (typeof ctx.getAppQuitting === 'function' ? ctx.getAppQuitting() === true : false),
+    log: ctx.log,
+    // A suite drives the clock and the timers; the app leaves them out.
+    now: ctx.now, setTimer: ctx.setTimer, clearTimer: ctx.clearTimer,
+  });
+}
+function stop() { if (followers) followers.stop(); }
+// The clock of the cache and the name memory: the suite drives it through `ctx.now`.
+const nowMs = () => (ctx && typeof ctx.now === 'function' ? ctx.now() : Date.now());
 
 // execFile as a promise, its stdin closed (#541). Never with a `cwd`: see the header.
 function run(file, args, timeout) {
@@ -271,8 +294,8 @@ function binaryFor(forge, globalSettings) {
 function nameFor(forge, file, host, force) {
   const key = `${file}\0${host}`;
   const held = names.get(key);
-  if (held && !force && (held.name || Date.now() - held.at < ME_RETRY_MS)) return held.promise;
-  const entry = { at: Date.now(), name: '' };
+  if (held && !force && (held.name || nowMs() - held.at < ME_RETRY_MS)) return held.promise;
+  const entry = { at: nowMs(), name: '' };
   entry.promise = run(file, forge.meArgs(host), CLI_TIMEOUT_MS).then((res) => {
     entry.name = res.err ? '' : forge.meFrom(res.stdout);
     return entry.name;
@@ -291,15 +314,23 @@ async function listIssues(projectPath, query, options) {
   const globalSettings = ctx.getSetting('global') || {};
   const key = JSON.stringify([projectPath, settings.forgeRemote, settings.forgeProvider,
     globalSettings.forgeGhPath, globalSettings.forgeGlabPath, q.state, q.assignee, q.author]);
-  const now = Date.now();
+  const now = nowMs();
   const held = answers.get(key);
   if (held && !(options && options.force === true) && now - held.at < CACHE_MS) return held.promise;
+  // A re-read the window made on its own (a layout change, a focus, the active session) starts no CLI for a user who is
+  // away (#882): the answer already held, however old, or nothing.
+  if (options && options.background === true && options.force !== true && typeof ctx.isUserAway === 'function' && ctx.isUserAway() === true) {
+    // Marked `held`, so the window draws it but does not count it as a read (its 2-minute rule must still fire on return).
+    return held ? held.promise.then((answer) => ({ ...answer, held: true })) : null;
+  }
   for (const [k, v] of answers) if (now - v.at >= CACHE_MS) answers.delete(k);
   const force = !!(options && options.force === true);
   const promise = readIssues(projectPath, settings, globalSettings, q, force);
   answers.set(key, { at: now, promise });
   const drop = () => { if (answers.get(key) && answers.get(key).promise === promise) answers.delete(key); };
   promise.then((answer) => { if (!answer.ok) drop(); }, drop);
+  // A real read of a followed list restarts its clock, whoever asked (the timer, the Reload button, a window past the cache).
+  if (followers) promise.then((answer) => followers.noteRead(projectPath, q, answer.ok === true), () => followers.noteRead(projectPath, q, false));
   return promise;
 }
 
@@ -406,9 +437,13 @@ function registerIpc(ipc) {
   ipc.handle('forge-issues-list', (_event, projectPath, query, options) => listIssues(projectPath, query, options));
   ipc.handle('forge-cli-check', (_event, providerId) => checkCli(providerId));
   ipc.handle('forge-issue-read', (_event, projectPath, number) => readIssue(projectPath, number));
+  // A sidebar's open, visible issues list follows (#882): `tier` is `focused` or `visible`; calling again changes the tier.
+  ipc.handle('forge-issues-follow', (e, followerId, projectPath, query, tier) => (followers ? followers.follow(followerId, e && e.sender, projectPath, query, tier) : { ok: false }));
+  ipc.on('forge-issues-unfollow', (e, followerId) => { if (followers) followers.unfollow(followerId, e && e.sender); });
 }
 
 module.exports = {
-  init, registerIpc, listIssues, readIssue, checkCli,
+  init, registerIpc, stop, follow: (...a) => (followers ? followers.follow(...a) : { ok: false }), unfollow: (...a) => { if (followers) followers.unfollow(...a); },
+  _followers: () => followers, listIssues, readIssue, checkCli,
   parseRemoteUrl, providerForHost, normalizeRows, normalizeQuery, resolveBinary, classifyFailure, FORGES,
 };

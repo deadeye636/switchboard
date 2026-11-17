@@ -39,8 +39,11 @@ parse.
 
 ## Choices worth keeping
 
-- **Asked when the view or the sidebar's group opens and on a refresh, never on a timer.** A CLI start and a server request per project
-  per interval would be paid whether anyone looks or not.
+- **Asked when the view or the sidebar's group opens, on a refresh, and — only for an open, visible session-sidebar
+  group — on a timer (#882, below).** The original rule was "never on a timer", because a CLI start and a server request
+  per project per interval would be paid whether anyone looks or not. The owner replaced it on 2026-11-17: with a
+  manual refresh control beside it, the automatic one can be slow, and it runs only for a list someone can see. The
+  Tasks view has no timer.
 - **`execFile`, never a shell.** On Windows a `.cmd` shim cannot start without one, so a configured one is refused by
   name. One found on `PATH` is not seen at all, and the message says "not found as an executable".
 - **The test control runs the saved path**, and its handler takes only a provider id.
@@ -102,6 +105,43 @@ Decisions are on the issue (three comments of 2026-11-09). What was built:
 - **The forge's own pages** as two icons with a tooltip in the issues' subhead: the issue list and a new issue. The
   URLs are built in main from the parsed remote (`web` in the list answer; GitHub `/issues`, GitLab `/-/issues`) and
   opened in the browser. A project without a known forge has neither.
+
+## Keeping an open list fresh (#882)
+
+Decided by the owner (2026-11-17, issue comments); what was built:
+
+- **When it runs.** The session sidebar's Tasks & notes group follows only while it is open and not hidden, its sidebar
+  in view (not another tab or a grid card), the window not hidden or minimised and issues on. Anything else
+  unfollows, so nothing starts for it. **5 minutes** when the window has focus and this is the active session
+  (`focused`); **15 minutes** when it is shown but the window is unfocused or another session is active (`visible`).
+  The user being away (`presence.js` `isUserAway`) pauses it. On becoming visible or active (tab or session switch,
+  window focus, window shown) the sidebar reads again only when its last read is older than **2 minutes**.
+- **After a failed read** the interval doubles (5, 10, 20, 30), capped at **30 minutes**; a good read starts over. A
+  failed timed read does not touch the list on screen: nothing is pushed, the last good list stays. A manual read shows
+  its failure as before.
+- **Refresh controls.** A new button in the issues subhead reads only the issues, forced (it skips main's 30 s cache);
+  the sidebar's own Reload still reloads every open group, forced. Both restart the clock: main notes every real read
+  of a followed list (`noteRead`), whoever asked.
+- **One timer per project and query, in main** (`src/app/forge-issues-follow.js`, built by `forge-issues.js`). Followers
+  say their tier; the fastest live one decides the interval. The timer reads once through the ordinary
+  cached path (NOT forced: an answer under 30 s old, or a read still in flight, serves it, so a tick and a window's
+  own re-read never start two lists, whichever comes first) and sends `forge-issues-updated` { projectPath, query } to
+  each window that follows; the window asks the list again without `force`, and main's cache answers. What a tick costs:
+  GitHub one `gh issue list`; GitLab one `glab issue list`, and the cached user name is kept (only "Opened by me" needs
+  one, and only the Reload buttons look it up again). Two sidebars, in one window or two, share that one start. A
+  re-read the window makes on its own (tab or layout change, focus, a different active session; only the session that
+  became active) carries `background`: main declines it while the user is away and answers what it holds, or nothing.
+  A failed read counts as one failure however it failed. Same follow/unfollow
+  shape as the Changes group (spec 47): the subscription belongs to the window and ends on unfollow, on `destroyed`
+  and on a main-frame navigation; timers are unref'd and `stop()` runs before `closeDb()`. Channels
+  `forge-issues-follow` / `forge-issues-unfollow`, preload `forgeIssuesFollow` / `forgeIssuesUnfollow` /
+  `onForgeIssuesUpdated`.
+- **Away is checked when the timer is due, not by polling presence.** A due timer that finds the user away starts
+  nothing and looks again a minute later (a timer tick, no CLI); it reads at the first look after the return, which
+  counts as "older than 2 minutes". A window's follow call on focus also re-arms it at once.
+- **No new setting**: the intervals are fixed by the owner.
+- **Not done:** the Tasks & notes view in the project scope has no follow and no timer; a second window shows the
+  result of main's read the way any window does, through the notice.
 
 ## Measured
 

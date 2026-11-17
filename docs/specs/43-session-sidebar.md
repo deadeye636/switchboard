@@ -51,8 +51,11 @@ only when there is no row; a write passes it too, so a width change in a session
 - **A group reads when it is open and in view.** A restart can bring back several sessions with an open sidebar. Hidden
   ones, and grid cards, mark their groups stale and read when they come into view. A group drawn open fires one `toggle`
   by itself, which reads nothing, or every build would read twice.
-- **Forge issues start a CLI**, so they load with the group, not on a timer, and after the local tasks are drawn. Panes and
-  windows on one project share main's answer for 30 seconds per query (#830, spec 42). The reload button asks again.
+- **Forge issues start a CLI**, so they load with the group and after the local tasks are drawn, and refresh on a timer
+  only while the group is open and shown (#882: 5 minutes focused, 15 visible, none hidden, closed or away; spec 42
+  "Keeping an open list fresh"). Panes and
+  windows on one project share main's answer for 30 seconds per query (#830, spec 42). The sidebar's reload button asks
+  again for every open group; a button in the issues subhead reads only the issues, forced.
   The issue filters sit under the subhead: a text field, and a "Filter" button whose popover holds the state, the label
   and the two "me" toggles. A control with the caret keeps it across the group's redraw (`data-ssb-focus`).
 - **Focus returns to the session** after a handoff insert, or Enter would press the row again, and after the sidebar is

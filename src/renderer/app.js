@@ -123,6 +123,8 @@ function setActiveSession(id) {
   if (typeof window.updateDetachedWindowTitle === 'function') window.updateDetachedWindowTitle();
   // Update file panel to show this session's open files/diffs
   if (typeof switchPanel === 'function') switchPanel(id);
+  // Which sidebar is the active session's decides how closely its issues list is refreshed (#882).
+  if (typeof sessionSidebarActiveChanged === 'function') sessionSidebarActiveChanged();
 }
 
 // The session an action that depends on focus is about (#473). ONE rule for all of them, so a second

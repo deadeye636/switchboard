@@ -233,6 +233,17 @@ function recordActivity(now, mono) {
   return absence;
 }
 
+/**
+ * Is the user away right now (#882)? True once the last sign of life is older than the away threshold, which is the
+ * moment a return would count as an absence. Unknown (no sign yet) is not away: a timer that pauses on a guess would
+ * stay quiet for a user who is there. Asked by things that must not run for nobody, e.g. the issues refresh.
+ */
+function isUserAway(now) {
+  if (lastActivityAt === null) return false;
+  [now] = clocks(now, undefined);
+  return now - lastActivityAt >= idleMsFromSettings();
+}
+
 /** The absence a window that just loaded still has to report, or null. */
 function pendingRecapAbsence() {
   return pendingAbsence;
@@ -375,6 +386,7 @@ module.exports = {
   recordActivity,
   recordWindowActivity,
   pendingRecapAbsence,
+  isUserAway,
   discardRecapAbsence,
   pollSystemIdle,
   startSystemIdlePoll,

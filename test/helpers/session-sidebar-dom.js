@@ -24,15 +24,19 @@ const windows = [];
  * @param {string[]} [opts.openGroups]  the groups the stored state opens (default: all)
  * @param {object|Function} [opts.changesAnswer]  main's answer to `sessionChanges` (a function may return a promise)
  * @param {(id: string) => object} [opts.followAnswer]  main's answer to `sessionChangesFollow`
+ * @param {object} [opts.issues]  turns the forge issues on (#882): loads views/tasks-logic.js and fakes `forgeIssuesList`,
+ *   `forgeIssuesFollow`, `forgeIssuesUnfollow` and `onForgeIssuesUpdated`; recorded in `calls.issueLists`, `calls.issueFollows`
+ *   and fired through `calls.issuesListener`. `issues.list` may be a function (projectPath, query, options) giving the answer.
  */
-function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage, openGroups = ALL_GROUPS, changesAnswer, followAnswer } = {}) {
+function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage, openGroups = ALL_GROUPS, changesAnswer, followAnswer, issues } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   windows.push(dom.window);
   const w = dom.window;
   // A window in view: jsdom reports `document.hidden` unless told otherwise. A test of a hidden window redefines it.
   Object.defineProperty(w.document, 'hidden', { configurable: true, get: () => false });
-  const calls = { reads: [], merged: [], notified: 0, toasts: [], usage: [], follows: [], followIds: [], summaries: [], subscriptions: 0, changesListener: null };
+  const calls = { reads: [], merged: [], notified: 0, toasts: [], usage: [], follows: [], followIds: [], summaries: [], subscriptions: 0, changesListener: null, issueLists: [], issueFollows: [], issuesListener: null };
   const reading = (group, answer) => (...a) => { calls.reads.push(group); return Promise.resolve(typeof answer === 'function' ? answer(...a) : answer); };
+  const stored = {};   // the settings rows the sidebar writes (the issue filter) and reads back
   w.api = {
     vcsDescribe: reading('repository', { ok: false }),
     taskList: reading('tasks', { tasks: [] }),
@@ -53,8 +57,21 @@ function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage, op
     // The one subscription of the window; a test fires it through `calls.pushChanges`.
     onSessionChangesUpdated: (cb) => { calls.changesListener = cb; calls.subscriptions++; return () => { calls.changesListener = null; }; },
     agent: { servers: () => Promise.resolve(null) },
+    ...(issues ? {
+      getEffectiveSettings: () => Promise.resolve({ forgeIssuesEnabled: issues.enabled !== false }),
+      forgeIssuesList: (projectPath, query, options) => {
+        calls.issueLists.push({ projectPath, query: JSON.parse(JSON.stringify(query)), force: !!(options && options.force), background: !!(options && options.background) });
+        const answer = typeof issues.list === 'function' ? issues.list(projectPath, query, options) : issues.list;
+        if (answer === null) return Promise.resolve(null);   // main declined a background read
+        return Promise.resolve(answer || { enabled: true, ok: true, provider: 'GitHub', issues: [{ number: 1, title: 'First', labels: [], author: 'a', state: 'open' }], limit: 100, query, supports: { state: true, assignee: true, author: true }, web: { issues: 'https://example.org/issues', newIssue: 'https://example.org/issues/new' } });
+      },
+      forgeIssuesFollow: (id, projectPath, query, tier) => { calls.issueFollows.push({ op: 'follow', id, projectPath, query: JSON.parse(JSON.stringify(query)), tier }); return Promise.resolve({ ok: true }); },
+      forgeIssuesUnfollow: (id) => { calls.issueFollows.push({ op: 'unfollow', id }); },
+      onForgeIssuesUpdated: (cb) => { calls.issuesListener = cb; return () => { calls.issuesListener = null; }; },
+    } : {}),
     // Through JSON: a value built in the vm's realm is not deepStrictEqual to one built here.
-    mergeSetting: (key, partial) => { calls.merged.push([key, JSON.parse(JSON.stringify(partial))]); return mergeFails ? Promise.reject(new Error('no')) : Promise.resolve(); },
+    getSetting: (key) => Promise.resolve(stored[key]),
+    mergeSetting: (key, partial) => { stored[key] = { ...stored[key], ...partial }; calls.merged.push([key, JSON.parse(JSON.stringify(partial))]); return mergeFails ? Promise.reject(new Error('no')) : Promise.resolve(); },
     notifySettingsChanged: () => { calls.notified++; },
   };
   w.showControlToast = (m) => calls.toasts.push(m);
@@ -66,9 +83,14 @@ function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage, op
     var openSessions = new Map();
     var sessionMap = new Map();
     var appGlobalSettings = { sessionSidebarHidden: __hidden };
+    var activeSessionId = 's1';
     function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
   `, ctx);
-  for (const f of ['lib/sidebar-groups.js', 'lib/session-changes-rows.js', 'lib/variable-order.js', 'session/session-sidebar.js']) vm.runInContext(read(f), ctx);
+  // A window with the focus, unless a test takes it away (`setFocus`).
+  const focus = { on: true };
+  w.document.hasFocus = () => focus.on;
+  const files = ['lib/sidebar-groups.js', 'lib/session-changes-rows.js', 'lib/variable-order.js', ...(issues ? ['views/tasks-logic.js'] : []), 'session/session-sidebar.js'];
+  for (const f of files) vm.runInContext(read(f), ctx);
   const element = w.document.createElement('div');
   element.className = 'terminal-container visible';
   w.document.body.appendChild(element);
@@ -79,7 +101,8 @@ function setupSessionSidebar({ hidden = [], mergeFails = false, processUsage, op
   const pop = () => w.document.querySelector('.ssb-groups-pop');
   const item = (id) => pop().querySelector(`[data-group-toggle="${id}"]`);
   const rightClick = (el, init = { clientX: 40, clientY: 50 }) => el.dispatchEvent(new w.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, ...init }));
-  return { w, ctx, calls, element, entry: ctx.__entry, root, slot, pop, item, rightClick, run: (src) => vm.runInContext(src, ctx) };
+  const setFocus = (on) => { focus.on = on; w.dispatchEvent(new w.Event(on ? 'focus' : 'blur')); };
+  return { w, ctx, calls, element, entry: ctx.__entry, root, slot, pop, item, rightClick, setFocus, run: (src) => vm.runInContext(src, ctx) };
 }
 
 function closeSessionSidebarWindows() {
