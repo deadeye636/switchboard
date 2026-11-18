@@ -51,8 +51,8 @@ test('shouldAutoHide treats a never-active project (eff=0) as stale when enabled
 // --- project_meta roundtrip of the new auto-hide columns ---
 //
 // better-sqlite3 is compiled against Electron's Node ABI and cannot be required
-// under plain node:test (same constraint db-daily-activity / main-ctx-db-wiring
-// document). We therefore (a) mirror the two ON CONFLICT upserts + the autoHidden
+// under plain node:test (same constraint main-ctx-db-wiring
+// documents). We therefore (a) mirror the two ON CONFLICT upserts + the autoHidden
 // query to lock in their semantics, and (b) source-guard db.js so the real schema,
 // statements and exports stay in sync with this model. Since #217 those guards read the module that
 // now owns each half: the schema in db/schema.js, the exports still in db/db.js's façade.

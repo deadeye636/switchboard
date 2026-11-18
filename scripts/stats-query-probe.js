@@ -16,8 +16,7 @@
 // statement but NOT for the OS page cache, which this cannot flush) and the median of the rest, in ms, plus the rows
 // the block returned. Per cell it also prints the PAYLOAD SUM: the blocks one page open runs (key figures, the
 // tokens x backend series, projects, models, backends, sessions, both Rhythm grids, sidebar series; no facets, which
-// are lazy), once as the sum of first runs and once as the sum of medians. It also times the CURRENT page's queries
-// (what `get-stats-from-db` runs) for comparison.
+// are lazy), once as the sum of first runs and once as the sum of medians.
 //
 // Limits, so a number is not read as more than it is:
 //   - The SQL is the PRODUCTION one (src/db/stats-queries.js, landed in #877 plan step T2); the probe only chooses the
@@ -258,7 +257,6 @@ const out = {
   },
   timings: {},
   payload: {},
-  current: {},
 };
 // What one page open runs (spec 48): the series is the default measure x split; facets are lazy and left out.
 const PAYLOAD_BLOCKS = [
@@ -292,16 +290,6 @@ for (const kind of ['7d', 'year', 'all']) {
   }
 }
 
-// ---- the CURRENT page's queries (what `get-stats-from-db` runs), through the real facade, unfiltered ----
-const cur = {
-  getDailyMetrics: () => dbFacade.getDailyMetrics(null),
-  getTotalCounts: () => dbFacade.getTotalCounts(null),
-  getDailyModelTokens: () => dbFacade.getDailyModelTokens(null),
-  getDailyBackendTokens: () => dbFacade.getDailyBackendTokens(null),
-  getDailyCost: () => dbFacade.getDailyCost(null),
-  getHourlyActivity: () => dbFacade.getHourlyActivity(null),
-  getModelUsage: () => dbFacade.getModelUsage(null),
-};
 function timeFn(fn) {
   const t0 = process.hrtime.bigint();
   fn();
@@ -310,8 +298,6 @@ function timeFn(fn) {
   for (let i = 0; i < RUNS; i++) { const t = process.hrtime.bigint(); fn(); warm.push(ns2ms(process.hrtime.bigint() - t)); }
   return { cold, median: median(warm) };
 }
-for (const [name, fn] of Object.entries(cur)) out.current[name] = timeFn(fn);
-out.current['whole get-stats-from-db (all seven)'] = timeFn(() => { for (const fn of Object.values(cur)) fn(); });
 
 dbFacade.closeDb();
 
@@ -330,6 +316,4 @@ if (AS_JSON) {
   }
   console.log('\n== PAYLOAD SUM per cell (no facets) [sum of first runs ms / sum of medians ms | whole payload through db.getStatsPayload: first / median] ==');
   for (const [key, p] of Object.entries(out.payload)) console.log(`  ${key}: ${f1(p.firstRunMs)} / ${f1(p.medianMs)} | ${f1(p.facade.cold)} / ${f1(p.facade.median)}`);
-  console.log('\n== current page queries (unfiltered, all time) [cold ms / median ms] ==');
-  for (const [name, r] of Object.entries(out.current)) console.log(`  ${name}: ${f1(r.cold)} / ${f1(r.median)}`);
 }

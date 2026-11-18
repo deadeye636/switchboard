@@ -3,8 +3,8 @@
 // One call per filter change: `stats-get` takes the filter the renderer built, sanitises it, resolves the range on the
 // local clock, folds the project and backend choices into what the SQL wants (worktree paths, template and driver ids),
 // asks the database for raw rows (`db.getStatsPayload`, src/db/stats-queries.js) and folds them back onto the owning CLI and
-// project. Only aggregates cross IPC. The old `get-stats-from-db` / `refresh-stats` handlers stay in main.js until the
-// renderer page is swapped; this module is the new page's whole answer.
+// project. Only aggregates cross IPC. This module is the page's whole answer; the old `get-stats-from-db` /
+// `refresh-stats` pair is gone.
 //
 // Names no backend: label, colour, icon, cache accounting and "settled" all come from the registry's descriptors, and which
 // ids a CLI expands to comes from `rowOwnerOf`. Electron-free and DB-free (the database arrives through ctx), so a test

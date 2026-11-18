@@ -922,7 +922,7 @@ subscription limits from Claude's API, and no other CLI has them.
   an honest `supportsFork`, all three identity hooks if it names its own sessions, a versioned incremental
   parser). It exists because the same defect was found and fixed in one backend four separate times while
   its siblings quietly kept it.
-- `test/stats-queries.test.js` runs the **real SQL** of every Stats aggregate against an in-memory SQLite
+- `test/db-stats-queries.test.js` runs the **real SQL** of every Stats aggregate against an in-memory SQLite
   with the real schema. It exists because the queries could not be tested at all before (db.js requires
   Electron), so they were "checked" against a JS re-implementation of themselves — which passes whether
   or not the SQL is right. The first thing the real test found was a `GROUP BY` resolving to the raw

@@ -146,5 +146,7 @@
   window.renderBackendIcon = renderBackendIcon;
   window.backendBadgeHtml = backendBadgeHtml;
   window.backendIconColour = colourFor;
+  // The colour a key really has, or null for one with no entry (colourFor answers the neutral default for those).
+  window.backendIconKnownColour = function (key) { return key === '_default' ? null : own(COLOURS, key) || null; };
   window.backendMonogram = monogramFor;
 })();

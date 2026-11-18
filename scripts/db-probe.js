@@ -59,14 +59,8 @@ probe('openTaskCountsBySession', () => db.openTaskCountsBySession());
 probe('listBookmarks', () => db.listBookmarks());
 probe('listSavedVariables', () => db.listSavedVariables());
 probe('listAllSavedVariables', () => db.listAllSavedVariables());
-probe('getDailyActivity', () => db.getDailyActivity());
-probe('getTotalCounts', () => db.getTotalCounts());
-probe('getModelUsage', () => db.getModelUsage());
-probe('getDailyCost', () => db.getDailyCost());
-probe('getHourlyActivity', () => db.getHourlyActivity());
-probe('getDailyMetrics', () => db.getDailyMetrics());
-probe('getDailyModelTokens', () => db.getDailyModelTokens());
-probe('getDailyBackendTokens', () => db.getDailyBackendTokens());
+probe('getStatsFirstDate', () => db.getStatsFirstDate());
+probe('getStatsProjectPaths', () => db.getStatsProjectPaths());
 probe('isSearchIndexPopulated', () => db.isSearchIndexPopulated());
 // The third argument is `limit`, not `titleOnly`. Passing a boolean bound `false` as the limit,
 // better-sqlite3 rejected it, searchByType's own catch returned [] — so this line reported "array(0)"

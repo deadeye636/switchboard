@@ -46,9 +46,6 @@ contextBridge.exposeInMainWorld('api', {
   createSkill: (placeId, name, projectPath) => ipcRenderer.invoke('create-skill', placeId, name, projectPath),
   // #803 E16: delete a CLI's skill by inventory id; main checks the same door Edit uses.
   deleteSkill: (id, projectPath) => ipcRenderer.invoke('delete-skill', id, projectPath),
-  // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
-  getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
-  refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),
   getUsage: () => ipcRenderer.invoke('get-usage'),
   // #877: the redesigned Stats page. `getStats(filter, view)` takes the filter (null = the remembered one) and answers
   // { ok, filter (sanitised echo, remembered), view, payload }; `getStatsFacets(filter)` the filter bar's choices, read lazily.

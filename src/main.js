@@ -208,8 +208,6 @@ const {
   getSetting, setSetting, deleteSetting, listSettings,
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   reorderSavedVariables,
-  getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
-  getDailyBackendTokens, getDailyCost, getHourlyActivity,
   getStatsPayload, getStatsFacets, getStatsFirstDate, getStatsProjectPaths,
   recordTimelineEvent, getTimelineEvents, getTimelineEventsSince, deleteTimelineForSession, rekeyTimeline,
   freeSpace, optimizeSearchIndex, needsFullVacuum, incrementalVacuum, fullVacuum, autoVacuumMode,
@@ -1194,36 +1192,9 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
 });
 
 // (get-plans/read-plan/save-plan moved to src/app/plans-memory.js — #227. The dead get-stats
-// handler + its stats-cache.json path were removed with them.)
-// --- IPC: get-stats-from-db ---
-// Builds a stats object from session_cache so the heatmap reflects real usage
-// including subagent sessions (which claude /stats silently ignores) and
-// periods where Claude already rotated the parent JSONL files off disk.
-ipcMain.handle('get-stats-from-db', (_event, backendId) => {
-  try {
-    return buildStatsFromDb(backendId);
-  } catch (err) {
-    log.error('Error building stats from DB:', err);
-    return null;
-  }
-});
+// handler + its stats-cache.json path were removed with them. The old get-stats-from-db / refresh-stats pair went
+// with the Stats redesign, #877: src/app/stats.js answers the page now.)
 
-// Build the full stats object the renderer consumes. Sourced from
-// session_metrics (per-(session,date,model) tokens/tool-calls/messages bucketed
-// by message timestamp) so tokens, tool calls, and per-model usage are all real
-// data — not the hardcoded {} the heatmap-only path used to return.
-// `backendId` (optional) scopes EVERY figure below to one backend — the page's filter (#159). Falsy or
-// 'all' means the whole corpus. It is resolved in SQL rather than in the renderer because the renderer
-// has no per-session daily data to filter: only the aggregates ever cross the IPC boundary.
-/**
- * "Codex" means everything that ran the Codex binary.
- *
- * The Stats filter offers BACKENDS. A session launched from a template records the TEMPLATE's id as its
- * provenance (§5.7) — that is what the user picked, and the sidebar badge should say so. But nobody wants
- * a stats page whose filter lists "my Codex template" as if it were a provider: the question is where the
- * work went, and the answer is the backend. So a backend filter expands to the backend plus every
- * template that runs on it.
- */
 /**
  * Resolve an env bundle for a SPAWN, and say out loud what it had to drop (#169).
  *
@@ -1258,65 +1229,6 @@ function resolveSpawnEnv(bundle, source, sessionId, options = {}) {
   }
   return env;
 }
-
-function backendFilterIds(backendId) {
-  if (!backendId || backendId === 'all') return null;
-  const base = String(backendId);
-  const ids = [base];
-  try {
-    for (const b of backends.list()) {
-      // A template on a GUI driver belongs to the driver's owner (#752): the Stats filter offers one entry
-      // per CLI, so the driver has no filter of its own that could reach those sessions.
-      if (b.isProfile && backends.rowOwnerOf(b.baseId || 'claude') === base) ids.push(b.id);
-    }
-  } catch { /* registry unavailable -> the base alone is still the honest answer */ }
-  return ids;
-}
-
-function buildStatsFromDb(backendId) {
-  const only = backendFilterIds(backendId);
-  const daily = getDailyMetrics(only);    // [{date, messageCount, toolCallCount, tokens, sessionCount}]
-  const totals = getTotalCounts(only);
-  const lastComputedDate = new Date().toISOString().slice(0, 10);
-  return {
-    backendId: backendId || 'all',       // what these numbers are ABOUT — the renderer labels with it
-    dailyActivity: daily,
-    dailyModelTokens: getDailyModelTokens(only),
-    dailyBackendTokens: getDailyBackendTokens(only),
-    dailyCost: getDailyCost(only),
-    hourlyActivity: getHourlyActivity(only),
-    modelUsage: getModelUsage(only),
-    totalMessages: totals.totalMessages,
-    totalSessions: totals.totalSessions,
-    totalToolCalls: totals.totalToolCalls,
-    totalTokens: totals.totalTokens,
-    firstSessionDate: daily[0]?.date || lastComputedDate,
-    lastComputedDate,
-  };
-}
-
-// --- IPC: refresh-stats (fetch usage + build stats from DB; /stats PTY removed) ---
-ipcMain.handle('refresh-stats', async (_event, backendId) => {
-  try {
-    // /stats PTY call removed — heatmap is now sourced from session_cache via
-    // get-stats-from-db. Only usage is fetched here (rate-limits panel).
-    const usage = await collectUsage().catch(() => ({ backends: [] }));
-
-    // Build stats from DB (same as get-stats-from-db) so the caller gets both
-    // at once and the renderer can update heatmap + usage in a single round-trip.
-    let stats = null;
-    try {
-      stats = buildStatsFromDb(backendId);
-    } catch (dbErr) {
-      log.error('Error building stats from DB in refresh-stats:', dbErr);
-    }
-
-    return { stats, usage: usage || { backends: [] } };
-  } catch (err) {
-    log.error('Error refreshing stats:', err);
-    return { stats: null, usage: { backends: [] } };
-  }
-});
 
 // --- IPC: get-usage (#191) ---
 //
@@ -2523,8 +2435,7 @@ const sessionView = require('./app/session-view');
 sessionView.init({ getOpener, setOpener, notifyRendererProjectsChanged, log });
 sessionView.registerIpc(ipcMain);
 
-// The Stats page's answer (#877, spec 48): the filter, the range, the folds and the payload. Beside the old
-// get-stats-from-db / refresh-stats above, which the old page keeps until its renderer is swapped. The worktree
+// The Stats page's answer (#877, spec 48): the filter, the range, the folds and the payload. The worktree
 // list is refreshed before every query (the sidebar build is not guaranteed to have run first).
 const stats = require('./app/stats');
 stats.init({

@@ -2271,7 +2271,7 @@ initGridObservers();
 
 // JSONL viewer (renderJsonlText, formatDuration, makeCollapsible, renderJsonlEntry, showJsonlViewer) → jsonl-viewer.js
 
-// Stats view (loadStats, buildUsageSection, buildDailyBarChart, buildHeatmap, calculateStreak, buildStatsSummary) → stats-view.js
+// Stats view (loadStats, requestStats, buildChartSection, buildKeyFigures, buildRhythm, buildUsageSection, buildHeatmap) → stats-view.js, its chart → stats-chart.js
 
 // Plan viewer → plans-memory-view.js
 

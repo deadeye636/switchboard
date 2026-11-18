@@ -73,8 +73,7 @@ function sessionCacheDbDeps() {
 }
 
 // Pure static analysis only — does NOT require('../src/db/db'), because better-sqlite3 is
-// compiled against Electron's Node ABI and throws when loaded under plain node:test
-// (same constraint db-daily-activity.test.js documents).
+// compiled against Electron's Node ABI and throws when loaded under plain node:test.
 
 test('main.js ctx.db allow-list covers every ctx.db.* session-cache.js reads', () => {
   const provided = mainCtxDbKeys();

@@ -4809,88 +4809,6 @@ html body .terminal-container.conversation-container:not(.visible) {
   margin-bottom: 12px;
 }
 
-.daily-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 120px;
-  padding-bottom: 20px;
-  position: relative;
-}
-
-.daily-chart-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  height: 100%;
-  position: relative;
-  gap: 1px;
-}
-
-.daily-chart-bar {
-  width: 100%;
-  background: rgba(128,136,255,0.5);
-  border-radius: 2px 2px 0 0;
-  min-width: 0;
-  transition: background 0.15s;
-}
-
-.daily-chart-col:hover .daily-chart-bar {
-  background: rgba(128,136,255,0.8);
-}
-
-.daily-chart-bar-msgs {
-  width: 100%;
-  background: rgba(62,207,90,0.4);
-  border-radius: 0 0 2px 2px;
-  min-width: 0;
-  transition: background 0.15s;
-}
-
-.daily-chart-col:hover .daily-chart-bar-msgs {
-  background: rgba(62,207,90,0.7);
-}
-
-.daily-chart-label {
-  position: absolute;
-  bottom: -18px;
-  font-size: 9px;
-  color: #6a6a80;
-  text-align: center;
-  width: 100%;
-}
-
-.daily-chart-col:nth-child(odd) .daily-chart-label {
-  display: none;
-}
-
-.daily-chart-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-  font-size: 10px;
-  color: #7a7a90;
-}
-
-.daily-chart-legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  display: inline-block;
-}
-
-.daily-chart-legend-dot.tokens {
-  background: rgba(128,136,255,0.5);
-}
-
-.daily-chart-legend-dot.msgs {
-  background: rgba(62,207,90,0.4);
-  margin-left: 8px;
-}
-
 /* ===== Stats: the page filter + the charts added in #159 ===== */
 
 /* The page's one backend filter. It sits above everything and scopes the whole view. */
@@ -4900,33 +4818,101 @@ html body .terminal-container.conversation-container:not(.visible) {
   border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
+/* The Stats page (#877). The filter bar stays at the top of the scrolling body: the body has 24px of padding, so the
+   bar pulls itself out over it and pads back in, and an opaque background keeps the figures from showing through. */
+.stats-page { width: 100%; }
+.stats-bar-host {
+  position: sticky;
+  /* The negative margin pulls the bar over #stats-viewer-body's 24px padding, and a sticky offset is measured inside that
+     padding: `top: 0` would push the bar 24px down onto the content before anything scrolls. -24px keeps it where it sits. */
+  top: -24px;
+  z-index: 5;
+  margin: -24px -24px 18px;
+}
+.stats-filter-sticky {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 24px;
+  background: #111118;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.settings-select.stats-select { min-width: 0; max-width: 220px; padding: 5px 28px 5px 10px; font-size: 12px; border-radius: 999px; }
+.settings-action-btn.stats-reset-btn { padding: 5px 12px; margin-left: auto; }
+.stats-results { transition: opacity 0.12s ease; }
+.stats-results.is-loading { opacity: 0.55; }
+.stats-caption { margin: 0 0 12px; }
+.settings-action-btn.stats-retry-btn { margin-top: 10px; }
+/* Key figures and blocks use the whole width; the columns follow it. */
+.stats-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.stats-tile { min-width: 0; }
+.stats-tile-sub { font-size: 11px; color: #6a6a80; overflow-wrap: anywhere; }
+.stats-tile-change { font-size: 11.5px; color: #9a9ab0; font-variant-numeric: tabular-nums; }
+.stats-tile-change.is-none { color: #5a5a70; }
+.stats-range-current { cursor: default; }
+.stats-chart-section { margin-bottom: 24px; }
+.stats-chart-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+.stats-chart-head .daily-chart-title { margin: 0 8px 0 0; }
+.stats-chart-host { min-width: 0; }
+.stats-chart { position: relative; }
+.stats-chart-svg { display: block; max-width: 100%; overflow: visible; }
+.stats-chart-grid { stroke: rgba(255,255,255,0.06); stroke-width: 1; }
+.stats-chart-axis { fill: #6a6a80; font-size: 10px; font-variant-numeric: tabular-nums; }
+.stats-chart-unit { fill: #7a7a90; font-size: 10.5px; font-weight: 600; }
+.stats-chart-seg { transition: filter 0.15s; }
+.stats-chart-other, .stats-chart-other-swatch { fill: #6b6b80; background: #6b6b80; }
+.stats-chart-hit { fill: transparent; cursor: pointer; }
+.stats-chart-bar { outline: none; cursor: pointer; }
+.stats-chart-bar:hover .stats-chart-seg, .stats-chart-bar:focus-visible .stats-chart-seg { filter: brightness(1.25); }
+.stats-chart-bar:focus-visible .stats-chart-hit { stroke: rgba(255,255,255,0.35); }
+/* The bucket still running: lighter, and the axis says "so far" (O8). */
+.stats-chart-bar.is-partial .stats-chart-seg { fill-opacity: 0.5; }
+.stats-chart-sofar { fill: #9a9ab0; font-style: italic; }
+.stats-chart-tip {
+  position: absolute;
+  z-index: 3;
+  min-width: 150px;
+  padding: 8px 10px;
+  background: #1a1a24;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: #d0d0e0;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+.stats-chart-tip[hidden] { display: none; }
+.stats-chart-tip-head { margin-bottom: 4px; color: #9a9ab0; font-size: 11px; }
+.stats-chart-tip-row { display: flex; align-items: center; gap: 6px; }
+.stats-chart-tip-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stats-chart-tip-value { font-variant-numeric: tabular-nums; }
+.stats-chart-tip-total { margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); font-weight: 600; }
+.stats-chart-none { margin: 0; }
+.stats-chart + .chart-legend, .stats-chart .chart-legend { font-size: 11px; }
+.stats-rhythm { margin-bottom: 24px; }
+.stats-blocks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
+  gap: 24px;
+  align-items: start;
+}
+.stats-block { min-width: 0; }
+.stats-block-wide { grid-column: 1 / -1; overflow-x: auto; }
+.stats-usage-host { margin-top: 8px; }
+.stats-block .hour-grid { max-width: none; }
+
 .chart-subtitle {
   font-size: 11px;
   color: #6a6a80;
   margin: -6px 0 12px;
 }
-
-/* Backend colours are the SAME values the sidebar badges and icons use (backend-icons.js) — a chart
-   whose colours disagreed with the badge next to it would be its own puzzle to solve. */
-.backend-seg-claude  { background: #d97757; }
-.backend-seg-codex   { background: #10a37f; }
-.backend-seg-hermes  { background: #8b5cf6; }
-.backend-seg-pi      { background: #f59e0b; }
-/* Any backend we don't know a colour for (a user profile, a future CLI) still gets a visible segment. */
-.stacked-seg, .chart-legend-swatch { background: rgba(128,136,255,0.55); }
-
-.stacked-bar {
-  width: 100%;
-  display: flex;
-  flex-direction: column-reverse;   /* first id at the bottom of the stack */
-  border-radius: 2px 2px 0 0;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.stacked-seg { width: 100%; min-height: 0; }
-
-.daily-chart-col:hover .stacked-bar { filter: brightness(1.25); }
 
 .chart-legend {
   display: flex;
@@ -4945,20 +4931,6 @@ html body .terminal-container.conversation-container:not(.visible) {
   border-radius: 2px;
   display: inline-block;
 }
-
-/* Cost: green = the backend settled it, amber = the backend's own estimate. The colour carries the same
-   meaning as the `~` in the breakdown cards, so the two never contradict each other. */
-.cost-bar {
-  width: 100%;
-  background: rgba(62,207,90,0.55);
-  border-radius: 2px 2px 0 0;
-  min-height: 0;
-  transition: filter 0.15s;
-}
-
-.cost-bar.is-estimated { background: rgba(245,158,11,0.55); }
-
-.daily-chart-col:hover .cost-bar { filter: brightness(1.3); }
 
 /* When you work: weekday down, hour across. Reuses the heatmap's five levels on purpose. */
 .hour-grid {

@@ -1,7 +1,7 @@
 'use strict';
 // #877 (spec 48, plan step T2) — the shared predicate and the queries of the redesigned Stats page.
 //
-// Same method as stats-queries.test.js: the REAL SQL against a real in-memory SQLite, with the part of the real
+// Same method as the retired stats-queries test: the REAL SQL against a real in-memory SQLite, with the part of the real
 // schema these queries touch. The old queries have their tests there; these take a filter OBJECT
 // ({from, to, backend, projects, model}) and are the part of the page nothing else can check.
 
@@ -15,7 +15,7 @@ function openMemory() {
     const Database = require('better-sqlite3');
     const db = new Database(':memory:');
     return { exec: (sql) => db.exec(sql), all: (sql, params) => db.prepare(sql).all(...params), close: () => db.close() };
-  } catch { /* fall through to node:sqlite, as stats-queries.test.js does */ }
+  } catch { /* fall through to node:sqlite, as that test did */ }
   const { DatabaseSync } = require('node:sqlite');
   const db = new DatabaseSync(':memory:');
   return { exec: (sql) => db.exec(sql), all: (sql, params) => db.prepare(sql).all(...params), close: () => db.close() };
@@ -133,13 +133,6 @@ test('buildPredicate: `without` drops a field and only that one', () => {
   assert.equal(q.buildPredicate(f, { without: ['projects'] }).params.includes('/a'), false);
   assert.equal(q.buildPredicate(f, { without: ['projects'] }).params.includes('x'), true);
   assert.deepEqual(q.buildPredicate(f, { without: ['range', 'backend', 'projects', 'model'] }).params, []);
-});
-
-test('the old compose() still filters by backend through the shared builder', () => {
-  const db = seed();
-  try {
-    assert.equal(run(db, q.totals('codex'))[0].totalTokens, 400);
-  } finally { db.close(); }
 });
 
 // --- every block narrows by every field ---------------------------------------------------------------
