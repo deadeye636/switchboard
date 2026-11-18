@@ -22,6 +22,13 @@
 
 const BACKEND_JOIN = 'JOIN session_cache sc ON sc.sessionId = m.sessionId';
 const BACKEND_EXPR = "COALESCE(sc.backendId, 'claude')";
+// A subagent belongs to its PARENT's project: a few subagent rows are stored under another projectPath, and grouping or
+// filtering on the row's own path would count one parent in two projects. Needs the `p` join (PARENT_JOIN).
+// The row's own path is used only when there is NO parent row (a parent itself, or an orphaned subagent) — never because
+// the parent's path is NULL, or that parent would count once under NULL and once under its subagent's path. The project
+// filter in buildPredicate makes the same three-way choice, so a row total can always be reproduced by filtering on it.
+const PARENT_JOIN = 'LEFT JOIN session_cache p ON p.sessionId = sc.parentSessionId';
+const PROJECT_EXPR = 'CASE WHEN p.sessionId IS NULL THEN sc.projectPath ELSE p.projectPath END';
 
 /**
  * The filter is a LIST of provenance ids, not one id.
@@ -51,7 +58,7 @@ function idList(backend) {
  *   model      exact match on session_metrics.model
  *
  * `without` drops fields (the facets leave out their own, the sidebar list leaves out the project). Needs
- * the `sc` join: the project and backend predicates read it.
+ * the `sc` join (backend) and, for `projects`, the parent's project via subselects (no join): a project is the PARENT's project.
  */
 function buildPredicate(filter = {}, { without = [] } = {}) {
   const f = filter || {};
@@ -70,8 +77,19 @@ function buildPredicate(filter = {}, { without = [] } = {}) {
   }
   const paths = skip.has('projects') ? null : idList(f.projects);
   if (paths) {
-    where.push(`sc.projectPath IN (${paths.map(() => '?').join(', ')})`);
-    params.push(...paths);
+    // The member sessions, driven from the project (projectPath index, then the parent index), not from the date: the
+    // parents in the list, their subagents wherever those are stored, and orphaned subagents (parent row gone) on their
+    // own path — the same three-way choice PROJECT_EXPR makes, so filtering on a grouped row reproduces its total.
+    // A condition on a computed parent key instead made the planner scan every metrics row in range (52 -> 120-199 ms).
+    // One level deep on purpose: stored subagents hang off a top-level session (none nested on a real copy, 2026-11-18).
+    // A subagent of a subagent would group under the middle one's path and match no branch here.
+    const list = `(${paths.map(() => '?').join(', ')})`;
+    const parents = `SELECT sessionId FROM session_cache WHERE parentSessionId IS NULL AND projectPath IN ${list}`;
+    where.push(`m.sessionId IN (${parents}
+      UNION ALL SELECT c.sessionId FROM session_cache c WHERE c.parentSessionId IN (${parents})
+      UNION ALL SELECT c.sessionId FROM session_cache c WHERE c.parentSessionId IS NOT NULL AND c.projectPath IN ${list}
+        AND NOT EXISTS (SELECT 1 FROM session_cache x WHERE x.sessionId = c.parentSessionId))`);
+    params.push(...paths, ...paths, ...paths);
   }
   if (!skip.has('model') && f.model) { where.push('m.model = ?'); params.push(String(f.model)); }
   return { where, params };
@@ -221,6 +239,8 @@ function totalSessions(backend) {
 // of every block alike. The older queries above stay until the page that reads them is replaced.
 
 const FROM_JOINED = `FROM session_metrics m\n${BACKEND_JOIN}`;
+// Only the queries that GROUP BY project join the parent row (it costs every query that does not need it).
+const FROM_PARENT = `${FROM_JOINED}\n${PARENT_JOIN}`;
 // A session is a distinct PARENT: a subagent's rows count under its parent, and a parent counts as soon as ANY of its
 // rows (its own or a subagent's) matches the filter, so the tiles agree with the sessions table (spec 48).
 const SESSION_KEY = 'COALESCE(sc.parentSessionId, m.sessionId)';
@@ -233,11 +253,11 @@ const COST_VALUE = `SUM(CASE WHEN ${COST_OK} THEN COALESCE(m.actualCostUsd, m.es
 const TOKENS = 'SUM(m.inputTokens + m.outputTokens)';
 
 /** SELECT ... FROM joined WHERE <shared predicate> [AND extra] <tail>. `lead` params bind before the WHERE ones (a ? in the column list). */
-function selectFrom(columns, filter, { without, extra = [], tail = '', lead = [] } = {}) {
+function selectFrom(columns, filter, { without, extra = [], tail = '', lead = [], parent = false } = {}) {
   const pred = buildPredicate(filter, { without });
   const where = pred.where.concat(extra);
   return {
-    sql: `SELECT ${columns}\n${FROM_JOINED}${where.length ? '\nWHERE ' + where.join(' AND ') : ''}${tail ? '\n' + tail : ''}`,
+    sql: `SELECT ${columns}\n${parent ? FROM_PARENT : FROM_JOINED}${where.length ? '\nWHERE ' + where.join(' AND ') : ''}${tail ? '\n' + tail : ''}`,
     params: [...lead, ...pred.params],
   };
 }
@@ -263,7 +283,7 @@ const MEASURE_EXPR = {
   messages: 'SUM(m.messageCount)',
   sessions: PARENT_COUNT,
 };
-const SPLIT_EXPR = { none: "''", backend: BACKEND_EXPR, model: 'm.model', project: 'sc.projectPath' };
+const SPLIT_EXPR = { none: "''", backend: BACKEND_EXPR, model: 'm.model', project: PROJECT_EXPR };
 
 function pick(table, key, what) {
   if (!Object.prototype.hasOwnProperty.call(table, key)) throw new Error(`unknown stats ${what}: ${key}`);
@@ -320,15 +340,15 @@ function series(filter, { measure = 'tokens', split = 'backend', bucket } = {}) 
   return selectFrom(
     `${pick(BUCKET_EXPR, bucket, 'bucket')} AS bucket, ${pick(SPLIT_EXPR, split, 'split')} AS key,
        ${pick(MEASURE_EXPR, measure, 'measure')} AS value`,
-    filter, { extra, tail: 'GROUP BY 1, 2' });
+    filter, { extra, tail: 'GROUP BY 1, 2', parent: split === 'project' });
 }
 
-/** Per raw projectPath (worktrees are separate rows here; the caller folds them into the owner). */
+/** Per raw projectPath, a subagent under its parent's (worktrees are separate rows here; the caller folds them into the owner). */
 function projectsTable(filter) {
   return selectFrom(
-    `sc.projectPath AS projectPath, ${PARENT_COUNT} AS sessions, SUM(m.messageCount) AS messages,
+    `${PROJECT_EXPR} AS projectPath, ${PARENT_COUNT} AS sessions, SUM(m.messageCount) AS messages,
        ${TOKENS} AS tokens, ${COST_VALUE} AS cost`,
-    filter, { tail: 'GROUP BY sc.projectPath' });
+    filter, { tail: `GROUP BY ${PROJECT_EXPR}`, parent: true });
 }
 
 /** Per model, the model-less bucket left out. */
@@ -404,14 +424,14 @@ function sidebarSeries(filter, { days, points = 30, limit = 50 } = {}) {
   const pred = buildPredicate(filter, { without: ['projects'] });
   const base = pred.where.length ? pred.where.join(' AND ') + ' AND ' : '';
   return {
-    sql: `WITH top AS (SELECT sc.projectPath AS projectPath ${FROM_JOINED}
-                WHERE ${base}sc.projectPath IS NOT NULL
-                GROUP BY sc.projectPath ORDER BY ${TOKENS} DESC LIMIT ${Math.max(1, Number(limit) | 0 || 50)})
-SELECT sc.projectPath AS projectPath,
+    sql: `WITH top AS (SELECT ${PROJECT_EXPR} AS projectPath ${FROM_PARENT}
+                WHERE ${base}${PROJECT_EXPR} IS NOT NULL
+                GROUP BY ${PROJECT_EXPR} ORDER BY ${TOKENS} DESC LIMIT ${Math.max(1, Number(limit) | 0 || 50)})
+SELECT ${PROJECT_EXPR} AS projectPath,
        CAST((julianday(m.date) - julianday(?)) / ? AS INTEGER) AS bucket, ${TOKENS} AS tokens
-${FROM_JOINED}
-WHERE ${base}sc.projectPath IN (SELECT projectPath FROM top)
-GROUP BY sc.projectPath, bucket`,
+${FROM_PARENT}
+WHERE ${base}${PROJECT_EXPR} IN (SELECT projectPath FROM top)
+GROUP BY ${PROJECT_EXPR}, bucket`,
     params: [...pred.params, filter.from, size, ...pred.params],
   };
 }

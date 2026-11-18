@@ -80,6 +80,7 @@ StatsFilter {
   the Projects table: SQL groups by raw `projectPath`, main folds worktrees into their owner. The worktree knowledge
   main already holds (`setKnownWorktrees`) must be loaded before this runs; the plan verifies it.
   Names shown come from `worktreeLabelOf` and the project registry's display name, not from a path split.
+  A subagent belongs to its PARENT's project for every grouping and for the filter (a few stored subagent rows carry another `projectPath` than their parent); the SQL reads `COALESCE(parent.projectPath, projectPath)`.
 - **Model.** Exact match on `session_metrics.model`. Two consequences the page must show: the model filter excludes
   the model-less bucket (`''`), where a parser files messages it could not attribute, so with a model filter the
   message count is that model's assistant messages and a session counts only if it has rows for that model.

@@ -116,7 +116,10 @@ test('buildPredicate: each field adds exactly its own clause and values', () => 
   assert.deepEqual(q.buildPredicate({ from: 'a' }).where, ['m.date >= ?']);
   assert.deepEqual(q.buildPredicate({ to: 'b' }).where, ['m.date <= ?']);
   assert.deepEqual(q.buildPredicate({ backend: ['x', 'y'] }).params, ['x', 'y']);
-  assert.deepEqual(q.buildPredicate({ projects: ['/a', '/b', '/c'] }).params, ['/a', '/b', '/c']);
+  // Bound three times: the parents, their subagents, and orphaned subagents on their own path.
+  const three = ['/a', '/b', '/c'];
+  assert.deepEqual(q.buildPredicate({ projects: three }).params, [...three, ...three, ...three]);
+  assert.equal(q.buildPredicate({ projects: three }).where.length, 1, 'still one clause');
   assert.deepEqual(q.buildPredicate({ model: 'opus' }).params, ['opus']);
 });
 
@@ -307,6 +310,63 @@ test('a parent counts when only its subagent matches the filter, and the tiles a
     assert.equal(sum(run(db, q.projectsTable(f)), r => r.sessions), 1);
     assert.equal(sum(run(db, q.backendsTable(f)), r => r.sessions), 1);
     assert.deepEqual(run(db, q.sessionsTable(f, {})).map(r => r.sessionId), ['par']);
+  } finally { db.close(); }
+});
+
+// A few stored subagent rows carry another projectPath than their parent. The project is the PARENT's everywhere.
+function seedStraySubagent() {
+  const db = seedSubagent();
+  db.exec(`UPDATE session_cache SET projectPath = '${BETA}' WHERE sessionId = 'sub'`);
+  return db;
+}
+
+test('a subagent stored under another projectPath counts under its PARENT project', () => {
+  const db = seedStraySubagent();
+  try {
+    const byPath = Object.fromEntries(run(db, q.projectsTable(RANGE)).map(r => [r.projectPath, r]));
+    assert.deepEqual(Object.keys(byPath), [ALPHA], 'no second project row for the stray subagent');
+    assert.equal(byPath[ALPHA].sessions, 1);
+    assert.equal(byPath[ALPHA].tokens, 40, 'parent 15 + subagent 25');
+
+    const split = run(db, q.series(RANGE, { measure: 'tokens', split: 'project', bucket: 'day' }));
+    assert.deepEqual(split.map(r => [r.key, r.value]), [[ALPHA, 40]]);
+
+    const side = run(db, q.sidebarSeries(RANGE, { days: 8 }));
+    assert.deepEqual(side.map(r => [r.projectPath, r.tokens]), [[ALPHA, 40]]);
+  } finally { db.close(); }
+});
+
+test('the project filter on the parent path includes the stray subagent, the filter on its own path does not', () => {
+  const db = seedStraySubagent();
+  try {
+    const tokens = (projects) => sum(run(db, q.projectsTable({ ...RANGE, projects })), r => r.tokens);
+    assert.equal(tokens([ALPHA]), 40);
+    assert.equal(tokens([BETA]), 0, 'the stray row own path matches nothing');
+    assert.equal(cnt(db, { ...RANGE, projects: [ALPHA] }, null)[1].sessions, 1);
+    assert.equal(cnt(db, { ...RANGE, projects: [BETA] }, null)[1], undefined);
+  } finally { db.close(); }
+});
+
+test('an orphaned subagent (parent row gone) groups AND filters on its own path, so the row total is reproducible', () => {
+  const db = seedStraySubagent();
+  try {
+    db.exec(`DELETE FROM session_cache WHERE sessionId = 'par'`);
+    const byPath = Object.fromEntries(run(db, q.projectsTable(RANGE)).map(r => [r.projectPath, r]));
+    assert.equal(byPath[BETA].tokens, 25, 'the orphan shows under its own path');
+    assert.equal(sum(run(db, q.projectsTable({ ...RANGE, projects: [BETA] })), r => r.tokens), 25,
+      'filtering on that path keeps it, rather than dropping it silently');
+    assert.equal(sum(run(db, q.projectsTable({ ...RANGE, projects: [ALPHA] })), r => r.tokens), 0);
+  } finally { db.close(); }
+});
+
+test('a parent with a NULL path keeps its subagent under NULL, never under the subagent own path', () => {
+  const db = seedStraySubagent();
+  try {
+    db.exec(`UPDATE session_cache SET projectPath = NULL WHERE sessionId = 'par'`);
+    const rows = run(db, q.projectsTable(RANGE));
+    assert.deepEqual(rows.map(r => [r.projectPath, r.sessions]), [[null, 1]], 'one parent, one row');
+    assert.equal(sum(run(db, q.projectsTable({ ...RANGE, projects: [BETA] })), r => r.tokens), 0,
+      'the subagent own path does not pull the parent in');
   } finally { db.close(); }
 });
 
