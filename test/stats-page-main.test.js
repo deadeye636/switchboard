@@ -288,6 +288,49 @@ test('facets: backends folded onto launchable CLIs, models, projects', () => {
   assert.deepEqual(f.projects.map(p => p.path).sort(), [ROOT, OTHER].sort());
 });
 
+test('sessions table: a worktree session is listed under its owner project and opens from its own path', () => {
+  makeCtx({
+    raw: () => ({
+      ...emptyRaw(),
+      sessions: [{ sessionId: 'parent-1', aiTitle: 'Fix the thing', backendId: 'alpha', costStatus: null, estimatedCostUsd: null, actualCostUsd: null, messages: 3, tokens: 9, projectPath: WT, created: '2026-11-10', lastDate: '2026-11-12', lastModel: 'm1' }],
+    }),
+  });
+  const [row] = stats.getStats({ range: '7d' }).payload.sessions;
+  assert.deepEqual([row.sessionId, row.title, row.projectPath, row.projectName], ['parent-1', 'Fix the thing', ROOT, 'Project A'], 'the owner is for display');
+  assert.equal(row.openPath, WT, 'the raw path is for opening: a worktree session resumes in its own worktree');
+  assert.deepEqual([row.backend.label, row.lastModel, row.cost], ['Alpha', 'm1', null]);
+  assert.equal('sources' in row, false, 'only what a row shows crosses IPC');
+});
+
+test('selectable: main marks which rows can set a filter', () => {
+  const g = (id) => ({ backendId: id, costStatus: null, sessions: 1, messages: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0, estimatedCostUsd: null, actualCostUsd: null });
+  const many = [];
+  for (let i = 0; i < 52; i++) many.push({ projectPath: `/work/q${i}`, costBackendId: 'alpha', costStatus: null, sessions: 1, messages: 1, tokens: 100 - i, estimatedCostUsd: null, actualCostUsd: null });
+  makeCtx({ raw: () => ({ ...emptyRaw(), backends: [g('alpha'), g('off'), g('gone-template')], projects: many, models: [{ model: 'm1', sessions: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0, costBackendId: 'alpha', costStatus: null, estimatedCostUsd: null, actualCostUsd: null }] }) });
+  const res = stats.getStats({ range: '7d' }).payload;
+  const byId = Object.fromEntries(res.backends.map(b => [b.id, b.selectable]));
+  assert.deepEqual(byId, { alpha: true, off: false, removed: false }, 'a CLI that cannot launch, and the removed bucket, are not selectable');
+  assert.equal(res.projects.find(p => p.other).selectable, false);
+  assert.ok(res.projects.filter(p => !p.other).every(p => p.selectable === true));
+  assert.equal(res.models[0].selectable, true);
+});
+
+test('the "(no project)" row is not selectable and a session without a project path is not openable', () => {
+  makeCtx({
+    raw: () => ({
+      ...emptyRaw(),
+      projects: [{ projectPath: '', costBackendId: 'alpha', costStatus: null, sessions: 1, messages: 1, tokens: 5, estimatedCostUsd: null, actualCostUsd: null }],
+      sessions: [
+        { sessionId: 'orphan', backendId: 'alpha', costStatus: null, estimatedCostUsd: null, actualCostUsd: null, messages: 1, tokens: 1, projectPath: null },
+        { sessionId: 'fine', backendId: 'alpha', costStatus: null, estimatedCostUsd: null, actualCostUsd: null, messages: 1, tokens: 1, projectPath: OTHER },
+      ],
+    }),
+  });
+  const res = stats.getStats({ range: '7d' }).payload;
+  assert.deepEqual([res.projects[0].name, res.projects[0].selectable], ['(no project)', false]);
+  assert.deepEqual(res.sessions.map(r => [r.sessionId, r.openable, r.openPath]), [['orphan', false, null], ['fine', true, OTHER]]);
+});
+
 test('registerIpc binds the two channels', () => {
   makeCtx();
   const seen = [];

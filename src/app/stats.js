@@ -463,7 +463,7 @@ function foldProjects(rows, know) {
   for (const r of rows) {
     const o = ownerOfPath(r.projectPath, know);
     let e = byOwner.get(o.path);
-    if (!e) { e = { projectPath: o.path, name: o.name, sessions: 0, messages: 0, tokens: 0, parts: [] }; byOwner.set(o.path, e); }
+    if (!e) { e = { projectPath: o.path, name: o.name, selectable: !!o.path, sessions: 0, messages: 0, tokens: 0, parts: [] }; byOwner.set(o.path, e); }
     e.sessions += num(r.sessions);
     e.messages += num(r.messages);
     e.tokens += num(r.tokens);
@@ -475,7 +475,7 @@ function foldProjects(rows, know) {
   const rest = all.slice(PROJECTS_CAP);
   if (rest.length) {
     shown.push(out({
-      projectPath: '', name: 'Other', other: true,
+      projectPath: '', name: 'Other', other: true, selectable: false,
       sessions: rest.reduce((s, e) => s + e.sessions, 0), messages: rest.reduce((s, e) => s + e.messages, 0),
       tokens: rest.reduce((s, e) => s + e.tokens, 0),
       parts: rest.flatMap(e => e.parts),
@@ -488,7 +488,7 @@ function foldModels(rows, idx) {
   const by = new Map();
   for (const r of rows) {
     let e = by.get(r.model);
-    if (!e) { e = { model: r.model, sessions: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, parts: [] }; by.set(r.model, e); }
+    if (!e) { e = { model: r.model, selectable: true, sessions: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, parts: [] }; by.set(r.model, e); }
     e.sessions += num(r.sessions);
     e.input += num(r.inputTokens);
     e.output += num(r.outputTokens);
@@ -500,12 +500,13 @@ function foldModels(rows, idx) {
     .sort((a, b) => b.tokens - a.tokens);
 }
 
-function foldBackends(rows, idx) {
+function foldBackends(rows, know) {
+  const idx = know.idx;
   const by = new Map();
   for (const r of rows) {
     const id = bucketOf(r.backendId, idx);
     let e = by.get(id);
-    if (!e) { e = { ...backendFacts(id, idx), groups: [], sessions: 0, messages: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, pair: { hit: 0, base: 0 } }; by.set(id, e); }
+    if (!e) { e = { ...backendFacts(id, idx), selectable: know.backends.has(id), groups: [], sessions: 0, messages: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, pair: { hit: 0, base: 0 } }; by.set(id, e); }
     const inp = num(r.inputTokens), read = num(r.cacheReadTokens), write = num(r.cacheCreationTokens);
     const accounting = accountingOf(r.backendId, idx);
     e.groups.push(r);
@@ -529,6 +530,10 @@ function foldSessions(rows, know) {
     return {
       sessionId: r.sessionId, title: r.aiTitle || null,
       projectPath: o.path, projectName: o.name,
+      // The session's OWN path, for opening it: a worktree session resumes in its worktree, not in the owner's checkout.
+      openPath: r.projectPath || null,
+      // A group whose parent row is gone has no project path: there is no folder to resume it in, so it is not openable.
+      openable: !!r.projectPath,
       backend: backendFacts(bucketOf(r.backendId, know.idx), know.idx),
       created: r.created || null, lastDate: r.lastDate || null, lastModel: r.lastModel || null,
       messages: num(r.messages), tokens: num(r.tokens),
@@ -576,7 +581,7 @@ function buildPayload(clean, view, today, know) {
     series: foldSeries(raw.series, range, view, bucketKindFor(range.days), today, know),
     projects: foldProjects(raw.projects, know),
     models: foldModels(raw.models, know.idx),
-    backends: foldBackends(raw.backends, know.idx),
+    backends: foldBackends(raw.backends, know),
     sessions: foldSessions(raw.sessions, know),
     heatmap: { from: heatmapFrom, to: range.to, days: raw.heatmap.map(r => ({ date: r.date, messages: num(r.messages) })) },
     grid: raw.grid.map(r => ({ weekday: r.weekday, hour: r.hour, messages: num(r.messages), tokens: num(r.tokens) })),

@@ -6,7 +6,8 @@
 //
 // Depends on globals: mountStatsChart + unmountStatsChart (views/stats-chart.js, loaded before this file), statsViewerBody (app.js),
 //   getUsageLimitCards + observedAgo (shell/usage-status.js), renderBackendIcon (backend-icons.js, rate limits) and
-//   backendIconKnownColour (backend-icons.js, the chart's colour tokens).
+//   backendIconKnownColour (backend-icons.js, the chart's colour tokens), openSession (app.js) and sessionMap (app.js), which
+//   a Sessions row opens through (the sidebar's own path), all read at call time.
 
 let cachedUsage = null;
 let usageGen = 0;
@@ -138,6 +139,274 @@ function statsKnownLabel(field, value, payload) {
   return value;
 }
 
+/**
+ * Rows sorted by one column. `get` reads the value of a row: a number sorts numerically, a string by locale (case
+ * ignored), and a missing value (null, undefined, NaN, "") is LAST in both directions, so a dash never leads a table.
+ * Returns a new array; ties keep their incoming order.
+ */
+function statsSortRows(rows, get, dir) {
+  const sign = dir === 'asc' ? 1 : -1;
+  const missing = (v) => v == null || v === '' || (typeof v === 'number' && !Number.isFinite(v));
+  return (rows || []).map((row, i) => ({ row, i, v: get(row) })).sort((a, b) => {
+    const ma = missing(a.v), mb = missing(b.v);
+    if (ma || mb) return ma && mb ? a.i - b.i : (ma ? 1 : -1);
+    let c;
+    if (typeof a.v === 'number' && typeof b.v === 'number') c = a.v - b.v;
+    else c = String(a.v).localeCompare(String(b.v), undefined, { sensitivity: 'base', numeric: true });
+    return c ? c * sign : a.i - b.i;
+  }).map(x => x.row);
+}
+
+/** A cost object ({ usd, estimated } or null) as the cell text: "~" in front of an estimate, a dash when none is reported. */
+function statsCostText(cost) {
+  return cost ? (cost.estimated ? '~' : '') + formatUsd(cost.usd) : '—';
+}
+
+// --- the breakdown tables (V4) ---------------------------------------------------------------------------------------------
+
+// Per-viewer convenience only (renderer rule): the tab and each tab's sort. Never part of `statsFilter`, never sent to main.
+const STATS_TABLE_KEY = 'statsTable';
+let statsTable = { tab: 'projects', sort: {} };
+try {
+  const raw = JSON.parse(localStorage.getItem(STATS_TABLE_KEY) || 'null');
+  if (raw && typeof raw === 'object') statsTable = { tab: typeof raw.tab === 'string' ? raw.tab : 'projects', sort: raw.sort && typeof raw.sort === 'object' ? raw.sort : {} };
+} catch { /* no storage or a bad value: the defaults stay */ }
+function saveStatsTable() {
+  try { localStorage.setItem(STATS_TABLE_KEY, JSON.stringify(statsTable)); } catch { /* not remembered */ }
+}
+
+const STATS_TABS = [
+  { id: 'projects', label: 'Projects' },
+  { id: 'models', label: 'Models' },
+  { id: 'backends', label: 'Backends' },
+  { id: 'sessions', label: 'Sessions' },
+];
+
+const statsNumCol = (key, label, get, format) => ({ key, label, num: true, get, text: (r) => { const v = get(r); return v == null ? '—' : format(v); } });
+const statsTokenCol = (key, label) => statsNumCol(key, label, (r) => r[key], fmtTokens);
+const statsCostCol = { key: 'cost', label: 'Cost', num: true, get: (r) => (r.cost ? r.cost.usd : null), cost: true, text: (r) => statsCostText(r.cost) };
+
+/** The columns, the filter field a row sets and the rows of one tab. Names no backend: labels and ids come from the payload. */
+function statsTabSpec(id, payload) {
+  if (id === 'projects') {
+    return {
+      field: 'project', rows: payload.projects || [], value: (r) => (r.other ? null : r.projectPath),
+      columns: [
+        { key: 'name', label: 'Project', get: (r) => r.name, text: (r) => r.name, title: (r) => r.name },
+        statsNumCol('sessions', 'Sessions', (r) => r.sessions, fmtCount), statsNumCol('messages', 'Messages', (r) => r.messages, fmtCount),
+        statsTokenCol('tokens', 'Tokens'), statsCostCol,
+      ],
+    };
+  }
+  if (id === 'models') {
+    return {
+      field: 'model', rows: payload.models || [], value: (r) => r.model,
+      columns: [
+        { key: 'model', label: 'Model', get: (r) => r.model, text: (r) => r.model || '—' },
+        statsNumCol('sessions', 'Sessions', (r) => r.sessions, fmtCount), statsTokenCol('input', 'Input'), statsTokenCol('output', 'Output'),
+        statsTokenCol('cacheRead', 'Cache read'), statsTokenCol('cacheWrite', 'Cache written'), statsTokenCol('tokens', 'Tokens'), statsCostCol,
+      ],
+    };
+  }
+  if (id === 'backends') {
+    return {
+      field: 'backend', rows: payload.backends || [], value: (r) => r.id,
+      columns: [
+        { key: 'label', label: 'Backend', get: (r) => r.label, text: (r) => r.label, icon: true },
+        statsNumCol('sessions', 'Sessions', (r) => r.sessions, fmtCount), statsNumCol('messages', 'Messages', (r) => r.messages, fmtCount),
+        statsTokenCol('input', 'Input'), statsTokenCol('output', 'Output'), statsTokenCol('tokens', 'Tokens'),
+        statsNumCol('cacheRate', 'Cache hit', (r) => r.cacheRate, (v) => Math.round(v * 100) + '%'), statsCostCol,
+      ],
+    };
+  }
+  return {
+    field: null, rows: payload.sessions || [], value: null,
+    columns: [
+      { key: 'title', label: 'Title', get: (r) => r.title, text: (r) => r.title || '(untitled)', title: (r) => r.title || r.sessionId },
+      { key: 'project', label: 'Project', get: (r) => r.projectName, text: (r) => r.projectName },
+      { key: 'backend', label: 'Backend', get: (r) => r.backend && r.backend.label, text: (r) => (r.backend && r.backend.label) || '—' },
+      { key: 'created', label: 'Started', get: (r) => r.created, text: (r) => (r.created ? String(r.created).slice(0, 10) : '—') },
+      { key: 'lastDate', label: 'Last active', get: (r) => r.lastDate, text: (r) => r.lastDate || '—' },
+      { key: 'lastModel', label: 'Last model', get: (r) => r.lastModel, text: (r) => r.lastModel || '—' },
+      statsNumCol('messages', 'Messages', (r) => r.messages, fmtCount), statsTokenCol('tokens', 'Tokens'), statsCostCol,
+    ],
+  };
+}
+
+/** The sort in force for a tab: the remembered one if its column exists, else tokens descending (Sessions: the measure main ranked by). */
+function statsSortFor(id, columns, view) {
+  const saved = statsTable.sort[id];
+  // Until a remembered Sessions measure has been re-asked of main, the header names the measure that really ranked the rows.
+  const staleMeasure = id === 'sessions' && saved && ['tokens', 'cost', 'messages'].includes(saved.key) && view && view.sessionsBy && saved.key !== view.sessionsBy;
+  if (saved && !staleMeasure && columns.some(c => c.key === saved.key)) return { key: saved.key, dir: saved.dir === 'asc' ? 'asc' : 'desc' };
+  const by = id === 'sessions' && view && view.sessionsBy;
+  return { key: by || 'tokens', dir: 'desc' };
+}
+
+/** A click on a header: the Sessions measures (tokens, cost, messages) ask main for a different top 50, any other sort is local. */
+function statsSortBy(tabId, column, current, view) {
+  const dir = current.key === column.key ? (current.dir === 'desc' ? 'asc' : 'desc') : (column.num ? 'desc' : 'asc');
+  const measure = tabId === 'sessions' && ['tokens', 'cost', 'messages'].includes(column.key) && column.key !== (view && view.sessionsBy);
+  statsTable.sort[tabId] = { key: column.key, dir: measure ? 'desc' : dir };
+  saveStatsTable();
+  if (measure) {
+    const base = statsBase();
+    return requestStats(base.filter, { ...(base.view || {}), sessionsBy: column.key });
+  }
+  renderStatsBreakdownBody();
+}
+
+/** The session row's open: the sidebar's own path (`openSession`), with the row the app already holds when it has one. */
+async function openStatsSession(row) {
+  if (typeof openSession !== 'function') return;
+  const known = typeof sessionMap !== 'undefined' && sessionMap.get ? sessionMap.get(row.sessionId) : null;
+  // Single and grid view: Stats is an admin tab, so leave it first, as the Tasks and Bookmarks lists do (`hideAllViewers`,
+  // bookmarks-view.js and tasks-view.js) and as its own close button does (`closeAdminView`); otherwise the session opens
+  // behind the viewer and the sidebar stays on the Stats tab. Panes mode (#310) leaves both alone: Stats is a pane tab with
+  // `close: 'admin'`, so either call would close that tab and collapse a pane that held only Stats; `openSession` adopts the
+  // session into a pane. `openPath` is the session's own path (a worktree session resumes there).
+  const inPanes = !!(window.panesView && window.panesView.active());
+  if (!inPanes) {
+    if (typeof closeAdminView === 'function') closeAdminView();
+    if (typeof hideAllViewers === 'function') hideAllViewers();
+  }
+  try { await openSession(known || { sessionId: row.sessionId, projectPath: row.openPath }); }
+  catch (err) { if (typeof toast === 'function') toast('Could not open session: ' + err.message); }
+}
+
+/**
+ * A remembered Sessions sort on a measure (tokens, cost, messages) must name the top 50 main ranked: `view.sessionsBy` lives in
+ * memory only, so after a restart the header could say "Cost" over a top 50 chosen by tokens. Ask main once for the saved one.
+ */
+let statsAlignedMeasure = null;
+function statsAlignSessionsMeasure() {
+  if (statsTable.tab !== 'sessions') return;
+  const saved = statsTable.sort.sessions;
+  const key = saved && saved.key;
+  if (!['tokens', 'cost', 'messages'].includes(key)) return;
+  const base = statsBase();
+  const current = (base.view && base.view.sessionsBy) || 'tokens';
+  if (key === current || statsAlignedMeasure === key) return;
+  statsAlignedMeasure = key;
+  requestStats(base.filter, { ...(base.view || {}), sessionsBy: key });
+}
+
+/** A row sets its filter field; a second click on the active one clears it. Both go through the page's own `applyFilter`. */
+function statsDrillInto(field, value) {
+  const { filter } = statsBase();
+  const active = filter && filter[field] === value;
+  return applyFilter({ [field]: active ? null : value });
+}
+
+function buildStatsBreakdown(payload) {
+  const section = document.createElement('div');
+  section.className = 'stats-breakdown';
+  const head = document.createElement('div');
+  head.className = 'stats-chart-head';
+  const tabs = viewPills('Breakdown', STATS_TABS, STATS_TABS.some(t => t.id === statsTable.tab) ? statsTable.tab : 'projects', (id) => {
+    statsTable.tab = id;
+    saveStatsTable();
+    renderStatsBreakdown();
+    statsAlignSessionsMeasure();
+  });
+  // Not the chart's switches: those are looked up by their class.
+  tabs.classList.replace('stats-chart-switch', 'stats-breakdown-tabs');
+  head.appendChild(tabs);
+  const body = document.createElement('div');
+  body.className = 'stats-breakdown-body';
+  section.append(head, body);
+  return section;
+}
+
+/** Redraw the tab strip and the table in place (a tab change asks main for nothing). */
+function renderStatsBreakdown() {
+  const old = statsViewerBody.querySelector('.stats-breakdown');
+  if (!old || !statsState.payload) return;
+  const fresh = buildStatsBreakdown(statsState.payload);
+  old.replaceWith(fresh);
+  renderStatsBreakdownBody();
+}
+
+function renderStatsBreakdownBody() {
+  const body = statsViewerBody.querySelector('.stats-breakdown-body');
+  const payload = statsState.payload;
+  if (!body || !payload) return;
+  const tabId = STATS_TABS.some(t => t.id === statsTable.tab) ? statsTable.tab : 'projects';
+  const spec = statsTabSpec(tabId, payload);
+  const view = statsState.view || {};
+  const sort = statsSortFor(tabId, spec.columns, view);
+  const column = spec.columns.find(c => c.key === sort.key) || spec.columns[0];
+  const rows = statsSortRows(spec.rows, column.get, sort.dir);
+  // The highlight follows what main echoed, not what was last sent.
+  const activeValue = spec.field ? ((statsState.filter || {})[spec.field] ?? null) : null;
+
+  body.replaceChildren();
+  if (!rows.length) {
+    const none = document.createElement('div');
+    none.className = 'plans-empty';
+    none.textContent = 'Nothing to list for this selection.';
+    body.appendChild(none);
+    return;
+  }
+  if (tabId === 'sessions') {
+    const note = document.createElement('div');
+    note.className = 'chart-subtitle stats-caption';
+    note.textContent = `The ${rows.length} sessions with the most ${view.sessionsBy || 'tokens'} in this selection. A subagent counts under its parent.`;
+    body.appendChild(note);
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pa-table-wrap stats-table-wrap';
+  const table = document.createElement('table');
+  table.className = 'pa-table stats-table';
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  for (const c of spec.columns) {
+    const th = document.createElement('th');
+    th.className = 'stats-th' + (c.num ? ' is-num' : '');
+    th.textContent = c.label + (c.key === sort.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '');
+    th.tabIndex = 0;
+    th.dataset.sort = c.key;
+    th.setAttribute('aria-sort', c.key === sort.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+    th.onclick = () => statsSortBy(tabId, c, sort, view);
+    th.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); statsSortBy(tabId, c, sort, view); } };
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  const tbody = document.createElement('tbody');
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    const value = spec.value ? spec.value(r) : null;
+    // Main says which rows can set a filter (`selectable`); the page does not guess.
+    const clickable = spec.field ? r.selectable === true : r.openable === true;
+    if (clickable) {
+      tr.className = 'stats-row' + (spec.field && activeValue === value ? ' is-active' : '');
+      tr.tabIndex = 0;
+      const go = () => (spec.field ? statsDrillInto(spec.field, value) : openStatsSession(r));
+      tr.onclick = go;
+      tr.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+      tr.title = spec.field ? (activeValue === value ? 'Click to clear this filter' : 'Click to filter the page to this row') : 'Open this session';
+    } else if (!spec.field) {
+      tr.title = 'This session has no project folder to open it in';
+    }
+    for (const c of spec.columns) {
+      const td = document.createElement('td');
+      td.className = c.num ? 'is-num' : '';
+      if (c.icon && r.icon && typeof renderBackendIcon === 'function') td.appendChild(renderBackendIcon(r.icon, 14, {}));
+      const text = document.createElement('span');
+      text.textContent = c.text(r);
+      if (c.cost && r.cost) text.className = 'backend-cost' + (r.cost.estimated ? ' is-estimated' : '');
+      if (c.title) text.title = c.title(r) || '';
+      td.appendChild(text);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.append(thead, tbody);
+  wrap.appendChild(table);
+  body.appendChild(wrap);
+}
+
 // --- requesting ---------------------------------------------------------------------------------------------------------
 
 async function loadStats() {
@@ -184,6 +453,8 @@ async function requestStats(filter, view) {
   host.classList.remove('is-loading');
   if (!res || !res.ok) {
     statsPending = { filter: statsState.filter, view: statsState.view };
+    // A failed re-ask of the Sessions measure may be tried again by the next successful draw.
+    statsAlignedMeasure = null;
     renderStatsError(res && res.error);
     return;
   }
@@ -259,6 +530,10 @@ function renderStatsPage() {
   const chart = buildChartSection(payload);
   results.appendChild(chart.section);
   chart.mount();
+
+  results.appendChild(buildStatsBreakdown(payload));
+  renderStatsBreakdownBody();
+  statsAlignSessionsMeasure();
 
   results.appendChild(buildRhythm(payload));
 }

@@ -4897,6 +4897,18 @@ html body .terminal-container.conversation-container:not(.visible) {
 .stats-chart-none { margin: 0; }
 .stats-chart + .chart-legend, .stats-chart .chart-legend { font-size: 11px; }
 .stats-rhythm { margin-bottom: 24px; }
+/* The breakdown tables reuse .pa-table; these rules only add the sortable header, the clickable row and the active filter row. */
+.stats-breakdown { margin-bottom: 24px; }
+.stats-table-wrap { padding: 8px 0; overflow-x: auto; }
+.stats-table th.stats-th { cursor: pointer; user-select: none; }
+.stats-table th.stats-th:hover { color: #e0e0f0; }
+.stats-table th.is-num, .stats-table td.is-num { text-align: right; white-space: nowrap; }
+.stats-table td { vertical-align: middle; }
+.stats-table td .backend-icon, .stats-table td svg { vertical-align: middle; margin-right: 6px; }
+.stats-table tr.stats-row { cursor: pointer; }
+.stats-table tr.stats-row:focus { outline: none; }
+.stats-table tr.stats-row:focus-visible td { background: rgba(128,136,255,0.10); }
+.stats-table tr.stats-row.is-active td { background: rgba(128,136,255,0.14); }
 .stats-blocks {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
