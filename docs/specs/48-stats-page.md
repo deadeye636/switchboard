@@ -132,7 +132,7 @@ shared predicate. No row-level data crosses IPC except the capped session table.
 
 | Block | Query shape | Returns |
 |---|---|---|
-| Key figures (V2) | `GROUP BY backendId, costStatus`, with the period `CASE` | per period: sessions, messages, tool calls, input, output, cacheRead, cacheWrite, summed cost (estimated and actual separately), count of sessions with a cost, active days (`COUNT(DISTINCT date) WHERE messageCount > 0`) |
+| Key figures (V2) | `GROUP BY backendId, costStatus` (`costStatus` is a column of `session_cache`, one value per session, not of `session_metrics`), with the period `CASE` | per period: sessions, messages, tool calls, input, output, cacheRead, cacheWrite, summed cost (estimated and actual separately), count of sessions with a cost, active days (`COUNT(DISTINCT date) WHERE messageCount > 0`) |
 | Main series (V3) | `GROUP BY bucketKey, <split>` for the chosen measure and split | rows `{bucket, key, value}`; bucket is a day up to 90 days, a Monday-based week for a year, a month for all time, so a chart never exceeds about 100 bars; the split keeps the top 8 keys and folds the rest into "Other" |
 | Projects table (V4) | `GROUP BY sc.projectPath` | per path: sessions, messages, tokens, cost; main folds worktrees into the owner |
 | Models table | `GROUP BY m.model` (non-empty) | input, output, cacheRead, cost, sessions |
@@ -166,10 +166,9 @@ in the renderer would be wrong for one of them, and the answer belongs to the ba
 
 - A **neutral descriptor answer** (planned name `cacheAccounting`) with three states: `additive` (input excludes the
   cache; rate = read / (input + read + write)), `included` (input includes the cached part; rate = read / input) and
-  `none` (the backend reports no cache; Antigravity writes zeros). A backend that was not measured **declines** and
+  `none` (the backend reports no cache; Antigravity writes no metrics rows, totals 0). A backend that was not measured **declines** and
   `test/backend-parity.test.js` makes it say so, the shape used for `openedWithCommand` (renderer.md).
-  Hermes stores cache read and write from its own state; its state is **unmeasured until the first step of the plan
-  measures it** (do not fill the table from documentation, the repo's standing rule for per-backend tables).
+  Hermes stores cache read and write from its own state; it was unmeasured until plan step T1 (below).
 - Main folds per backend into `{hit, base}` and sums those across backends, so the tile for "all" is a true weighted
   rate over the backends that report. A backend with state `none` or declining contributes nothing; the tile says
   "excludes <labels>".
@@ -179,6 +178,24 @@ in the renderer would be wrong for one of them, and the answer belongs to the ba
 - The "saving against no cache" idea from the prior art is out of scope (it needs per-model prices the registry does not
   hold).
 
+**Measured (T1, 2026-11-18, one real session or store per backend on the developer machine, read-only).** Each row
+compares the raw usage fields of the source with what the parser stores in `session_metrics`; nothing is filled from
+documentation. "Stored equals raw" means the parser adds nothing and subtracts nothing.
+
+| Backend | Raw fields compared | Stored vs raw | State |
+|---|---|---|---|
+| Claude | `usage.input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` of a 2-turn session: input 4 against cache read 39 289 and write 11 442 (every turn has cache read above input, impossible if input held it) | equal field by field | `additive` |
+| Pi | `usage.input/output/cacheRead/cacheWrite/totalTokens` of a 3-turn session: `totalTokens` equals `input + output + cacheRead + cacheWrite` on all three turns | equal field by field | `additive` |
+| Codex | `total_token_usage` of the last `token_count` of a 47-event rollout: `total_tokens` equals `input_tokens + output_tokens` and `cached_input_tokens` is below `input_tokens` (a subset) | stored input equals raw `input_tokens`, stored cache read equals raw `cached_input_tokens` | `included` |
+| Hermes | the store's `sessions` row (`input_tokens`, `cache_read_tokens`, `cache_write_tokens`); one session of five has cache read (76 544) above input (40 030). The installed Hermes' own `normalize_usage` subtracts the cached part from the provider's prompt total for the chat and Responses shapes and takes Anthropic's uncached input as is, and the session total adds that value | stored equals the store row | `additive` |
+| Antigravity | no table or column of a conversation store is named token, cache or usage, and none of the first 200 `gen_metadata` blobs of the largest one holds such a word; the parser writes totals of 0 and no per-day metrics (`src/backends/agy/parser.js:355-365`) and the 46 agy sessions have no `session_metrics` row at all | not applicable | `none` (protobuf numeric fields are not decoded, so "reports no usage" is a finding about names, not a proof) |
+
+Two findings the table does not hide. Codex's `total_token_usage` also carries `cache_write_input_tokens` (0 in the
+measured rollout); the parser reads only `cached_input_tokens` (`src/backends/codex/parser.js:258`), so the "no
+creation concept" above holds for the stored data, not for the source. And Hermes' answer is per stored field, not per
+provider: its sessions come from several providers and its normaliser makes them all `additive`, so the descriptor
+does not need a per-model branch.
+
 ### Cost of the queries (to measure, not assumed)
 
 What exists: `session_metrics` has primary key `(sessionId, date, hour, model)` and `idx_session_metrics_date`;
@@ -187,7 +204,7 @@ sessions x active days x active hours x models, so "all time" is a full scan of 
 unfiltered page already runs about eight such scans on the main thread (better-sqlite3 is synchronous) on every open.
 
 This spec does not guess the number. The first plan step runs the planned queries against a **copy of a real database
-and an empty one** (`scripts/db-probe.js`, the db.md rule) and records time per block for `7d`, `year`, `all`, with and
+and an empty one** (`scripts/stats-query-probe.js`, which runs the way `scripts/db-probe.js` does, the db.md rule) and records time per block for `7d`, `year`, `all`, with and
 without a project filter. Decision rules fixed now, so the measurement has something to be compared to:
 
 - A date-bounded block uses `idx_session_metrics_date` and is expected cheap. If an "all time" block is too slow to
@@ -196,6 +213,14 @@ without a project filter. Decision rules fixed now, so the measurement has somet
   **appended** migration (never edited in place; fingerprint test updated; verified with
   `scripts/db-migrate-probe.js`), a short-lived result cache keyed on `(filter, max(parser write time))`, or running the
   queries in a worker. A worker is the largest change and is chosen only if the measurement demands it.
+- **Measured (T1, 2026-11-18, `scripts/stats-query-probe.js`, a copy of a real database of about 3 000 sessions and
+  8 600 `session_metrics` rows over 70 active days, so `year` and `all` are the same window there).** The queries of
+  one payload (key figures with the previous period, one series, projects, models, backends, sessions, both Rhythm
+  grids, sidebar series; the probe prints this as its payload sum, SQL only) add up to about 45 to 60 ms for `7d` and about
+  180 to 220 ms for `year` and `all` unfiltered, about 30 and 80 to 90 ms with a project filter (two runs differed by that much); the current page's seven queries take about 60 ms.
+  Not in these figures: main's fold after the SQL (projects cap, series top-8 "Other", worktree fold), a worktree-wide project
+  filter and a model filter. Cost grows with the rows in range,
+  so the figures scale with the corpus; re-run the script against a copy of your own database for the per-block table.
 - No migration is planned today. If one is added it is append-only (`migrations.length` is the version).
 - Filter-bar choices (facets) are two `DISTINCT` queries under the other filters and are read lazily when a
   dropdown opens, not with every page load.
@@ -304,7 +329,7 @@ accumulation: it draws what the payload holds.
 - SQL: tests over an in-memory SQLite with the real schema for every query and every filter field, the template fold, a
   NULL-`backendId` row, a worktree folded into its project, a subagent riding with its parent, the model-less bucket,
   and a period straddling the previous-period boundary.
-- A real database copy and an empty one through `scripts/db-probe.js` (db.md), with timings recorded in the plan.
+- A real database copy and an empty one through `scripts/stats-query-probe.js` (db.md), with timings recorded in the plan.
 - A backend-parity test for the cache-accounting answer, one entry per backend, undeclared backends decline.
 - The click: `node scripts/drive-app.js console` for runtime errors, then each drill-down, the heatmap day click, the
   sidebar project click, the sticky bar while scrolling, the page in panes mode, and an export of each format opened
@@ -330,9 +355,9 @@ accumulation: it draws what the payload holds.
   **Decided (owner, 2026-11-13): Option A.**
 - [x] **O3.** Default filter on first start (no remembered value): 30 days, all backends, all projects (proposal; today the
   page is a year and all-time mix). **Decided (owner, 2026-11-13): as proposed.**
-- **O4.** The page's responsiveness budget on the owner's real corpus (for example "an unfiltered all-time open under
+- [x] **O4.** The page's responsiveness budget on the owner's real corpus (for example "an unfiltered all-time open under
   X ms"). The measurement step reports the figures; the owner picks the limit that decides between the options in
-  "Cost of the queries". **Owner, 2026-11-18: set once the T1 measurement is in.**
+  "Cost of the queries". **Decided (owner, 2026-11-18): 250 ms** for an unfiltered all-time payload on the owner's corpus. T1 measured 180 to 220 ms, so no index, cache or worker is built now. T2 measures again with the production queries; if the budget is broken, a result cache comes first.
 - [x] **O5.** Whether a chart bar click should also set the range to that bucket. Not in the issue; cheap once the
   range object exists. **Decided (owner, 2026-11-18): yes**, a bar click sets the range to that bucket.
 - [x] **O6.** Whether the export's project column carries the full local path or only the display name. A path makes the file
