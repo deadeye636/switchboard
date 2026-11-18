@@ -612,7 +612,14 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Custom launchers (Tier-3)** — any command or script as a saved launcher (in-app monitored tab or
   detached window), global template ⊕ per-project override. The launch menu offers them behind one
   **Custom commands** entry, so a project's tools cannot push the rest of the menu off a short window;
-  the entry is absent while nothing is saved.
+  the entry is absent while nothing is saved and the project has no VS Code tasks. Under a **From VS
+  Code** label the same flyout lists the project's `.vscode/tasks.json` tasks, read-only, with the
+  command line under each name. `shell` and `process` tasks run in a terminal tab like an in-app
+  launcher, with `${workspaceFolder}`, `${workspaceFolderBasename}`, `${userHome}`, `${pathSeparator}`,
+  `${cwd}` and `${env:NAME}` filled in. A typed task (`npm`, `typescript`, …), a task that only runs
+  others (`dependsOn`) and one that uses any other variable (`${file}`, `${input:…}`) stays listed,
+  greyed out, with the reason underneath. `launch.json` is not read, `"hide": true` tasks are left out,
+  and a file that does not parse shows nothing. Switchboard never writes the file.
 - **Identity, resume and fork done honestly** — a backend that names its own sessions (Codex, Hermes,
   Pi) has its id adopted, so one session is one row; resume reapplies the recorded backend and never
   falls back to Claude; Fork is only offered where the backend can actually fork. A resume keeps the model the

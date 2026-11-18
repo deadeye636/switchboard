@@ -1013,6 +1013,9 @@ ipcMain.handle('clipboard-write-text', async (_event, text) => {
 const fileAccess = require('./app/file-access');
 fileAccess.registerIpc(ipcMain);
 
+// --- A project's VS Code tasks, read-only, for the launch popover -> app/vscode-tasks.js (#616) ---
+require('./app/vscode-tasks').registerIpc(ipcMain, { isForeignNetworkFile });
+
 const terminalImages = require('./app/terminal/images');
 terminalImages.init({ clipboard, net, log });
 terminalImages.registerIpc(ipcMain);

@@ -12,7 +12,10 @@
 //   * a second copy of the flyout geometry here, instead of the `openSubmenu`/`closeSubmenu` that
 //     `terminal/terminal-context-menu.js` owns — two menus that clamp differently at the same edge;
 //   * the CSS scoped back under `.terminal-context-menu`, which leaves this flyout unstyled: a white
-//     box of native buttons over a dark menu, with every test still green.
+//     box of native buttons over a dark menu, with every test still green;
+//   * the project's VS Code tasks (step 2) drawn as a flyout of their own inside this one — `closeSubmenu`
+//     does not reset a nested `.popover-submenu`, so it would reappear unhovered — or a task that cannot
+//     run left clickable.
 
 'use strict';
 const test = require('node:test');
@@ -29,8 +32,8 @@ const css = read('renderer/style.css');
 
 // The block that builds the entry, so a match cannot come from somewhere else in a 2000-line file.
 const submenuBlock = (() => {
-  const start = dialogs.indexOf('if (launchers.length)');
-  assert.notEqual(start, -1, 'the saved-launcher entry is no longer guarded by launchers.length');
+  const start = dialogs.indexOf('if (launchers.length || vscodeTasks.length)');
+  assert.notEqual(start, -1, 'the Custom commands entry is no longer guarded by the two lists it holds');
   const end = dialogs.indexOf('popover.appendChild(parent)', start);
   assert.notEqual(end, -1, 'the flyout parent is never appended to the popover');
   return dialogs.slice(start, end);
@@ -38,7 +41,26 @@ const submenuBlock = (() => {
 
 test('the entry is built only when there is something under it', () => {
   // A heading — or here a row — over an empty list is the thing the group labels above already avoid.
-  assert.match(dialogs, /if \(launchers\.length\) \{/);
+  // Either list is enough: saved launchers alone, or only the project's VS Code tasks (E7).
+  assert.match(dialogs, /if \(launchers\.length \|\| vscodeTasks\.length\) \{/);
+});
+
+test('the VS Code tasks are a section of the flyout, not a flyout of their own', () => {
+  assert.match(submenuBlock, /textContent = 'From VS Code'/, 'the tasks have no group label in the flyout');
+  assert.equal((submenuBlock.match(/className = 'popover-submenu'/g) || []).length, 1,
+    'a second flyout is nested inside the Custom commands one');
+  assert.match(submenuBlock, /btn\.className = 'popover-option popover-option-terminal popover-option-launcher popover-option-task'/);
+  assert.match(submenuBlock, /popover-option-tag">VS Code</, 'a task row no longer says where it comes from');
+  for (const cls of ['popover-option-task', 'popover-option-lines', 'popover-option-line', 'popover-option-subline']) {
+    assert.ok(new RegExp(`\\.${cls}[\\s,{:.]`).test(css), `style.css no longer defines .${cls}`);
+  }
+});
+
+test('a task that cannot run is listed but not clickable, and the keyboard skips it', () => {
+  // E2: listed with its reason, never hidden — and never a button that does nothing.
+  assert.match(submenuBlock, /if \(task\.disabled\) \{\s*btn\.disabled = true;/);
+  assert.match(submenuBlock, /querySelector\('\.popover-option:not\(:disabled\)'\)/,
+    'Enter on the entry can focus a disabled task row');
 });
 
 test('a saved launcher goes into the flyout, never back onto the popover', () => {

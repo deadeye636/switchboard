@@ -103,6 +103,7 @@ that works. An absolute name is not judged there at all, because whether it poin
 about a project that module does not have.
 Electron-free and DB-free:
 `conventionDirs(projectPath, effectiveSettings)` is callable from `node --test` with a plain object),
+`vscode-tasks.js` (a project's `.vscode/tasks.json` as plain rows for the launch popover's Custom commands flyout — #616; read-only, `tasks[]` only (no `launch.json`), parsed with `jsonc-parser` and answering `[]` on any parse error, a file over 512 KB or one whose real path leaves the project. A typed task (`npm`, …) and a task using a variable outside the substituted set (`${workspaceFolder}`, `${workspaceFolderBasename}`, `${userHome}`, `${pathSeparator}`, `${cwd}`, `${env:NAME}`) is a disabled row with a reason; an enabled row carries the launcher fields the in-app launcher path spawns. `"hide": true` tasks are left out; a line break in a command, an argument, the cwd or an env value disables the row, because the launcher path types the line into a shell. The project path comes from the renderer, so main.js hands in `isForeignNetworkFile` and a foreign share is refused before any stat. Never writes the file),
 `file-access.js` (can this file be WRITTEN — #281; one handler rather than a flag on each of the four
 readers that feed the viewer, three of which return a bare string. A missing file counts as writable
 and so does anything the check cannot answer: a false read-only locks an editable file out of its
@@ -640,6 +641,7 @@ line there, in the same commit.
 | A session's flow saved to a file (JSON, SVG, PDF, Mermaid): fresh read, save dialog, safe-write (#826) | `src/app/flow-export.js` |
 | The CPU and memory of a session's process tree, sampled only when the sidebar asks (#834) | `src/app/process-usage.js` |
 | What a session changed since the last review: the Changes group, Details, Clear, the timeline, a diff by row id (#870) | `src/app/session-changes.js` |
+| A project's VS Code tasks, read-only, as plain rows for the launch popover (#616) | `src/app/vscode-tasks.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

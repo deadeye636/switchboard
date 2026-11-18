@@ -12262,6 +12262,21 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 /* A saved tool's name can be long — keep the popover from growing sideways (the row stays a flex
    container; only the label truncates). */
 .popover-option-launcher { max-width: 320px; }
+/* A project's VS Code task (#616): name and a `VS Code` tag on the first line, the command line — or,
+   for a task that cannot run here, the reason — dim and monospace underneath. */
+.popover-option-lines { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.popover-option-line { display: flex; align-items: center; min-width: 0; }
+.popover-option-subline {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  color: #6a6a80;
+}
+.popover-option-task:disabled .popover-option-subline { font-family: inherit; }
 .popover-option-text {
   min-width: 0;
   overflow: hidden;

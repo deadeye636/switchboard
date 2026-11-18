@@ -489,7 +489,14 @@ async function showNewSessionPopover(project, anchorEl) {
   // Handoff library: when on, offer "Resume from handoff" in the menu. NOT "Claude handoff" — a
   // handoff is a context packet and can be produced by, and resumed into, any backend (#148).
   const globalSettings = (await window.api.getSetting('global')) || {};
-  const launchers = await effectiveCustomLaunchers(project.projectPath, globalSettings);
+  // The project's VS Code tasks (#616) arrive as plain rows from main, read beside the saved launchers.
+  // A failed read is no tasks: the popover must open whatever the file holds.
+  const [launchers, vscodeTasks] = await Promise.all([
+    effectiveCustomLaunchers(project.projectPath, globalSettings),
+    (window.api.getVscodeTasks ? window.api.getVscodeTasks(project.projectPath) : Promise.resolve([]))
+      .then(rows => (Array.isArray(rows) ? rows : []))
+      .catch(() => []),
+  ]);
 
   const popover = document.createElement('div');
   popover.className = 'new-session-popover';
@@ -675,15 +682,22 @@ async function showNewSessionPopover(project, anchorEl) {
   // reference resolves at call time whatever the tag order is. A copy of that clamping here is how the
   // two menus would start opening in different directions.
   //
+  // The project's VS Code tasks follow under their own `From VS Code` label (#616 step 2): read-only, a
+  // `VS Code` tag and the command line under the name. A task that cannot run here (a typed task, a
+  // variable with no value outside the editor) stays listed and disabled, its reason in place of the
+  // command line — hidden, it would leave the user hunting for a task that is in their file.
+  //
   // No entry when there is nothing under it — the same rule the group labels above follow.
-  if (launchers.length) {
+  if (launchers.length || vscodeTasks.length) {
     const parent = document.createElement('div');
     parent.className = 'popover-option popover-option-terminal has-submenu';
     parent.tabIndex = 0;
     parent.setAttribute('role', 'button');
     parent.setAttribute('aria-haspopup', 'true');
     parent.setAttribute('aria-expanded', 'false');
-    parent.title = 'Commands saved under Settings → Custom launchers';
+    parent.title = vscodeTasks.length
+      ? 'Commands saved under Settings → Custom launchers, and this project’s VS Code tasks'
+      : 'Commands saved under Settings → Custom launchers';
 
     const label = document.createElement('span');
     label.className = 'popover-submenu-label';
@@ -707,13 +721,47 @@ async function showNewSessionPopover(project, anchorEl) {
       btn.onclick = () => { popover.remove(); runCustomLauncher(project, launcher); };
       sub.appendChild(btn);
     }
+    if (vscodeTasks.length) {
+      const taskLabel = document.createElement('div');
+      taskLabel.className = 'popover-group-label';
+      taskLabel.textContent = 'From VS Code';
+      sub.appendChild(taskLabel);
+    }
+    for (const task of vscodeTasks) {
+      const btn = document.createElement('button');
+      btn.className = 'popover-option popover-option-terminal popover-option-launcher popover-option-task';
+      const under = task.disabled ? (task.reason || 'Cannot run here.') : (task.commandLine || '');
+      btn.innerHTML = TERMINAL_POPOVER_ICON
+        + '<span class="popover-option-lines">'
+        +   `<span class="popover-option-line"><span class="popover-option-text">${escapeHtml(task.name || '')}</span>`
+        +   '<span class="popover-option-tag">VS Code</span></span>'
+        +   `<span class="popover-option-subline">${escapeHtml(under)}</span>`
+        + '</span>';
+      if (task.disabled) {
+        btn.disabled = true;
+        btn.title = `${task.name} — ${under} (from .vscode/tasks.json, read-only)`;
+      } else {
+        btn.title = `${task.commandLine} — runs in a terminal tab (from .vscode/tasks.json, read-only)`;
+        // The row runs like a saved in-app launcher; the fields are the ones main already resolved.
+        btn.onclick = () => {
+          popover.remove();
+          const launcher = { id: task.id, name: task.name, command: task.command, runMode: 'in-app' };
+          if (Array.isArray(task.args) && task.args.length) launcher.args = task.args;
+          if (task.cwd) launcher.cwd = task.cwd;
+          if (task.env) launcher.env = task.env;
+          launchTerminalSession(project, launcher);
+        };
+      }
+      sub.appendChild(btn);
+    }
     parent.appendChild(sub);
 
     // `role="button"` promises an activation, so the row answers Enter and Space as well as the
     // pointer — a row that says it is a button and does nothing when pressed is the worse half of
     // having the role at all. `aria-expanded` is written on every open and close, by all three paths.
-    // NOTE for the VS Code section (#616 step 2): `closeSubmenu` resets nested `.terminal-context-submenu`
-    // elements only, so a flyout nested inside THIS one would not be reset and would reappear unhovered.
+    // `closeSubmenu` resets nested `.terminal-context-submenu` elements only, so a flyout nested inside
+    // THIS one would not be reset and would reappear unhovered — the VS Code tasks are a section of this
+    // flyout for that reason, not a flyout of their own.
     const openFlyout = () => { openSubmenu(parent, sub); parent.setAttribute('aria-expanded', 'true'); };
     const closeFlyout = () => { closeSubmenu(sub); parent.setAttribute('aria-expanded', 'false'); };
     parent.addEventListener('mouseenter', openFlyout);
@@ -723,7 +771,7 @@ async function showNewSessionPopover(project, anchorEl) {
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
         e.preventDefault();
         openFlyout();
-        const first = sub.querySelector('.popover-option');
+        const first = sub.querySelector('.popover-option:not(:disabled)');
         if (first) first.focus();
       } else if (e.key === 'Escape') {
         closeFlyout();

@@ -110,6 +110,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/flow-export.js         a session's flow saved to a file (JSON, SVG, PDF, Mermaid): fresh read, save dialog, safe-write
   src/app/process-usage.js       the CPU and memory of a session's process tree (one shared sample, on the sidebar's ask)
   src/app/session-changes.js     what a session changed since the last review (the Changes group, Details, Clear, a diff by row id)
+  src/app/vscode-tasks.js        a project's VS Code tasks, read-only, as plain rows for the launch popover (#616)
 
 None of the above? A NEW src/app/<area>.js — not main.js.
 

@@ -297,7 +297,8 @@ chart rather than a row of zeroes.
 - **The window comes back as you left it** — size, position and a maximized state survive a restart, and a window left on
   a display that is gone opens on the primary one
 - **Custom launchers** — any command or script saved as a launcher, globally or per project, started in
-  a monitored tab or a window of its own
+  a monitored tab or a window of its own. A project's VS Code tasks (`.vscode/tasks.json`) are offered
+  beside them, read-only
 - **Log level and build provenance** — raise the log to `debug` or `silly` live in a packaged build, and
   About names the branch and commit the installation was built from
 
