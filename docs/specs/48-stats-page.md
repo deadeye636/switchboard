@@ -332,9 +332,9 @@ accumulation: it draws what the payload holds.
   page is a year and all-time mix). **Decided (owner, 2026-11-13): as proposed.**
 - **O4.** The page's responsiveness budget on the owner's real corpus (for example "an unfiltered all-time open under
   X ms"). The measurement step reports the figures; the owner picks the limit that decides between the options in
-  "Cost of the queries".
-- **O5.** Whether a chart bar click should also set the range to that bucket. Not in the issue; cheap once the
-  range object exists.
+  "Cost of the queries". **Owner, 2026-11-18: set once the T1 measurement is in.**
+- [x] **O5.** Whether a chart bar click should also set the range to that bucket. Not in the issue; cheap once the
+  range object exists. **Decided (owner, 2026-11-18): yes**, a bar click sets the range to that bucket.
 - [x] **O6.** Whether the export's project column carries the full local path or only the display name. A path makes the file
   unambiguous and machine-specific; a name is shareable. **Decided (owner, 2026-11-13): the display name only**, so an
   exported file carries no local path.
@@ -344,3 +344,21 @@ accumulation: it draws what the payload holds.
 - [x] **O8.** The week boundary for the year view (Monday, as proposed, or the user's locale) and whether the year view's
   last bucket is shown partial. **Decided (owner, 2026-11-13): weeks start on Monday.** The partial last bucket is left
   to the plan.
+- [x] **O9.** Charting: hand-drawn SVG or a library. The renderer has no chart library today (vanilla JS, no framework; third
+  party code enters only through `scripts/bundle.js`); the existing charts are hand-built DOM and SVG in
+  `src/renderer/views/stats-view.js`. The new needs are one time series (stacked bars with a split, a y-axis, a unit, a
+  tooltip per bar), small sparklines (V7) and the existing heatmap and hour grid.
+  - **Option A (recommended): hand-drawn SVG in one small shared renderer module** (`src/renderer/` stats chart helper).
+    The shapes are bars, axes and polylines, at most about 100 bars; no new dependency, no bundle size or licence
+    cost, colours and theme variables apply directly, nothing to keep in step with a library's release cadence.
+    Cost: the axis ticks, the "nice" scale and the tooltip are ours to write and test (one pure scale function with
+    unit tests, a drawing function, one tooltip).
+  - **Option B: a library** (for example uPlot or Chart.js through `scripts/bundle.js`). Gains zoom, legends and
+    resize for free. Costs: a bundled dependency (size, supply-chain review, the renderer's no-framework rule), canvas
+    output that does not take CSS variables, and a second look for the existing heatmap and sparklines, which a
+    library would not draw anyway.
+  - Effort is a side point: A is more work now and less to carry later.
+  **Decided (owner, 2026-11-18): Option A**, hand-drawn SVG in one shared renderer module with a unit-tested scale.
+- [x] **O10.** Whether Stats views open in several windows or panes share one filter. The filter is one remembered
+  value, so every open view reads the same one. **Decided (owner, 2026-11-18): one shared filter**; revisited only if
+  the click test shows two views getting in each other's way.
