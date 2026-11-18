@@ -414,3 +414,6 @@ What is easy to miss:
 - [x] **O10.** Whether Stats views open in several windows or panes share one filter. The filter is one remembered
   value, so every open view reads the same one. **Decided (owner, 2026-11-18): one shared filter**; revisited only if
   the click test shows two views getting in each other's way.
+- [x] **O11.** What a click on a Sessions row does: open the session the way the sidebar does, which resumes its CLI, or
+  open it read-only. **Decided (owner, 2026-11-18): the sidebar's way.** One known behaviour for the same click; the
+  session opens in the folder it ran in (`openPath`), and in panes mode the Stats tab stays beside it.
