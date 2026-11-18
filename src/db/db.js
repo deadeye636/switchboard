@@ -203,6 +203,8 @@ module.exports = {
   getDailyBackendTokens: statsStore.getDailyBackendTokens,
   getDailyCost: statsStore.getDailyCost,
   getHourlyActivity: statsStore.getHourlyActivity,
+  getStatsPayload: statsStore.getStatsPayload,
+  getStatsFacets: statsStore.getStatsFacets,
   // --- keeping the file from drifting upward (compact.js, #430) ---
   freeSpace: compact.freeSpace,
   optimizeSearchIndex: compact.optimizeSearchIndex,

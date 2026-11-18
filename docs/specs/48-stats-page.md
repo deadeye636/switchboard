@@ -139,7 +139,7 @@ shared predicate. No row-level data crosses IPC except the capped session table.
 | Backends table | `GROUP BY backendId` | same figures as the key row, per bucket |
 | Sessions table | `GROUP BY COALESCE(sc.parentSessionId, m.sessionId) ORDER BY <measure> LIMIT N` | N = 50; title, project, backend, dates, last model, messages, tokens, cost |
 | Rhythm (V6) | `GROUP BY m.date` (year window) and `GROUP BY weekday, hour` (the range, hour >= 0) | per-day messages; the 7 x 24 grid |
-| Sidebar list (V7) | the Projects aggregate plus a per-project series bucketed to at most 30 points, for the top 50 projects | total and sparkline per project |
+| Sidebar list (V7) | the Projects aggregate plus a per-project series bucketed to at most 30 points, for the top 50 projects | total and sparkline per project. The SQL ranks the top 50 on the RAW `projectPath`, before the worktree fold: a project whose tokens are split over many worktrees can fall out of the 50 although its folded total would rank. The caller passes folded path groups, or accepts and states this limit |
 | Facets | distinct models and distinct backends under the other filters | choices for the filter bar, so a choice never leads to an empty page |
 
 Rules that every figure follows:
@@ -147,7 +147,8 @@ Rules that every figure follows:
 - **Sessions.** The count is distinct **parent** sessions that have metrics rows in range and under the filter
   (`COUNT(DISTINCT CASE WHEN sc.parentSessionId IS NULL ...)`). Subagents' tokens, messages and cost count; they never
   add a session (the existing "subagents ride with their parent" rule). The daily chart's session measure uses the same
-  rule, which changes today's daily figure.
+  rule, which changes today's daily figure. A parent counts as soon as ANY of its rows, its own or a subagent's, matches
+  the filter (the SQL counts `COALESCE(parentSessionId, sessionId)`), so the tiles agree with the Sessions table.
 - **The session table keys on the parent**: a subagent's rows add into its parent's line.
 - **Cost.** Rows where nobody reported money are excluded, never summed as zero. A zero estimate without an actual
   is "no figure" at the SQL level too (`NOT (estimatedCostUsd = 0 AND actualCostUsd IS NULL)`), the rule the renderer

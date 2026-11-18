@@ -134,7 +134,43 @@ function getTotalCounts(backendId) {
   };
 }
 
+// --- The redesigned page (#877): one payload call per filter change, facets lazily ---
+//
+// What to run and what to bind is decided by `statsQueries.payloadPlan` (testable). The project list in a filter arrives
+// ALREADY folded to the owner project plus its worktrees by the caller: nothing here consults the worktree knowledge,
+// which is not guaranteed to be loaded when a stats query runs.
+//
+// The statement cache is keyed on the SQL text (its shape changes with the number of ids and paths). The project list can
+// be long, so the map is cleared when it grows large rather than kept for every list ever seen.
+const _payloadStmts = new Map();
+function runSpec(spec) {
+  let stmt = _payloadStmts.get(spec.sql);
+  if (!stmt) {
+    if (_payloadStmts.size >= 200) _payloadStmts.clear();
+    stmt = db.prepare(spec.sql);
+    _payloadStmts.set(spec.sql, stmt);
+  }
+  return stmt.all(...spec.params);
+}
+
+// {keyFigures, periodCounts, series, projects, models, backends, sessions, heatmap, grid, sidebar}: raw rows per block.
+function getStatsPayload(request) {
+  const out = {};
+  for (const [name, spec] of Object.entries(statsQueries.payloadPlan(request))) out[name] = runSpec(spec);
+  return out;
+}
+
+// {models: [model], backends: [backendId]} still having rows under the other filters.
+function getStatsFacets(filter) {
+  return {
+    models: runSpec(statsQueries.facetModels(filter)).map(r => r.model),
+    backends: runSpec(statsQueries.facetBackends(filter)).map(r => r.backendId),
+  };
+}
+
 module.exports = {
+  getStatsPayload,
+  getStatsFacets,
   getDailyActivity,
   getDailyMetrics,
   getDailyModelTokens,

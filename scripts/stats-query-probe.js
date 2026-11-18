@@ -20,13 +20,12 @@
 // (what `get-stats-from-db` runs) for comparison.
 //
 // Limits, so a number is not read as more than it is:
-//   - The SQL here is a measurement COPY of the planned shape, not the production query. T2 must first point `blocks`
-//     at the new `src/db/stats-queries.js` functions (or the db facade) before re-running this against the landed
-//     code; run as is, it re-measures this copy and nothing T2 wrote.
+//   - The SQL is the PRODUCTION one (src/db/stats-queries.js, landed in #877 plan step T2); the probe only chooses the
+//     filters. `payload.facade` times the whole payload through the real db facade (getStatsPayload).
 //   - Only the SQL is timed. Main's work after it is NOT measured: the cap and the "Other" line of the projects table,
 //     the top-8 fold with "Other" of the series, the worktree fold of the projects (O7), the backend fold.
 //   - The project filter is the RAW `projectPath` of one project, without the O7 worktree fold (owner path plus its
-//     worktrees as an `IN` list); a real filter binds more paths. No model filter is timed.
+//     worktrees as an `IN` list); a real filter binds more paths. The model filter is the model with the most rows.
 //   - The sessions block's last model is the session's latest model over all its rows, not narrowed to the range.
 //
 // Output carries counts and timings only, never a project name, a path or a session id.
@@ -75,167 +74,38 @@ function resolveRange(kind) {
   return { kind: 'all', from: firstDate, to, days: daysBetween(firstDate, to) + 1 };
 }
 
-// ---- the shared predicate (the planned `compose()`): date range, backend list, project list, model ----
-const BACKEND = "COALESCE(sc.backendId, 'claude')";
-const FROM = 'FROM session_metrics m JOIN session_cache sc ON sc.sessionId = m.sessionId';
-const PARENT = 'COUNT(DISTINCT CASE WHEN sc.parentSessionId IS NULL THEN m.sessionId END)';
-const COST_OK = '(m.estimatedCostUsd IS NOT NULL OR m.actualCostUsd IS NOT NULL) AND NOT (m.estimatedCostUsd = 0 AND m.actualCostUsd IS NULL)';
-
-// `projectForm`: 'subquery' is the spec's wording (IN list on a session_cache subquery), 'join' reuses the join.
-function predicate({ from, to }, filter, projectForm = 'subquery') {
-  const where = [];
-  const params = [];
-  if (from && to) { where.push('m.date BETWEEN ? AND ?'); params.push(from, to); }
-  if (filter.backend) { where.push(`${BACKEND} IN (${filter.backend.map(() => '?').join(', ')})`); params.push(...filter.backend); }
-  if (filter.project) {
-    const marks = filter.project.map(() => '?').join(', ');
-    where.push(projectForm === 'join'
-      ? `sc.projectPath IN (${marks})`
-      : `m.sessionId IN (SELECT sessionId FROM session_cache WHERE projectPath IN (${marks}))`);
-    params.push(...filter.project);
-  }
-  if (filter.model) { where.push('m.model = ?'); params.push(filter.model); }
-  return { where: where.length ? 'WHERE ' + where.join(' AND ') : '', params };
-}
-
-function bucketExpr(range) {
-  if (range.days <= 90) return 'm.date';
-  if (range.kind === 'year') return "date(m.date, '-' || ((CAST(strftime('%w', m.date) AS INTEGER) + 6) % 7) || ' days')";
-  return 'substr(m.date, 1, 7)';
-}
-const MEASURES = {
-  tokens: 'SUM(m.inputTokens + m.outputTokens)',
-  cost: `SUM(CASE WHEN ${COST_OK} THEN COALESCE(m.estimatedCostUsd, 0) + COALESCE(m.actualCostUsd, 0) END)`,
-  messages: 'SUM(m.messageCount)',
-  sessions: PARENT,
-};
-const SPLITS = { none: "''", backend: BACKEND, model: 'm.model', project: 'sc.projectPath' };
-
-// ---- the blocks. Each takes (range, filter) and returns { sql, params } ----
+// ---- the blocks: the PRODUCTION queries of src/db/stats-queries.js (T2 landed them), fed the probe's filters ----
+// Each takes (range, filter) and returns { sql, params }. `filter.project` is a list of raw paths (no worktree fold:
+// that is the caller's, see buildPredicate); `filter.backend` is a list of ids.
+const queries = require(path.join(repo, 'src', 'db', 'stats-queries.js'));
+const shared = (r, f) => ({ from: r.from, to: r.to, backend: f.backend, projects: f.project, model: f.model });
 const blocks = {
-  'key figures (+prev period)': (r, f, form) => {
-    const prevFrom = r.kind === 'all' ? r.from : addDays(r.from, -r.days);
-    const p = predicate({ from: prevFrom, to: r.to }, f, form);
-    return {
-      sql: `SELECT ${BACKEND} AS backendId, sc.costStatus AS costStatus,
-                   CASE WHEN m.date >= ? THEN 1 ELSE 0 END AS cur,
-                   ${PARENT} AS sessions, SUM(m.messageCount) AS messages, SUM(m.toolCallCount) AS tools,
-                   SUM(m.inputTokens) AS inTok, SUM(m.outputTokens) AS outTok,
-                   SUM(m.cacheReadTokens) AS cacheRead, SUM(m.cacheCreationTokens) AS cacheWrite,
-                   SUM(CASE WHEN ${COST_OK} THEN m.estimatedCostUsd END) AS est,
-                   SUM(CASE WHEN ${COST_OK} THEN m.actualCostUsd END) AS act,
-                   COUNT(DISTINCT CASE WHEN ${COST_OK} THEN m.sessionId END) AS costSessions,
-                   COUNT(DISTINCT CASE WHEN m.messageCount > 0 THEN m.date END) AS activeDays
-            ${FROM} ${p.where} GROUP BY 1, 2, 3`,
-      params: [r.from, ...p.params],
-    };
-  },
-  'projects': (r, f) => {
-    const p = predicate(r, f);
-    return {
-      sql: `SELECT sc.projectPath AS projectPath, ${PARENT} AS sessions, SUM(m.messageCount) AS messages,
-                   SUM(m.inputTokens + m.outputTokens) AS tokens,
-                   SUM(CASE WHEN ${COST_OK} THEN COALESCE(m.estimatedCostUsd, 0) + COALESCE(m.actualCostUsd, 0) END) AS cost
-            ${FROM} ${p.where} GROUP BY sc.projectPath`,
-      params: p.params,
-    };
-  },
-  'models': (r, f) => {
-    const p = predicate(r, f);
-    const where = p.where ? p.where + " AND m.model != ''" : "WHERE m.model != ''";
-    return {
-      sql: `SELECT m.model AS model, SUM(m.inputTokens) AS inTok, SUM(m.outputTokens) AS outTok,
-                   SUM(m.cacheReadTokens) AS cacheRead,
-                   SUM(CASE WHEN ${COST_OK} THEN COALESCE(m.estimatedCostUsd, 0) + COALESCE(m.actualCostUsd, 0) END) AS cost,
-                   ${PARENT} AS sessions
-            ${FROM} ${where} GROUP BY m.model`,
-      params: p.params,
-    };
-  },
-  'backends': (r, f) => {
-    const p = predicate(r, f);
-    return {
-      sql: `SELECT ${BACKEND} AS backendId, sc.costStatus AS costStatus, ${PARENT} AS sessions,
-                   SUM(m.messageCount) AS messages, SUM(m.inputTokens) AS inTok, SUM(m.outputTokens) AS outTok,
-                   SUM(m.cacheReadTokens) AS cacheRead, SUM(m.cacheCreationTokens) AS cacheWrite,
-                   SUM(CASE WHEN ${COST_OK} THEN m.estimatedCostUsd END) AS est,
-                   SUM(CASE WHEN ${COST_OK} THEN m.actualCostUsd END) AS act
-            ${FROM} ${p.where} GROUP BY 1, 2`,
-      params: p.params,
-    };
-  },
-  'sessions (top 50 by tokens)': (r, f) => {
-    const p = predicate(r, f);
-    return {
-      sql: `SELECT g.key, g.messages, g.tokens, g.cost, g.lastDate, s.aiTitle, s.projectPath, s.backendId, s.created,
-                   (SELECT m2.model FROM session_metrics m2
-                    WHERE m2.model != '' AND m2.sessionId IN
-                          (SELECT g.key UNION ALL SELECT c2.sessionId FROM session_cache c2 WHERE c2.parentSessionId = g.key)
-                    ORDER BY m2.date DESC, m2.hour DESC LIMIT 1) AS lastModel
-            FROM (SELECT COALESCE(sc.parentSessionId, m.sessionId) AS key, SUM(m.messageCount) AS messages,
-                         SUM(m.inputTokens + m.outputTokens) AS tokens, MAX(m.date) AS lastDate,
-                         SUM(CASE WHEN ${COST_OK} THEN COALESCE(m.estimatedCostUsd, 0) + COALESCE(m.actualCostUsd, 0) END) AS cost
-                  ${FROM} ${p.where} GROUP BY 1 ORDER BY tokens DESC LIMIT 50) g
-            LEFT JOIN session_cache s ON s.sessionId = g.key`,
-      params: p.params,
-    };
-  },
-  'rhythm: year heatmap': (r, f) => {
-    const p = predicate({ from: addDays(r.to, -364), to: r.to }, f);
-    return {
-      sql: `SELECT m.date AS date, SUM(m.messageCount) AS messages ${FROM} ${p.where} GROUP BY m.date`,
-      params: p.params,
-    };
-  },
-  'rhythm: weekday x hour': (r, f) => {
-    const p = predicate(r, f);
-    const where = p.where ? p.where + ' AND m.hour >= 0' : 'WHERE m.hour >= 0';
-    return {
-      sql: `SELECT CAST(strftime('%w', m.date) AS INTEGER) AS weekday, m.hour AS hour,
-                   SUM(m.messageCount) AS messages, SUM(m.inputTokens + m.outputTokens) AS tokens
-            ${FROM} ${where} GROUP BY weekday, m.hour`,
-      params: p.params,
-    };
-  },
-  'sidebar series (top 50 x <=30 pts)': (r, f) => {
-    // The sidebar list is NOT narrowed by the project filter itself (spec "The left sidebar").
-    const p = predicate(r, { ...f, project: null });
-    const size = Math.max(1, Math.ceil(r.days / 30));
-    return {
-      sql: `WITH top AS (SELECT sc.projectPath AS projectPath ${FROM} ${p.where}
-                         GROUP BY sc.projectPath ORDER BY SUM(m.inputTokens + m.outputTokens) DESC LIMIT 50)
-            SELECT sc.projectPath AS projectPath,
-                   CAST((julianday(m.date) - julianday(?)) / ? AS INTEGER) AS bucket,
-                   SUM(m.inputTokens + m.outputTokens) AS tokens
-            ${FROM} ${p.where ? p.where + ' AND' : 'WHERE'} sc.projectPath IN (SELECT projectPath FROM top)
-            GROUP BY sc.projectPath, bucket`,
-      params: [...p.params, r.from, size, ...p.params],
-    };
-  },
-  'facets: models': (r, f) => {
-    const p = predicate(r, { ...f, model: null });
-    const where = p.where ? p.where + " AND m.model != ''" : "WHERE m.model != ''";
-    return { sql: `SELECT DISTINCT m.model AS model ${FROM} ${where}`, params: p.params };
-  },
-  'facets: backends': (r, f) => {
-    const p = predicate(r, { ...f, backend: null });
-    return { sql: `SELECT DISTINCT ${BACKEND} AS backendId ${FROM} ${p.where}`, params: p.params };
-  },
+  'key figures (+prev period)': (r, f) => queries.keyFigures(shared(r, f), { prevFrom: r.kind === 'all' ? null : addDays(r.from, -r.days) }),
+  'period counts (+prev period)': (r, f) => queries.periodCounts(shared(r, f), { prevFrom: r.kind === 'all' ? null : addDays(r.from, -r.days) }),
+  'projects': (r, f) => queries.projectsTable(shared(r, f)),
+  'models': (r, f) => queries.modelsTable(shared(r, f)),
+  'backends': (r, f) => queries.backendsTable(shared(r, f)),
+  'sessions (top 50 by tokens)': (r, f) => queries.sessionsTable(shared(r, f), { by: 'tokens', limit: 50 }),
+  'rhythm: year heatmap': (r, f) => queries.rhythmDays({ ...shared(r, f), from: addDays(r.to, -364) }),
+  'rhythm: weekday x hour': (r, f) => queries.rhythmGrid(shared(r, f)),
+  'sidebar series (top 50 x <=30 pts)': (r, f) => queries.sidebarSeries(shared(r, f), { days: r.days }),
+  'facets: models': (r, f) => queries.facetModels(shared(r, f)),
+  'facets: backends': (r, f) => queries.facetBackends(shared(r, f)),
 };
 // The main series: measure x split. The page runs ONE of these per payload; all sixteen are timed.
-for (const measure of Object.keys(MEASURES)) {
-  for (const split of Object.keys(SPLITS)) {
-    blocks[`series: ${measure} x ${split}`] = (r, f) => {
-      const p = predicate(r, f);
-      const where = split === 'model' ? (p.where ? p.where + " AND m.model != ''" : "WHERE m.model != ''") : p.where;
-      return {
-        sql: `SELECT ${bucketExpr(r)} AS bucket, ${SPLITS[split]} AS key, ${MEASURES[measure]} AS value
-              ${FROM} ${where} GROUP BY 1, 2`,
-        params: p.params,
-      };
-    };
+for (const measure of ['tokens', 'cost', 'messages', 'sessions']) {
+  for (const split of ['none', 'backend', 'model', 'project']) {
+    blocks[`series: ${measure} x ${split}`] = (r, f) =>
+      queries.series(shared(r, f), { measure, split, bucket: queries.bucketKindFor(r.days) });
   }
 }
+// The request the page sends in one call (db.getStatsPayload), timed as ONE unit per cell below.
+const wholePayload = (r, f) => ({
+  filter: shared(r, f), prevFrom: r.kind === 'all' ? null : addDays(r.from, -r.days),
+  series: { measure: 'tokens', split: 'backend' },
+  sessions: { by: 'tokens', limit: 50 }, heatmap: { from: addDays(r.to, -364), to: r.to },
+});
+
 
 // ---- timing ----
 const ns2ms = (n) => Number(n) / 1e6;
@@ -264,10 +134,13 @@ const topBackend = db.prepare(
   `SELECT COALESCE(backendId, 'claude') AS v, COUNT(*) AS n FROM session_cache
    WHERE parentSessionId IS NULL GROUP BY 1 ORDER BY n DESC LIMIT 1`).get();
 
+const topModel = db.prepare("SELECT model AS v, COUNT(*) AS n FROM session_metrics WHERE model != '' GROUP BY model ORDER BY n DESC LIMIT 1").get();
+
 const FILTERS = {
   'no filter': {},
   'project filter': { project: [topProject ? topProject.v : '__none__'] },
   'backend filter': { backend: [topBackend ? topBackend.v : '__none__'] },
+  'model filter': { model: topModel ? topModel.v : '__none__' },
 };
 
 const out = {
@@ -284,7 +157,7 @@ const out = {
 };
 // What one page open runs (spec 48): the series is the default measure x split; facets are lazy and left out.
 const PAYLOAD_BLOCKS = [
-  'key figures (+prev period)', 'series: tokens x backend', 'projects', 'models', 'backends',
+  'key figures (+prev period)', 'period counts (+prev period)', 'series: tokens x backend', 'projects', 'models', 'backends',
   'sessions (top 50 by tokens)', 'rhythm: year heatmap', 'rhythm: weekday x hour', 'sidebar series (top 50 x <=30 pts)',
 ];
 for (const t of ['session_cache', 'session_metrics', 'session_meta']) {
@@ -308,13 +181,9 @@ for (const kind of ['7d', 'year', 'all']) {
       firstRunMs: PAYLOAD_BLOCKS.reduce((a, n) => a + (out.timings[key][n].cold || 0), 0),
       medianMs: PAYLOAD_BLOCKS.reduce((a, n) => a + (out.timings[key][n].median || 0), 0),
     };
-    if (filter.project) {
-      // The two ways to say "this project's sessions" in the shared predicate.
-      for (const form of ['join', 'subquery']) {
-        try { out.timings[key][`key figures [project via ${form}]`] = timeStatement(() => blocks['key figures (+prev period)'](range, filter, form)); }
-        catch (e) { out.timings[key][`key figures [project via ${form}]`] = { error: e.message }; }
-      }
-    }
+    // The same payload through the real facade (db.getStatsPayload): plan + prepare + run, the unit T4 will call.
+    const request = wholePayload(range, filter);
+    out.payload[key].facade = timeFn(() => dbFacade.getStatsPayload(request));
   }
 }
 
@@ -354,8 +223,8 @@ if (AS_JSON) {
       console.log(r.error ? `  ${bname}: ERROR ${r.error}` : `  ${bname}: ${f1(r.cold)} / ${f1(r.median)} / ${r.rows}`);
     }
   }
-  console.log('\n== PAYLOAD SUM per cell (no facets) [sum of first runs ms / sum of medians ms] ==');
-  for (const [key, p] of Object.entries(out.payload)) console.log(`  ${key}: ${f1(p.firstRunMs)} / ${f1(p.medianMs)}`);
+  console.log('\n== PAYLOAD SUM per cell (no facets) [sum of first runs ms / sum of medians ms | whole payload through db.getStatsPayload: first / median] ==');
+  for (const [key, p] of Object.entries(out.payload)) console.log(`  ${key}: ${f1(p.firstRunMs)} / ${f1(p.medianMs)} | ${f1(p.facade.cold)} / ${f1(p.facade.median)}`);
   console.log('\n== current page queries (unfiltered, all time) [cold ms / median ms] ==');
   for (const [name, r] of Object.entries(out.current)) console.log(`  ${name}: ${f1(r.cold)} / ${f1(r.median)}`);
 }
