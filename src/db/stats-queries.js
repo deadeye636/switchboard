@@ -21,7 +21,9 @@
 'use strict';
 
 const BACKEND_JOIN = 'JOIN session_cache sc ON sc.sessionId = m.sessionId';
-const BACKEND_EXPR = "COALESCE(sc.backendId, 'claude')";
+// A row indexed before #161 has a NULL backendId and was a Claude session (backends rule, answer 1): the one literal.
+const LEGACY_SESSION_BACKEND_SQL = "'claude'";
+const BACKEND_EXPR = `COALESCE(sc.backendId, ${LEGACY_SESSION_BACKEND_SQL})`;
 // A subagent belongs to its PARENT's project: a few subagent rows are stored under another projectPath, and grouping or
 // filtering on the row's own path would count one parent in two projects. Needs the `p` join (PARENT_JOIN).
 // The row's own path is used only when there is NO parent row (a parent itself, or an orphaned subagent) — never because
@@ -226,7 +228,7 @@ function totalSessions(backend) {
   }
   return {
     sql: 'SELECT COUNT(*) AS cnt FROM session_cache'
-       + " WHERE parentSessionId IS NULL AND COALESCE(backendId, 'claude') IN "
+       + ` WHERE parentSessionId IS NULL AND COALESCE(backendId, ${LEGACY_SESSION_BACKEND_SQL}) IN `
        + `(${ids.map(() => '?').join(', ')})`,
     params: ids,
   };
@@ -251,6 +253,16 @@ const COST_OK = '(m.estimatedCostUsd IS NOT NULL OR m.actualCostUsd IS NOT NULL)
 // One figure per row: the settled number where there is one, else the estimate (the rule the old page applied).
 const COST_VALUE = `SUM(CASE WHEN ${COST_OK} THEN COALESCE(m.actualCostUsd, m.estimatedCostUsd) END)`;
 const TOKENS = 'SUM(m.inputTokens + m.outputTokens)';
+// The cost of a table row as the TWO parts the caller needs to say whether it is settled (spec 48): the estimate on rows
+// WITHOUT an actual, and the actual. Whether an actual counts as settled is a backend's answer (`costSettled(status)`) per
+// backend and status, so these rows are grouped by the PARENT's backend and costStatus beside their own key: a subagent rides
+// with its parent for cost too, so one parent is never split over two groups and its session count is never added twice.
+// (A subagent row of another backend or status than its parent is filed under the parent's; measured 0 of 2 656 on a real copy.)
+const COST_BACKEND = `COALESCE(CASE WHEN p.sessionId IS NULL THEN sc.backendId ELSE p.backendId END, ${LEGACY_SESSION_BACKEND_SQL})`;
+const COST_STATUS = 'CASE WHEN p.sessionId IS NULL THEN sc.costStatus ELSE p.costStatus END';
+const COST_EST = `SUM(CASE WHEN ${COST_OK} AND m.actualCostUsd IS NULL THEN m.estimatedCostUsd END)`;
+const COST_ACT = `SUM(CASE WHEN ${COST_OK} THEN m.actualCostUsd END)`;
+const COST_PARTS = `${COST_BACKEND} AS costBackendId, ${COST_STATUS} AS costStatus, ${COST_EST} AS estimatedCostUsd, ${COST_ACT} AS actualCostUsd`;
 
 /** SELECT ... FROM joined WHERE <shared predicate> [AND extra] <tail>. `lead` params bind before the WHERE ones (a ? in the column list). */
 function selectFrom(columns, filter, { without, extra = [], tail = '', lead = [], parent = false } = {}) {
@@ -328,47 +340,55 @@ function periodCounts(filter, { prevFrom = null } = {}) {
 
 /**
  * The main chart: rows `{bucket, key, value}` for one measure (tokens, cost, messages, sessions) split by none, backend,
- * model or project and bucketed by day, week or month (bucketKindFor). Raw keys: the top-8 fold, "Other" and the
+ * model or project and bucketed by day, week or month (bucketKindFor). The cost measure also carries the cost parts
+ * (costBackendId, costStatus, estimatedCostUsd, actualCostUsd) per group, so the caller can say whether the axis is an estimate;
+ * its `value` is their sum and a bucket and key may therefore repeat over groups. Raw keys: the top-8 fold, "Other" and the
  * backend/worktree fold belong to the caller. The cost measure leaves unpriced rows out, so a bucket with no figure is
  * absent rather than 0; a model split leaves the model-less bucket out.
  */
 function series(filter, { measure = 'tokens', split = 'backend', bucket } = {}) {
   if (!bucket) throw new Error('series needs a bucket (bucketKindFor)');
   const extra = [];
-  if (measure === 'cost') extra.push(`(${COST_OK})`);
+  const cost = measure === 'cost';
+  if (cost) extra.push(`(${COST_OK})`);
   if (split === 'model') extra.push("m.model != ''");
   return selectFrom(
     `${pick(BUCKET_EXPR, bucket, 'bucket')} AS bucket, ${pick(SPLIT_EXPR, split, 'split')} AS key,
-       ${pick(MEASURE_EXPR, measure, 'measure')} AS value`,
-    filter, { extra, tail: 'GROUP BY 1, 2', parent: split === 'project' });
+       ${pick(MEASURE_EXPR, measure, 'measure')} AS value${cost ? `, ${COST_PARTS}` : ''}`,
+    filter, { extra, tail: cost ? `GROUP BY 1, 2, ${COST_BACKEND}, ${COST_STATUS}` : 'GROUP BY 1, 2', parent: split === 'project' || cost });
 }
 
-/** Per raw projectPath, a subagent under its parent's (worktrees are separate rows here; the caller folds them into the owner). */
+/**
+ * Per raw projectPath, a subagent under its parent's (worktrees are separate rows here; the caller folds them into the owner).
+ * One row per project AND cost group (costBackendId, costStatus; see COST_PARTS): the caller sums the rows of a path.
+ */
 function projectsTable(filter) {
   return selectFrom(
     `${PROJECT_EXPR} AS projectPath, ${PARENT_COUNT} AS sessions, SUM(m.messageCount) AS messages,
-       ${TOKENS} AS tokens, ${COST_VALUE} AS cost`,
-    filter, { tail: `GROUP BY ${PROJECT_EXPR}`, parent: true });
+       ${TOKENS} AS tokens, ${COST_PARTS}`,
+    filter, { tail: `GROUP BY ${PROJECT_EXPR}, ${COST_BACKEND}, ${COST_STATUS}`, parent: true });
 }
 
-/** Per model, the model-less bucket left out. */
+/** Per model, the model-less bucket left out. One row per model AND cost group (see COST_PARTS); the caller sums them. */
 function modelsTable(filter) {
   return selectFrom(
     `m.model AS model, SUM(m.inputTokens) AS inputTokens, SUM(m.outputTokens) AS outputTokens,
        SUM(m.cacheReadTokens) AS cacheReadTokens, SUM(m.cacheCreationTokens) AS cacheCreationTokens,
-       ${COST_VALUE} AS cost, ${PARENT_COUNT} AS sessions`,
-    filter, { extra: ["m.model != ''"], tail: 'GROUP BY m.model' });
+       ${PARENT_COUNT} AS sessions, ${COST_PARTS}`,
+    filter, { extra: ["m.model != ''"], tail: `GROUP BY m.model, ${COST_BACKEND}, ${COST_STATUS}`, parent: true });
 }
 
 /** Per stored backend id and cost status: the same figures as the key row, for the caller to fold per CLI. */
 function backendsTable(filter) {
   return selectFrom(
-    `${BACKEND_EXPR} AS backendId, sc.costStatus AS costStatus, ${PARENT_COUNT} AS sessions,
+    `${COST_BACKEND} AS backendId, ${COST_STATUS} AS costStatus, ${PARENT_COUNT} AS sessions,
        SUM(m.messageCount) AS messages, SUM(m.inputTokens) AS inputTokens, SUM(m.outputTokens) AS outputTokens,
        SUM(m.cacheReadTokens) AS cacheReadTokens, SUM(m.cacheCreationTokens) AS cacheCreationTokens,
        SUM(CASE WHEN ${COST_OK} AND m.actualCostUsd IS NULL THEN m.estimatedCostUsd END) AS estimatedCostUsd,
        SUM(CASE WHEN ${COST_OK} THEN m.actualCostUsd END) AS actualCostUsd`,
-    filter, { tail: 'GROUP BY 1, 2' });
+    // The PARENT's backend and status, like the other cost tables: a parent falls into exactly one group, so the
+    // fold's sum over groups counts no session twice.
+    filter, { tail: 'GROUP BY 1, 2', parent: true });
 }
 
 const SESSION_ORDER = { tokens: 'tokens', cost: 'cost', messages: 'messages' };
@@ -383,11 +403,12 @@ function sessionsTable(filter, { by = 'tokens', limit = 50 } = {}) {
   const n = Math.max(1, Math.min(500, Number(limit) | 0 || 50));
   const inner = selectFrom(
     `${SESSION_KEY} AS key, SUM(m.messageCount) AS messages,
-       ${TOKENS} AS tokens, MAX(m.date) AS lastDate, ${COST_VALUE} AS cost`,
+       ${TOKENS} AS tokens, MAX(m.date) AS lastDate, ${COST_VALUE} AS cost,
+       ${COST_EST} AS estimatedCostUsd, ${COST_ACT} AS actualCostUsd`,
     filter, { tail: `GROUP BY 1 ORDER BY ${order} IS NULL, ${order} DESC, key LIMIT ${n}` });
   return {
-    sql: `SELECT g.key AS sessionId, g.messages, g.tokens, g.cost, g.lastDate,
-       s.aiTitle, s.projectPath, s.backendId, s.created,
+    sql: `SELECT g.key AS sessionId, g.messages, g.tokens, g.cost, g.estimatedCostUsd, g.actualCostUsd, g.lastDate,
+       s.aiTitle, s.projectPath, COALESCE(s.backendId, ${LEGACY_SESSION_BACKEND_SQL}) AS backendId, s.costStatus, s.created,
        (SELECT m2.model FROM session_metrics m2
          WHERE m2.model != '' AND m2.sessionId IN
                (SELECT g.key UNION ALL SELECT c2.sessionId FROM session_cache c2 WHERE c2.parentSessionId = g.key)

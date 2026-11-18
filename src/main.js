@@ -210,6 +210,7 @@ const {
   reorderSavedVariables,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   getDailyBackendTokens, getDailyCost, getHourlyActivity,
+  getStatsPayload, getStatsFacets, getStatsFirstDate, getStatsProjectPaths,
   recordTimelineEvent, getTimelineEvents, getTimelineEventsSince, deleteTimelineForSession, rekeyTimeline,
   freeSpace, optimizeSearchIndex, needsFullVacuum, incrementalVacuum, fullVacuum, autoVacuumMode,
   closeDb,
@@ -2521,6 +2522,18 @@ spawn.registerIpc(ipcMain);
 const sessionView = require('./app/session-view');
 sessionView.init({ getOpener, setOpener, notifyRendererProjectsChanged, log });
 sessionView.registerIpc(ipcMain);
+
+// The Stats page's answer (#877, spec 48): the filter, the range, the folds and the payload. Beside the old
+// get-stats-from-db / refresh-stats above, which the old page keeps until its renderer is swapped. The worktree
+// list is refreshed before every query (the sidebar build is not guaranteed to have run first).
+const stats = require('./app/stats');
+stats.init({
+  getSetting, setSetting, log, backends, isForeignNetworkFile,
+  now: () => new Date(),
+  refreshKnownWorktrees: (paths, states) => require('./projects/known-worktree').refresh(paths, states),
+  db: { getStatsPayload, getStatsFacets, getStatsFirstDate, getStatsProjectPaths, getProjectStates, getProjectDisplayNames },
+});
+stats.registerIpc(ipcMain);
 
 
 // --- IPC: app version ---

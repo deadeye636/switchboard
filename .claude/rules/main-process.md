@@ -80,6 +80,7 @@ built in `vcs.js` beside the changes and diff windows (`openDetailsWindow`, focu
 opens in the CodeMirror diff window by row id (`session-changes-open-diff-window`), which asks the two sides through
 `session-changes-versions` -> `vcs.js` `fileVersions` with a `rev`: a SHA main resolved itself, the working copy or a later SHA
 as the new side. The range and view of a session (`session-changes-view-set`) are shared by the sidebar group and Details: `setView` tells every window that follows the session except the sender, which reads again on its own right after the write),
+`stats.js` (the Stats page's answer — #877, spec 48; `stats-get` takes the filter the renderer built (or none: the remembered one), sanitises it (unknown range, a backend that cannot launch, a project that left the list, a capped model string), resolves the range on the local clock that arrives through ctx, folds the project filter to the owner plus its worktrees (after `known-worktree.refresh`, which is not guaranteed to have run) and the backend filter to the CLI, its templates and a driver (`rowOwnerOf`), runs `db.getStatsPayload` and folds the raw rows back onto the owning CLI and project. Label, colour, icon, cache accounting and "settled" are descriptor answers: a cost is settled only when `costSettled(status)` AND an actual figure; the hit rate is `cache-accounting.js`'s pairs summed across backends. The sanitised filter is echoed and remembered under the internal key `statsFilter`; `stats-facets` is the lazy dropdown read. One `log.debug` line per call carries the elapsed ms (budget 250 ms for an unfiltered all-time payload). Names no backend, DB-free),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
 menu on a marked word; since #839 also the plain text field menu, `editable-edit-menu`, opened only when a window asks
@@ -638,6 +639,7 @@ line there, in the same commit.
 | The static check of a project's external MCP server entries (command, variables, which backends take it) | `src/app/external-mcp-check.js` |
 | The search in the official MCP Registry (one outbound GET, on the user's click) | `src/app/mcp-registry.js` |
 | A session's flow (the Flow tab): the worker read, its cancel and its status (#826) | `src/app/session-flow.js` |
+| The Stats page: its remembered filter, the range, the folds and the payload (#877) | `src/app/stats.js` |
 | A session's flow saved to a file (JSON, SVG, PDF, Mermaid): fresh read, save dialog, safe-write (#826) | `src/app/flow-export.js` |
 | The CPU and memory of a session's process tree, sampled only when the sidebar asks (#834) | `src/app/process-usage.js` |
 | What a session changed since the last review: the Changes group, Details, Clear, the timeline, a diff by row id (#870) | `src/app/session-changes.js` |

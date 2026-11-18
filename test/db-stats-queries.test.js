@@ -522,16 +522,55 @@ test('series: an unknown measure, split or bucket is an error, never a guess', (
 
 // --- tables ---------------------------------------------------------------------------------------------
 
+// Rows are one per key AND cost group: the caller sums a key's rows (null stays null when every part is null).
+function sumBy(rows, key, fields) {
+  const out = {};
+  for (const r of rows) {
+    const e = out[r[key]] || (out[r[key]] = Object.fromEntries(fields.map(f => [f, null])));
+    for (const f of fields) if (r[f] != null) e[f] = (e[f] || 0) + r[f];
+  }
+  return out;
+}
+
+test('cost parts: every table row names the backend and status its cost is settled under', () => {
+  const db = seed();
+  try {
+    const proj = run(db, q.projectsTable(RANGE)).filter(r => r.projectPath === BETA);
+    assert.deepEqual(proj.map(r => [r.costBackendId, r.costStatus, r.estimatedCostUsd, r.actualCostUsd]), [['claude', 'actual', null, 0.8]]);
+    const wt = run(db, q.projectsTable(RANGE)).find(r => r.projectPath === ALPHA_WT);
+    assert.deepEqual([wt.costBackendId, wt.costStatus, wt.estimatedCostUsd, wt.actualCostUsd], ['claude', 'estimated', 0.5, null]);
+    const models = run(db, q.modelsTable(RANGE)).filter(r => r.model === 'opus');
+    assert.equal(models.length >= 2, true, 'one row per model and cost group');
+    // a subagent rides with its parent for cost: one group, one session
+    const ses = run(db, q.sessionsTable(RANGE, { by: 'tokens', limit: 50 })).find(r => r.sessionId === 'b1');
+    assert.deepEqual([ses.backendId, ses.costStatus, ses.estimatedCostUsd, ses.actualCostUsd], ['claude', 'actual', null, 0.8]);
+    const cost = run(db, q.series(RANGE, { measure: 'cost', split: 'none', bucket: 'day' }));
+    assert.deepEqual(cost.map(r => [r.bucket, r.costBackendId, r.costStatus]).sort(),
+      [['2026-06-03', 'claude', 'estimated'], ['2026-06-08', 'claude', 'actual']]);
+  } finally { db.close(); }
+});
+
+test('sessions: a NULL backendId is the legacy default, as in every other block', () => {
+  const db = seed();
+  try {
+    const n1 = run(db, q.sessionsTable({}, { limit: 50 })).find(r => r.sessionId === 'n1');
+    if (n1) assert.equal(n1.backendId, 'claude');
+  } finally { db.close(); }
+});
+
 test('projects: raw paths, a worktree is its own row for the caller to fold', () => {
   const db = seed();
   try {
     const rows = run(db, q.projectsTable(RANGE));
-    const byPath = Object.fromEntries(rows.map(r => [r.projectPath, r]));
+    const byPath = sumBy(rows, 'projectPath', ['sessions', 'tokens', 'estimatedCostUsd', 'actualCostUsd']);
     assert.equal(byPath[ALPHA].sessions, 2, 'p1 and x1, not the subagent');
     assert.equal(byPath[ALPHA].tokens, 580);
     assert.equal(byPath[ALPHA_WT].tokens, 40);
-    assert.equal(byPath[BETA].cost, 0.8);
-    assert.equal(byPath[ALPHA].cost, null, 'no figure is null, not 0');
+    assert.equal(byPath[BETA].actualCostUsd, 0.8);
+    assert.equal(byPath[BETA].estimatedCostUsd, null, 'the estimate under an actual is not a second figure');
+    assert.equal(byPath[ALPHA].actualCostUsd, null, 'no figure is null, not 0');
+    assert.equal(byPath[ALPHA].estimatedCostUsd, null);
+    assert.equal(byPath[ALPHA_WT].estimatedCostUsd, 0.5);
   } finally { db.close(); }
 });
 
@@ -539,11 +578,13 @@ test('models: the model-less bucket is not a model, cache columns come through',
   const db = seed();
   try {
     const rows = run(db, q.modelsTable(RANGE));
-    assert.deepEqual(rows.map(r => r.model).sort(), ['gpt', 'opus']);
-    const opus = rows.find(r => r.model === 'opus');
+    assert.deepEqual([...new Set(rows.map(r => r.model))].sort(), ['gpt', 'opus']);
+    const opus = rows.filter(r => r.model === 'opus').reduce((t, r) => ({ cacheReadTokens: t.cacheReadTokens + r.cacheReadTokens }), { cacheReadTokens: 0 });
     assert.equal(opus.cacheReadTokens, 50);
-    assert.equal(opus.sessions, 3, 'p1, w1, b1');
-    assert.equal(opus.cost, 0.5 + 0.8);
+    assert.equal(sumBy(rows, 'model', ['sessions']).opus.sessions, 3, 'p1, w1, b1');
+    const cost = sumBy(rows, 'model', ['estimatedCostUsd', 'actualCostUsd']).opus;
+    assert.equal(cost.estimatedCostUsd, 0.5);
+    assert.equal(cost.actualCostUsd, 0.8);
   } finally { db.close(); }
 });
 

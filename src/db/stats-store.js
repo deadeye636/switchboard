@@ -168,7 +168,27 @@ function getStatsFacets(filter) {
   };
 }
 
+// The first day with metrics ('YYYY-MM-DD'), or null on an empty database: where the "all" range starts.
+let _firstDateStmt = null;
+function getStatsFirstDate() {
+  if (!_firstDateStmt) _firstDateStmt = db.prepare('SELECT MIN(date) AS date FROM session_metrics');
+  const row = _firstDateStmt.get();
+  return row && row.date ? row.date : null;
+}
+
+// Every distinct project path the cache holds (idx_session_cache_projectPath, no scan): what the caller folds into
+// owner projects for the project choices and the project filter's worktree members.
+let _projectPathsStmt = null;
+function getStatsProjectPaths() {
+  if (!_projectPathsStmt) {
+    _projectPathsStmt = db.prepare('SELECT DISTINCT projectPath FROM session_cache WHERE projectPath IS NOT NULL');
+  }
+  return _projectPathsStmt.all().map(r => r.projectPath);
+}
+
 module.exports = {
+  getStatsFirstDate,
+  getStatsProjectPaths,
   getStatsPayload,
   getStatsFacets,
   getDailyActivity,

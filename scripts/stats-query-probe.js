@@ -46,6 +46,22 @@ const flag = (name, dflt) => {
 const RUNS = Math.max(3, parseInt(flag('runs', '7'), 10) || 7);
 const AS_JSON = args.includes('--json');
 
+// Refuse the app's own data folders BEFORE db.js opens anything: opening runs pending migrations, which writes, and
+// --e2e writes statsFilter too. Compared on the REAL path, so a junction, a short name or a `\\?\` spelling is caught.
+{
+  const fs = require('fs');
+  const os = require('os');
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const key = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
+  const target = key(dataDir);
+  for (const own of ['.switchboard', '.switchboard-dev']) {
+    if (target === key(path.join(os.homedir(), own))) {
+      console.error(`refusing to run against the app's own data folder (${own}): opening it migrates and --e2e writes. Use a copy.`);
+      process.exit(2);
+    }
+  }
+}
+
 process.env.SWITCHBOARD_DATA_DIR = dataDir;
 const repo = path.join(__dirname, '..');
 const dbFacade = require(path.join(repo, 'src', 'db', 'db.js'));
@@ -66,6 +82,97 @@ const daysBetween = (a, b) => {
 
 const today = keyOf(new Date());
 const firstDate = (db.prepare('SELECT MIN(date) AS d FROM session_metrics').get() || {}).d || today;
+
+const ns2ms = (n) => Number(n) / 1e6;
+const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+
+// ---- --e2e: the whole `stats.getStats` call (src/app/stats.js), not only the SQL ----
+// Drives the module with a ctx built the way src/main.js builds it: the real db facade, the real backend registry (profiles
+// stubbed: they need Electron's userData), the real settings table and the real worktree knowledge, under a fixed clock
+// (noon of the newest metrics day, so `7d` has data on an old copy). It WRITES `statsFilter` into <dataDir>, so it refuses
+// the app's own data folders: aim it at a copy or an empty directory. Prints counts and milliseconds only.
+//
+//   ELECTRON_RUN_AS_NODE=1 electron scripts/stats-query-probe.js <dataDir> --e2e [--runs=<n>]
+if (args.includes('--e2e')) {
+  // The app's own data folders were refused above, before the database opened.
+  const stats = require(path.join(repo, 'src', 'app', 'stats.js'));
+  const backends = require(path.join(repo, 'src', 'backends'));
+  const { isForeignNetworkPath } = require(path.join(repo, 'src', 'app', 'network-path.js'));
+  backends.init({ getGlobalSettings: () => dbFacade.getSetting('global') || {}, profiles: { list: () => [] } });
+  require(path.join(repo, 'src', 'projects', 'known-worktree.js')).init({
+    db: { getKnownWorktrees: dbFacade.getKnownWorktrees, recordKnownWorktree: dbFacade.recordKnownWorktree, forgetKnownWorktree: dbFacade.forgetKnownWorktree },
+    log: { info() {}, debug() {}, warn() {}, error() {} },
+  });
+  const newest = (db.prepare('SELECT MAX(date) AS d FROM session_metrics').get() || {}).d || today;
+  const [ny, nm, nd] = newest.split('-').map(Number);
+  const knownProjects = () => { const out = []; for (const [p, s] of dbFacade.getProjectStates()) if (!(s && s.removedAt)) out.push(p); return out; };
+  // Every ctx call is timed, so a slow call can be split into the database's share and the module's own (`split`).
+  const spent = {};
+  const timed = (name, fn) => (...a) => {
+    const t = process.hrtime.bigint();
+    try { return fn(...a); } finally { spent[name] = (spent[name] || 0) + ns2ms(process.hrtime.bigint() - t); }
+  };
+  const listOf = backends.list;
+  const timedBackends = Object.assign(Object.create(backends), { list: timed('backends.list', listOf), rowOwnerOf: backends.rowOwnerOf });
+  stats.init({
+    getSetting: dbFacade.getSetting, setSetting: dbFacade.setSetting, backends: timedBackends,
+    log: { info() {}, warn() {}, error() {}, debug() {} },
+    now: () => new Date(ny, nm - 1, nd, 12, 0, 0),
+    isForeignNetworkFile: timed('isForeignNetworkFile', (p) => isForeignNetworkPath(p, knownProjects())),
+    refreshKnownWorktrees: timed('known-worktree.refresh', (paths, states) => require(path.join(repo, 'src', 'projects', 'known-worktree.js')).refresh(paths, states)),
+    db: {
+      getStatsPayload: timed('db.getStatsPayload', dbFacade.getStatsPayload), getStatsFacets: dbFacade.getStatsFacets,
+      getStatsFirstDate: timed('db.getStatsFirstDate', dbFacade.getStatsFirstDate),
+      getStatsProjectPaths: timed('db.getStatsProjectPaths', dbFacade.getStatsProjectPaths),
+      getProjectStates: timed('db.getProjectStates', dbFacade.getProjectStates),
+      getProjectDisplayNames: timed('db.getProjectDisplayNames', dbFacade.getProjectDisplayNames),
+    },
+  });
+  const t0 = process.hrtime.bigint();
+  backends.list();                                   // the registry's first answer probes PATH once; the app has it warm
+  const registryWarmMs = ns2ms(process.hrtime.bigint() - t0);
+  const topProject = (db.prepare('SELECT projectPath AS p FROM session_cache WHERE parentSessionId IS NULL AND projectPath IS NOT NULL GROUP BY projectPath ORDER BY COUNT(*) DESC LIMIT 1').get() || {}).p || null;
+  const topBackend = (db.prepare("SELECT COALESCE(backendId, 'claude') AS b FROM session_cache GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 1").get() || {}).b || null;
+  const rows = [];
+  for (const kind of ['7d', 'year', 'all']) {
+    for (const [fname, extra] of [['none', {}], ['project', { project: topProject }], ['backend', { backend: topBackend }]]) {
+      if (fname !== 'none' && !extra.project && !extra.backend) continue;
+      const filter = { v: 1, range: { kind }, backend: null, project: null, model: null, ...extra };
+      let first = null;
+      const warm = [];
+      let echo = null;
+      let split = null;
+      let firstSplit = null;
+      for (let i = 0; i <= RUNS; i++) {
+        for (const k of Object.keys(spent)) delete spent[k];
+        const t = process.hrtime.bigint();
+        const res = stats.getStats(filter, { measure: 'tokens', split: 'backend' });
+        const ms = ns2ms(process.hrtime.bigint() - t);
+        if (!res.ok) { console.error(`getStats failed for ${kind}/${fname}: ${res.error}`); process.exit(1); }
+        echo = res.filter;
+        if (i === 0) first = ms; else warm.push(ms);
+        // the split of the last call: the module's own work is the call minus the timed ctx calls
+        split = { ...spent, 'module (folds, knowledge)': ms - Object.values(spent).reduce((a, b) => a + b, 0) };
+        if (i === 0) firstSplit = split;
+      }
+      rows.push({ range: kind, filter: fname, kept: fname === 'none' ? true : !!(echo.project || echo.backend), firstMs: first, medianMs: median(warm), split, firstSplit });
+    }
+  }
+  const empty = stats.getStats({ v: 1, range: { kind: 'all' } });
+  const result = { today: newest, runs: RUNS, registryWarmMs, emptyOk: empty.ok, rows };
+  dbFacade.closeDb();
+  if (AS_JSON) console.log(JSON.stringify(result, null, 2));
+  else {
+    const f1 = (n) => (n >= 100 ? n.toFixed(0) : n.toFixed(1));
+    console.log(`e2e runs=${RUNS} newest=${newest} registry first list() ${f1(registryWarmMs)} ms, all-time ok=${empty.ok}`);
+    for (const r of rows) {
+      console.log(`  ${r.range} ${r.filter}${r.kept ? '' : ' (FILTER DROPPED)'}: first ${f1(r.firstMs)} ms, median ${f1(r.medianMs)} ms`);
+      console.log('      first call split: ' + Object.entries(r.firstSplit).map(([k, v]) => `${k} ${f1(v)}`).join(', '));
+      console.log('      last call split: ' + Object.entries(r.split).map(([k, v]) => `${k} ${f1(v)}`).join(', '));
+    }
+  }
+  process.exit(0);
+}
 
 function resolveRange(kind) {
   const to = today;
@@ -108,8 +215,6 @@ const wholePayload = (r, f) => ({
 
 
 // ---- timing ----
-const ns2ms = (n) => Number(n) / 1e6;
-const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
 
 function timeStatement(build) {
   const { sql, params } = build();

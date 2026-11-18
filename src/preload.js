@@ -50,6 +50,10 @@ contextBridge.exposeInMainWorld('api', {
   getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
   refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),
   getUsage: () => ipcRenderer.invoke('get-usage'),
+  // #877: the redesigned Stats page. `getStats(filter, view)` takes the filter (null = the remembered one) and answers
+  // { ok, filter (sanitised echo, remembered), view, payload }; `getStatsFacets(filter)` the filter bar's choices, read lazily.
+  getStats: (filter, view) => ipcRenderer.invoke('stats-get', filter, view),
+  getStatsFacets: (filter) => ipcRenderer.invoke('stats-facets', filter),
   // #450: what pointing a project's CLIs at its plans directory would write, and writing it.
   planConventionPreview: (projectPath, options) => ipcRenderer.invoke('plan-convention-preview', projectPath, options),
   planConventionApply: (projectPath, options) => ipcRenderer.invoke('plan-convention-apply', projectPath, options),

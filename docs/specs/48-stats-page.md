@@ -344,6 +344,31 @@ accumulation: it draws what the payload holds.
 3. Breakdown tabs with drill-down, the session table, the left sidebar, Rhythm, the limits strip.
 4. Export; then the #809 roll-up columns; V11 last.
 
+## As built: T4a (the main-process half, #877)
+
+`src/app/stats.js` answers the new page beside the old handlers (`stats-get`, `stats-facets`); the renderer is not swapped yet.
+What is easy to miss:
+
+- **One call, one echo.** `stats-get` sanitises the filter, remembers it under the internal key `statsFilter` only when it changed,
+  resolves the range on the local clock that arrives through ctx and folds before the SQL: the project to its owner plus worktree
+  paths (after `known-worktree.refresh`), the backend to the CLI, its templates and a GUI driver (`rowOwnerOf`).
+- **A project value is matched lexically first.** It is capped (4096 characters), then looked up as the exact spelling the page
+  knows, then refused when it is a network path no known project is on (`isForeignNetworkFile`, #780), and only then asked of
+  `pathKey` (real paths). Display names are looked up by exact string and then by path key; the register's spelling names a project.
+- **A stored backend id the registry no longer lists** (a deleted template) shares one bucket, "Removed backend or template": its
+  base is unknowable once the template is gone. A NULL `backendId` is the legacy default everywhere, in the Sessions table too.
+- **Table cost is parts, not one figure.** Projects, models and the cost series return the estimate on rows without an actual and the
+  actual, grouped by the PARENT's backend and cost status (a subagent rides with its parent for cost, so a parent is never split
+  over two groups). `costFold` calls the backend's `costSettled(status)` per group and a figure is settled only with an actual too;
+  a fully settled row is not an estimate. The Sessions table carries the parts of its one parent row.
+- **The sidebar's top 50 is ranked on the RAW `projectPath` before the worktree fold**, so a project whose tokens are split over many
+  worktrees can fall out of the 50 although its folded total would rank. Accepted limit, not fixed.
+- **Timing, end to end** (`scripts/stats-query-probe.js <copy> --e2e`, real db, real registry, real settings, fixed clock, copy of a
+  real database of about 3 000 sessions): unfiltered all-time about 190 to 205 ms warm, `year` about 195 to 215 ms, 7 days about 55 to
+  65 ms, project filter 40 to 90 ms; the module's own work (knowledge, folds) is about 1 ms. The first call after start can take about
+  1 s when `known-worktree.refresh` has not run before (it reads each path's `.git` once); the sidebar build normally runs it first.
+  Budget (O4): 250 ms.
+
 ## Open points (owner)
 
 - [x] **O1.** Time range of the year heatmap. V1 says one range applies to every block; a heatmap of 7 days is useless as a

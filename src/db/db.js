@@ -205,6 +205,8 @@ module.exports = {
   getHourlyActivity: statsStore.getHourlyActivity,
   getStatsPayload: statsStore.getStatsPayload,
   getStatsFacets: statsStore.getStatsFacets,
+  getStatsFirstDate: statsStore.getStatsFirstDate,
+  getStatsProjectPaths: statsStore.getStatsProjectPaths,
   // --- keeping the file from drifting upward (compact.js, #430) ---
   freeSpace: compact.freeSpace,
   optimizeSearchIndex: compact.optimizeSearchIndex,
