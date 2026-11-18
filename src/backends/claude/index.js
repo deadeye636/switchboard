@@ -1221,6 +1221,10 @@ description:
   // note explaining which half is missing; `src/backends/capabilities.js` holds the catalog.
   // Spec 47 (#870): the parser reads the session's edits, commits and pushes into `row.changes` (`./change-events.js`).
   reportsChanges: true,
+  // Spec 48 (#877): measured (T1) input 4 against cache read 39 289, so the cache is reported apart. Claude's parser writes no
+  // `costStatus`, so no status is settled and a cost is an estimate.
+  cacheAccounting: 'additive',
+  costSettled: () => false,
   capabilities: {
     fork: 'yes',
     deleteSessions: 'yes',

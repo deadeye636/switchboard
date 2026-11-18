@@ -380,6 +380,28 @@ test('every backend answers reportsChanges, and the sessionChanges row agrees', 
   }
 });
 
+// Spec 48 (#877): every backend states what its stored input means next to its cache counts (`cacheAccounting`: additive,
+// included, none, or null for a decline) and which cost statuses are settled (`costSettled`). Pinned per backend from the T1
+// measurement; a driver gives its owner's answer. Not a blanket assertion, so moving one backend fails by name.
+const CACHE_ACCOUNTING_PINNED = { claude: 'additive', 'claude-native': 'additive', codex: 'included', pi: 'additive', 'pi-native': 'additive', hermes: 'additive', agy: 'none' };
+// What each parser writes into `session_cache.costStatus`: Claude, Codex and agy nothing; Pi 'estimated' or nothing; Hermes the store's own word.
+const SETTLED_PINNED = {
+  claude: [], 'claude-native': [], codex: [], pi: [], 'pi-native': [], agy: [],
+  hermes: ['actual', 'settled', 'final', 'confirmed', 'billed'],
+};
+test('every backend declares cacheAccounting and costSettled, pinned per backend', () => {
+  const { CACHE_ACCOUNTING } = require('../src/backends/cache-accounting');
+  assert.deepEqual(Object.fromEntries(READY.map(b => [b.id, b.cacheAccounting])), CACHE_ACCOUNTING_PINNED);
+  const WORDS = ['actual', 'settled', 'final', 'confirmed', 'billed', 'estimated', 'pending', 'n/a', 'ACTUAL', '', null, undefined, 'unknown'];
+  for (const b of READY) {
+    assert.ok(Object.prototype.hasOwnProperty.call(b, 'cacheAccounting'), `${b.id} must declare cacheAccounting (null to decline)`);
+    assert.ok(b.cacheAccounting === null || CACHE_ACCOUNTING.includes(b.cacheAccounting), `${b.id}.cacheAccounting must be one of ${CACHE_ACCOUNTING.join('/')} or null`);
+    assert.equal(typeof b.costSettled, 'function', `${b.id} must declare costSettled (() => false when no status is settled)`);
+    const settled = WORDS.filter(w => b.costSettled(w) === true).map(w => String(w).toLowerCase());
+    assert.deepEqual([...new Set(settled)].sort(), [...SETTLED_PINNED[b.id]].sort(), `${b.id}: settled statuses`);
+  }
+});
+
 // `idleMaintenance` is in NOT_INHERITED (test/template-descriptor-shape.test.js) because a template cannot run on a pipe driver.
 // That holds through `BASE_IDS` in src/backends/profiles.js; widening it would make a template a pipe session that declares
 // the capability row without the hook, so forward the hook or decline the row when this fails.

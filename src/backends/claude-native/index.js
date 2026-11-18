@@ -385,6 +385,9 @@ module.exports = {
   sharedResources: null,
   // Spec 47 (#870): the transcript is Claude's and its parser reads the changes, through the owner.
   reportsChanges: claude.reportsChanges,
+  // Spec 48 (#877): the transcript and its figures are Claude's.
+  cacheAccounting: claude.cacheAccounting,
+  costSettled: claude.costSettled,
   capabilities,
   configFields,
   buildLaunch,

@@ -278,6 +278,9 @@ module.exports = {
   caveat: pi.caveat,
   // Spec 47 (#870): the transcript is Pi's; what Pi's parser answers is this driver's answer.
   reportsChanges: pi.reportsChanges,
+  // Spec 48 (#877): the transcript and its figures are Pi's.
+  cacheAccounting: pi.cacheAccounting,
+  costSettled: pi.costSettled,
   capabilities,
   configFields,
   buildLaunch,

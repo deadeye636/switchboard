@@ -256,6 +256,9 @@ function profileToDescriptor(p) {
     ...(base && typeof base.readSessionFlow === 'function' ? { readSessionFlow: base.readSessionFlow } : {}),
     // Spec 47 (#870): the transcript is the base's, so is what its parser reads of it.
     reportsChanges: base ? base.reportsChanges === true : false,
+    // Spec 48 (#877): a template's rows are the base's, in the base's format, so the figures mean what the base's mean.
+    cacheAccounting: base ? base.cacheAccounting : null,
+    costSettled: base && typeof base.costSettled === 'function' ? base.costSettled : () => false,
     providesMcpInjection: base ? base.providesMcpInjection === true : false,
     ...(base && typeof base.buildMcpInjection === 'function' ? { buildMcpInjection: base.buildMcpInjection } : {}),
     ...(base && typeof base.releaseMcpInjection === 'function' ? { releaseMcpInjection: base.releaseMcpInjection } : {}),

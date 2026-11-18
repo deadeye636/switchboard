@@ -384,6 +384,11 @@ module.exports = {
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   // Spec 47 (#870): declines, the signal could not be verified in its store (docs/backend-formats.md, File edits, commits and pushes).
   reportsChanges: false,
+  // Spec 48 (#877): measured (T1) Hermes' own normaliser keeps the cache apart from input. `costStatus` is the store's
+  // `cost_status` verbatim (reader.js), whose enum is undocumented: only these words count as settled, anything else is an estimate.
+  // This is the list that used to sit in the renderer (`SETTLED_COST_STATUS`).
+  cacheAccounting: 'additive',
+  costSettled: (status) => ['actual', 'settled', 'final', 'confirmed', 'billed'].includes(String(status || '').toLowerCase()),
   capabilities: {
     fork: { state: 'no', note: 'no confirmed fork flag' },
     deleteSessions: { state: 'no', note: 'its history is in a database Switchboard may only read' },

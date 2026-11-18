@@ -123,7 +123,7 @@ registry, so no backend id or vocabulary enters SQL or the renderer (reflex 5):
 - **Label and colour** come from the registry projection the renderer already reads; the page names no backend.
 - **Cost settled or not** is decided by a descriptor answer, not by the renderer's `SETTLED_COST_STATUS` list (that list
   holds Hermes' vocabulary in a renderer file and is moved behind the descriptor as part of this work; the default
-  stays "estimated").
+  stays "estimated"). Built in T3 as the descriptor hook `costSettled(status) -> boolean`; only Hermes answers true for any status (Claude, Codex and agy write no `costStatus`, Pi writes `estimated`).
 - **Cache accounting** (below).
 
 ### Aggregates per block
@@ -166,7 +166,7 @@ backend**: Claude and Pi store input apart from the cache counts, Codex's `input
 `cached_input_tokens` (the parser takes it as a cache READ only; no creation concept). So a single formula in SQL or
 in the renderer would be wrong for one of them, and the answer belongs to the backend:
 
-- A **neutral descriptor answer** (planned name `cacheAccounting`) with three states: `additive` (input excludes the
+- A **neutral descriptor answer** `cacheAccounting` (built in T3; the one formula is `src/backends/cache-accounting.js`, `cacheHit`) with three states: `additive` (input excludes the
   cache; rate = read / (input + read + write)), `included` (input includes the cached part; rate = read / input) and
   `none` (the backend reports no cache; Antigravity writes no metrics rows, totals 0). A backend that was not measured **declines** and
   `test/backend-parity.test.js` makes it say so, the shape used for `openedWithCommand` (renderer.md).

@@ -327,6 +327,9 @@ module.exports = {
   // protobuf blob, so an agy update could make an extractor under-report silently (docs/backend-formats.md, File edits,
   // commits and pushes; spec 47 section 2).
   reportsChanges: false,
+  // Spec 48 (#877): no token or cache usage found in the store (T1), the parser writes totals of 0 and no `costStatus`.
+  cacheAccounting: 'none',
+  costSettled: () => false,
   capabilities: {
     fork: { state: 'no', note: 'no confirmed fork flag' },
     deleteSessions: 'yes',

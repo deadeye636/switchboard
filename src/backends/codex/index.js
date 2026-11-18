@@ -345,6 +345,9 @@ description:
   // Spec 47 (#870): `limited`, read from the rollout by the parser (`./change-events.js`): edits from apply-patch text only,
   // commits and pushes from one-command scripts only.
   reportsChanges: true,
+  // Spec 48 (#877): measured (T1) `cached_input_tokens` is a subset of `input_tokens`. The parser writes no `costStatus`.
+  cacheAccounting: 'included',
+  costSettled: () => false,
   capabilities: {
     fork: { state: 'limited', note: 'only after its first reply — Codex names its own sessions' },
     deleteSessions: 'yes',

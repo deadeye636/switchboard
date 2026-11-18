@@ -612,6 +612,10 @@ module.exports = {
   // Spec 47 (#870): read from the transcript by the parser (`./change-events.js`), every line and not the visible branch (the
   // transcript is a tree). pi-native forwards this through its owner.
   reportsChanges: true,
+  // Spec 48 (#877): measured (T1) `totalTokens` = input + output + cacheRead + cacheWrite. The parser writes `costStatus: 'estimated'`
+  // when a cost exists (parser.js), never a settled one. pi-native forwards both through its owner.
+  cacheAccounting: 'additive',
+  costSettled: () => false,
   capabilities: {
     fork: { state: 'limited', note: 'only after its first reply — Pi names its own sessions' },
     deleteSessions: 'yes',
