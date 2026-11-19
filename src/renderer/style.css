@@ -4934,6 +4934,8 @@ html body .terminal-container.conversation-container:not(.visible) {
 .stats-limits-pop .usage-grid { max-width: none; }
 .heatmap-cell[data-date] { cursor: pointer; }
 .heatmap-cell.is-outside { visibility: hidden; }
+/* The global [role="button"] ring, tightened to the cell's 3 px gap so it reads on the dark page without touching its neighbours. */
+.heatmap-cell[role="button"]:focus-visible { outline-offset: 1px; z-index: 1; }
 .settings-action-btn.stats-rhythm-toggle { padding: 4px 10px; font-size: 13px; }
 .stats-block .hour-grid { max-width: none; }
 

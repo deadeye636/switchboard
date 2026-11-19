@@ -301,6 +301,26 @@ payload. A request already in flight was cloned over IPC with the old fold and m
 that day through `applyFilter({ rangeSpec })`, the same path a chart bar uses. The hour grid is the payload's `grid`, which main
 already cuts to the range with hour -1 left out.
 
+Weeks start Monday (O8, applied to both grids; the chart's week bucket already did). Heatmap: each column is Monday to Sunday,
+rows top to bottom Mon..Sun, day labels Mon, Wed, Fri on rows 0, 2, 4, month labels keyed on the Monday that starts a column;
+the last column ends at the range end (later cells are not drawn), cells before `heatmap.from` stay `is-outside`. Hour grid:
+rows Mon..Sun, re-mapped in the renderer (row r is the payload weekday `(r + 1) % 7`); the SQL and payload are unchanged.
+
+Keyboard (heatmap): one tab stop (roving `tabindex`, initially the range-end day, which is also the day of a single-day range).
+The grid is a `role="group"` with an `aria-label`; each in-window cell is `role="button"` with an `aria-label` equal to its
+title ("Nov 11, 2026: 24 messages"). Keys are handled on the grid element, never on `document`. The arrows are spatial, matching
+the drawn layout (columns are weeks, rows are weekdays): Up/Down = previous/next day by date, so the last row wraps into the
+neighbouring column (Down on a Sunday goes to the next Monday), Left/Right = 7 days back/on (the neighbouring column, same
+weekday), PageUp/PageDown = 4 weeks back/on, Home/End = first/last day in the window. A step that would pass either end
+clamps to the first or last in-window day (so Right from the last partial column lands on the last day, not on a weekday
+that is not drawn), and movement never lands on an outside cell (`statsHeatmapKeyTarget`). Enter and Space apply the day exactly like a click (`statsHeatmapApplyDay`: same
+`statsDaySpan` and `applyFilter` path, skipped when the range already is that day); the handler takes both keys itself. After the
+redraw, focus goes back to that date's cell when it is drawn. The refocus is tied to the request the heatmap started
+(`{ date, gen }` in `statsHeatmapRefocus`): only the answer to exactly that request may use it; any other request, an error and
+an empty page clear it, and focus must have been on the heatmap or nowhere when the draw began (`statsHeatmapTakeRefocus`,
+read before anything is replaced), so a user who moved to the filter bar keeps their place. The
+focus ring is the global `[role="button"]:focus-visible` outline.
+
 ### Rate limits (V8)
 
 They leave the page body. A compact strip at the right of the filter bar shows one chip per backend that reports a
@@ -420,7 +440,7 @@ What is easy to miss:
   sidebar already treat a worktree. **Decided (owner, 2026-11-13): owner project plus its worktrees.**
 - [x] **O8.** The week boundary for the year view (Monday, as proposed, or the user's locale) and whether the year view's
   last bucket is shown partial. **Decided (owner, 2026-11-13): weeks start on Monday.** The partial last bucket is left
-  to the plan.
+  to the plan. Applied to the chart's week bucket, the heatmap and the hour grid (see Rhythm V6).
 - [x] **O9.** Charting: hand-drawn SVG or a library. The renderer has no chart library today (vanilla JS, no framework; third
   party code enters only through `scripts/bundle.js`); the existing charts are hand-built DOM and SVG in
   `src/renderer/views/stats-view.js`. The new needs are one time series (stacked bars with a split, a y-axis, a unit, a

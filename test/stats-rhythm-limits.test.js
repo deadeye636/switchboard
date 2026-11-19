@@ -283,3 +283,199 @@ test('heatmap cells before the window main sent are outside it: blank and not cl
   assert.ok(outside.every(c => !c.dataset.date && !c.title));
   assert.equal(w.document.querySelector('.heatmap-cell:not(.is-outside)').dataset.date, '2025-11-19');
 });
+
+// --- Monday-first weeks and the keyboard (#877, spec 48 O8) -----------------------------------------------------------------
+
+async function drawn(extra) {
+  const asked = [];
+  const w = setup({
+    getStats: async (f) => { asked.push(f); return { ok: true, filter: FILTER, view: {}, payload: { ...payload(), ...(extra || {}) } }; },
+    getStatsFacets: async () => FACETS,
+    getUsage: async () => ({ backends: [] }),
+    setStatsRhythm: async () => {},
+  });
+  await w.loadStats();
+  await tick();
+  return { w, asked };
+}
+const key = (w, el, k, init) => el.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...(init || {}) }));
+
+test('heatmap weeks run Monday to Sunday: first column starts on a Monday, labels sit on rows 0/2/4, the last column ends at the range end', async () => {
+  const { w } = await drawn();
+  const doc = w.document;
+  const cells = [...doc.querySelectorAll('.heatmap-cell')];
+  assert.equal(cells.length % 7, 3, 'the range end 2026-11-18 is a Wednesday: the last column holds Mon, Tue, Wed');
+  assert.equal(cells[cells.length - 1].dataset.date, '2026-11-18');
+  assert.equal(cells[cells.length - 3].dataset.date, '2026-11-16', 'the last column starts on a Monday');
+  assert.equal(new Date(2026, 10, 16).getDay(), 1);
+  // row 0 of every column is a Monday: the two cells before the window (2025-11-17 and -18) are outside, so the first drawn day is the 19th
+  assert.equal(cells[0].classList.contains('is-outside'), true);
+  assert.equal(cells[2].dataset.date, '2025-11-19');
+  assert.deepEqual([...doc.querySelectorAll('.heatmap-day-label')].map(l => l.textContent), ['Mon', '', 'Wed', '', 'Fri', '', '']);
+  const months = [...doc.querySelectorAll('.heatmap-month-label')];
+  assert.equal(months[0].textContent, 'Nov');
+  assert.equal(months[1].textContent, 'Dec', 'Dec starts on the column whose Monday is 2025-12-01');
+  assert.equal(months[1].style.left, '32px', 'keyed on the Monday that starts column 2');
+});
+
+test('hour grid rows run Monday to Sunday: Sunday data lands in the last row', async () => {
+  const { w } = await drawn({ grid: [{ weekday: 0, hour: 5, messages: 7, tokens: 1 }, { weekday: 1, hour: 9, messages: 4, tokens: 1 }] });
+  const doc = w.document;
+  assert.deepEqual([...doc.querySelectorAll('.hour-grid-day-label')].map(l => l.textContent), ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+  const cells = [...doc.querySelectorAll('.hour-grid-cell')];
+  assert.equal(cells.length, 7 * 24);
+  const lit = cells.map((c, i) => [i, c]).filter(([, c]) => !c.classList.contains('heatmap-level-0')).map(([i]) => i);
+  assert.deepEqual(lit, [0 * 24 + 9, 6 * 24 + 5]);
+  assert.match(cells[6 * 24 + 5].title, /^Sun 05:00/);
+});
+
+test('statsHeatmapKeyTarget: Up/Down step a day, Left/Right a week, PageUp/PageDown four weeks, Home/End the edges; clamped; other keys are not owned', () => {
+  const w = setup({});
+  const t = (k, i, n) => w.statsHeatmapKeyTarget(k, i, n);
+  assert.equal(t('ArrowUp', 15, 100), 14);
+  assert.equal(t('ArrowDown', 15, 100), 16);
+  assert.equal(t('ArrowLeft', 15, 100), 8);
+  assert.equal(t('ArrowRight', 15, 100), 22);
+  assert.equal(t('PageUp', 50, 100), 22);
+  assert.equal(t('PageDown', 50, 100), 78);
+  assert.equal(t('ArrowUp', 0, 10), 0);
+  assert.equal(t('ArrowDown', 9, 10), 9);
+  assert.equal(t('ArrowLeft', 3, 10), 0, 'a week back past the start clamps to the first in-window day');
+  assert.equal(t('ArrowRight', 6, 10), 9, 'a week on past the end clamps to the last day');
+  assert.equal(t('PageUp', 3, 30), 0);
+  assert.equal(t('PageDown', 27, 30), 29);
+  assert.equal(t('Home', 5, 10), 0);
+  assert.equal(t('End', 5, 10), 9);
+  assert.equal(t('a', 5, 10), null);
+  assert.equal(t('Tab', 5, 10), null);
+  assert.equal(t('ArrowLeft', -1, 10), null);
+  assert.equal(t('ArrowLeft', 0, 0), null);
+});
+
+test('heatmap roving tabindex: one tab stop on the range end, arrows move it and never onto an outside cell', async () => {
+  const { w } = await drawn();
+  const doc = w.document;
+  const stops = () => [...doc.querySelectorAll('.heatmap-cell[tabindex="0"]')];
+  assert.equal(stops().length, 1);
+  assert.equal(stops()[0].dataset.date, '2026-11-18');
+  assert.equal(doc.querySelectorAll('.heatmap-cell.is-outside[tabindex]').length, 0, 'outside cells are not focusable');
+  assert.equal(doc.querySelector('.heatmap-cell[data-date="2026-11-17"]').getAttribute('aria-label'), 'Nov 17, 2026: 3 messages');
+
+  key(w, stops()[0], 'ArrowUp');
+  assert.equal(doc.activeElement.dataset.date, '2026-11-17');
+  assert.equal(stops().length, 1);
+  assert.equal(stops()[0].dataset.date, '2026-11-17');
+  key(w, doc.activeElement, 'Home');
+  assert.equal(doc.activeElement.dataset.date, '2025-11-19', 'the first day in the window, not the outside cells before it');
+  key(w, doc.activeElement, 'ArrowLeft');
+  assert.equal(doc.activeElement.dataset.date, '2025-11-19');
+  key(w, doc.activeElement, 'ArrowRight');
+  assert.equal(doc.activeElement.dataset.date, '2025-11-26', 'a week on: same weekday, next column');
+  key(w, doc.activeElement, 'PageDown');
+  assert.equal(doc.activeElement.dataset.date, '2025-12-24');
+  key(w, doc.activeElement, 'End');
+  assert.equal(doc.activeElement.dataset.date, '2026-11-18');
+  key(w, doc.activeElement, 'ArrowRight');
+  assert.equal(doc.activeElement.dataset.date, '2026-11-18', 'a week past the end clamps to the last day');
+  assert.equal(stops().length, 1);
+  const ev = new w.KeyboardEvent('keydown', { key: 'x', bubbles: true, cancelable: true });
+  doc.activeElement.dispatchEvent(ev);
+  assert.equal(ev.defaultPrevented, false);
+});
+
+test('Enter and Space apply the day like a click, skip a range that already is that day, and focus returns to the cell after the redraw', async () => {
+  const { w, asked } = await drawn();
+  const doc = w.document;
+  const cell = () => doc.querySelector('.heatmap-cell[data-date="2026-11-17"]');
+  cell().focus();
+  key(w, cell(), 'Enter');
+  await tick();
+  assert.equal(asked.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(asked[1].range)), { kind: 'day', from: '2026-11-17', to: '2026-11-17' });
+  assert.equal(doc.activeElement.dataset.date, '2026-11-17', 'the redraw gave the focus back to the same day');
+  assert.equal(doc.activeElement.tabIndex, 0);
+
+  key(w, doc.activeElement, ' ');
+  await tick();
+  assert.equal(asked.length, 3, 'Space applies the day too');
+
+  // a page that already shows that day: applying it again asks nothing
+  const same = await drawn({ range: { kind: 'day', from: '2026-11-17', to: '2026-11-17', days: 1, prevFrom: null, prevTo: null, includesToday: false } });
+  const c = same.w.document.querySelector('.heatmap-cell[data-date="2026-11-17"]');
+  key(same.w, c, 'Enter');
+  await tick();
+  assert.equal(same.asked.length, 1);
+});
+
+// --- the refocus belongs to the request the heatmap started ------------------------------------------------------------------
+
+function scripted(answers) {
+  const asked = [];
+  const w = setup({
+    getStats: (f) => { asked.push(f); const a = answers[asked.length - 1]; return a ? a() : Promise.resolve({ ok: true, filter: FILTER, view: {}, payload: payload() }); },
+    getStatsFacets: async () => FACETS,
+    getUsage: async () => ({ backends: [] }),
+    setStatsRhythm: async () => {},
+  });
+  return { w, asked };
+}
+const okAnswer = (extra) => () => Promise.resolve({ ok: true, filter: FILTER, view: {}, payload: { ...payload(), ...(extra || {}) } });
+const onHeatmapCell = (w) => !!(w.document.activeElement && w.document.activeElement.classList && w.document.activeElement.classList.contains('heatmap-cell'));
+
+test('refocus (a): a second request from the bar before the first answer leaves focus alone', async () => {
+  let releaseFirst;
+  const { w, asked } = scripted([okAnswer(), () => new Promise(r => { releaseFirst = r; }), okAnswer()]);
+  await w.loadStats();
+  await tick();
+  const doc = w.document;
+  const cell = doc.querySelector('.heatmap-cell[data-date="2026-11-17"]');
+  cell.focus();
+  key(w, cell, 'Enter');                      // request 2 (the day), answer pending
+  const second = w.applyFilter({ range: '7d' }); // request 3 from the bar, before the first answer
+  doc.querySelector('#stats-viewer-body').focus();
+  releaseFirst({ ok: true, filter: FILTER, view: {}, payload: payload() });
+  await second;
+  await tick();
+  assert.equal(asked.length, 3);
+  assert.equal(onHeatmapCell(w), false, 'the dropped answer and the later one do not pull focus back to the old day');
+});
+
+test('refocus (b): a day whose answer is empty clears the refocus; the next unrelated draw does not move focus', async () => {
+  const empty = { keyFigures: { cur: { sessions: 0, messages: 0, tokens: 0 } } };
+  const { w, asked } = scripted([okAnswer(), okAnswer(empty), okAnswer()]);
+  await w.loadStats();
+  await tick();
+  const doc = w.document;
+  const cell = doc.querySelector('.heatmap-cell[data-date="2026-11-17"]');
+  cell.focus();
+  key(w, cell, 'Enter');
+  await tick();
+  assert.equal(doc.querySelector('.heatmap-cell'), null, 'the empty page has no heatmap');
+  await w.applyFilter({ range: '90d' });
+  await tick();
+  assert.equal(asked.length, 3);
+  assert.equal(onHeatmapCell(w), false, 'a later unrelated draw leaves focus where it is');
+});
+
+test('refocus (c): the answer to the heatmap\'s own request gives focus back; a user who moved to the bar keeps their place', async () => {
+  const { w } = scripted([okAnswer(), okAnswer(), okAnswer(), okAnswer()]);
+  await w.loadStats();
+  await tick();
+  const doc = w.document;
+  let cell = doc.querySelector('.heatmap-cell[data-date="2026-11-17"]');
+  cell.focus();
+  key(w, cell, 'Enter');
+  await tick();
+  assert.equal(doc.activeElement.dataset.date, '2026-11-17');
+
+  // focus on something else when the answer is drawn: not taken back
+  cell = doc.querySelector('.heatmap-cell[data-date="2026-11-17"]');
+  cell.focus();
+  const pending = new Promise(r => setTimeout(r, 0));
+  key(w, cell, 'Enter');
+  const btn = doc.querySelector('.stats-rhythm-toggle');
+  btn.focus();
+  await pending;
+  await tick();
+  assert.equal(onHeatmapCell(w), false);
+});

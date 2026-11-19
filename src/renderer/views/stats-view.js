@@ -133,6 +133,57 @@ function statsDaySpan(dateKey) {
   return { kind: 'day', from: dateKey, to: dateKey };
 }
 
+/**
+ * Where a key moves the heatmap's focus, as an index into the in-window days (oldest first; clamped, never into an outside
+ * cell). Spatial, like the drawn layout (columns are weeks, rows are weekdays): Up/Down = previous/next day in the column;
+ * Left/Right = 7 days back/on (the neighbouring column, same weekday); PageUp/PageDown = 4 weeks; Home/End = the first/last
+ * day. A step past either end clamps to the first/last in-window day. Null for a key the heatmap does not own.
+ */
+function statsHeatmapKeyTarget(key, index, count) {
+  if (!(count > 0) || !(index >= 0)) return null;
+  const step = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7, PageUp: -28, PageDown: 28 }[key];
+  if (step !== undefined) return Math.max(0, Math.min(count - 1, index + step));
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
+}
+
+// The day just applied from the heatmap and the request it belongs to: `{ date, gen }`. Only the answer to exactly that request
+// may move focus; any other request, an error or an empty page clears it (`requestStats`, `renderStatsPage`).
+let statsHeatmapRefocus = null;
+
+/** A click or Enter/Space on a heatmap day: the range becomes that day, unless it already is. */
+function statsHeatmapApplyDay(dateKey) {
+  const span = statsDaySpan(dateKey);
+  const range = statsState.payload && statsState.payload.range;
+  if (!span || (range && span.from === range.from && span.to === range.to)) return;
+  applyFilter({ rangeSpec: span }); // starts the request (and clears any older refocus) before it returns
+  statsHeatmapRefocus = { date: dateKey, gen: statsGen };
+}
+
+/**
+ * At the start of a draw, before anything is replaced: the date to give focus back to, or null. Consumes the refocus. It
+ * applies only to the answer of the request the heatmap started, and only if focus was then on the heatmap or nowhere.
+ */
+function statsHeatmapTakeRefocus() {
+  const want = statsHeatmapRefocus;
+  statsHeatmapRefocus = null;
+  if (!want || want.gen !== statsGen) return null;
+  const active = document.activeElement;
+  const free = !active || active === document.body || !!(active.closest && active.closest('.heatmap-grid'));
+  return free ? want.date : null;
+}
+
+/** After the redraw: focus the cell of that day if it is drawn. */
+function statsHeatmapRestoreFocus(date) {
+  if (!date) return;
+  const cell = statsViewerBody.querySelector(`.heatmap-cell[data-date="${date}"]`);
+  if (!cell) return;
+  for (const c of statsViewerBody.querySelectorAll('.heatmap-cell[tabindex="0"]')) c.tabIndex = -1;
+  cell.tabIndex = 0;
+  cell.focus();
+}
+
 /** True when the filter says the Rhythm block is folded (remembered with the filter, spec 48 V6). */
 function statsRhythmCollapsed(filter) {
   return !!(filter && filter.rhythmCollapsed === true);
@@ -541,6 +592,7 @@ async function loadStats() {
 /** Ask main for the page under `filter` (null = the remembered one). A late answer to an older ask is dropped. */
 async function requestStats(filter, view) {
   const gen = ++statsGen;
+  statsHeatmapRefocus = null; // a request the heatmap did not start (it re-arms it after its own call)
   const sentView = view || statsBase().view;
   statsPending = { filter, view: sentView };
   const before = statsViewerBody.querySelector('.stats-results');
@@ -554,6 +606,7 @@ async function requestStats(filter, view) {
   if (!host) return;
   host.classList.remove('is-loading');
   if (!res || !res.ok) {
+    statsHeatmapRefocus = null;
     statsPending = { filter: statsState.filter, view: statsState.view };
     // A failed re-ask of the Sessions measure may be tried again by the next successful draw.
     statsAlignedMeasure = null;
@@ -650,6 +703,7 @@ function renderStatsPage() {
   const results = statsViewerBody.querySelector('.stats-results');
   if (!results) return;
   const { payload } = statsState;
+  const refocusDate = statsHeatmapTakeRefocus();
   drawFilterBar();
   unmountStatsCharts();
   results.replaceChildren();
@@ -680,6 +734,7 @@ function renderStatsPage() {
   statsAlignSessionsMeasure();
 
   results.appendChild(buildRhythm(payload));
+  statsHeatmapRestoreFocus(refocusDate);
 }
 
 /** End every chart's resize observer before its host is rebuilt. (A hidden host needs no call: its callback returns at width 0.) */
@@ -1362,11 +1417,13 @@ function buildHourGrid(rows) {
     grid.appendChild(label);
   }
 
-  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  for (let d = 0; d < 7; d++) {
+  // Weeks start Monday (spec 48 O8). The payload's weekday is main's `strftime('%w')` (0 = Sunday), so row r is weekday (r + 1) % 7.
+  const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  for (let r = 0; r < 7; r++) {
+    const d = (r + 1) % 7;
     const label = document.createElement('div');
     label.className = 'hour-grid-day-label';
-    label.textContent = DAY_NAMES[d];
+    label.textContent = DAY_NAMES[r];
     grid.appendChild(label);
 
     for (let h = 0; h < 24; h++) {
@@ -1375,7 +1432,7 @@ function buildHourGrid(rows) {
       // The same five-step scale as the contribution heatmap, so the two grids read as one language.
       const level = n === 0 ? 0 : Math.min(4, Math.ceil((n / max) * 4));
       cell.className = `hour-grid-cell heatmap-level-${level}`;
-      cell.title = `${DAY_NAMES[d]} ${String(h).padStart(2, '0')}:00 — ${n} message${n === 1 ? '' : 's'}`;
+      cell.title = `${DAY_NAMES[r]} ${String(h).padStart(2, '0')}:00 — ${n} message${n === 1 ? '' : 's'}`;
       grid.appendChild(cell);
     }
   }
@@ -1391,7 +1448,7 @@ function buildHeatmap(counts, endKey, fromKey) {
   const last = new Date();
   if (typeof endKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(endKey)) last.setFullYear(+endKey.slice(0, 4), +endKey.slice(5, 7) - 1, +endKey.slice(8, 10));
   last.setHours(0, 0, 0, 0);
-  const dayOfWeek = last.getDay(); // 0=Sun
+  const dayOfWeek = (last.getDay() + 6) % 7; // 0=Mon: weeks start Monday (spec 48 O8)
   const endDate = new Date(last);
   const startDate = new Date(last);
   startDate.setDate(startDate.getDate() - (52 * 7 + dayOfWeek));
@@ -1404,7 +1461,7 @@ function buildHeatmap(counts, endKey, fromKey) {
   const weekStarts = [];
   const d = new Date(startDate);
   while (d <= endDate) {
-    if (d.getDay() === 0) {
+    if (d.getDay() === 1) {
       weekStarts.push(new Date(d));
     }
     d.setDate(d.getDate() + 1);
@@ -1435,7 +1492,7 @@ function buildHeatmap(counts, endKey, fromKey) {
   // Day labels
   const dayLabels = document.createElement('div');
   dayLabels.className = 'heatmap-day-labels';
-  const dayNames = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+  const dayNames = ['Mon', '', 'Wed', '', 'Fri', '', ''];
   for (const name of dayNames) {
     const label = document.createElement('div');
     label.className = 'heatmap-day-label';
@@ -1454,6 +1511,9 @@ function buildHeatmap(counts, endKey, fromKey) {
   const grid = document.createElement('div');
   grid.className = 'heatmap-grid';
 
+  grid.setAttribute('role', 'group');
+  grid.setAttribute('aria-label', 'Messages per day. Arrow keys move between days, Enter or Space shows the day.');
+  const dayCells = []; // the cells inside the window, oldest first: the roving tabindex moves along this list
   const cursor = new Date(startDate);
   while (cursor <= endDate) {
     const dateStr = localDateKey(cursor);
@@ -1478,18 +1538,37 @@ function buildHeatmap(counts, endKey, fromKey) {
     cell.dataset.date = dateStr;
     const displayDate = cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     cell.title = count > 0 ? `${displayDate}: ${count} messages` : `${displayDate}: No activity`;
+    cell.setAttribute('role', 'button');
+    cell.setAttribute('aria-label', cell.title);
+    cell.tabIndex = -1;
+    dayCells.push(cell);
     grid.appendChild(cell);
 
     cursor.setDate(cursor.getDate() + 1);
   }
+  // One tab stop: the range end, which is the day a single-day range shows too.
+  if (dayCells.length) dayCells[dayCells.length - 1].tabIndex = 0;
 
   // A day click sets the range to that day (O1 = A), the way a chart bar sets its bucket; one listener for every cell.
   grid.addEventListener('click', (e) => {
     const cell = e.target && e.target.closest ? e.target.closest('.heatmap-cell') : null;
-    const span = cell ? statsDaySpan(cell.dataset.date) : null;
-    const range = statsState.payload && statsState.payload.range;
-    if (!span || (range && span.from === range.from && span.to === range.to)) return;
-    applyFilter({ rangeSpec: span });
+    if (cell) statsHeatmapApplyDay(cell.dataset.date);
+  });
+  // The same day by keyboard. Keys sit on the grid, never on `document`; the handler takes Enter and Space itself.
+  grid.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    const cell = e.target && e.target.closest ? e.target.closest('.heatmap-cell') : null;
+    if (!cell || !cell.dataset.date) return;
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      statsHeatmapApplyDay(cell.dataset.date);
+      return;
+    }
+    const to = statsHeatmapKeyTarget(e.key, dayCells.indexOf(cell), dayCells.length);
+    if (to === null) return;
+    e.preventDefault();
+    for (const c of dayCells) c.tabIndex = c === dayCells[to] ? 0 : -1;
+    dayCells[to].focus();
   });
 
   wrapper.appendChild(grid);
