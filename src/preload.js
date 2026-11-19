@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld('api', {
   getStatsFacets: (filter) => ipcRenderer.invoke('stats-facets', filter),
   // Fold or open the Rhythm block; remembered with the filter, answers no payload.
   setStatsRhythm: (collapsed) => ipcRenderer.invoke('stats-set-rhythm', !!collapsed),
+  // Save the page as a file: `format` 'csv' (the table named, one of the four) or 'json' (everything). Main re-runs the query from
+  // the filter and view; answers { ok, canceled, error, name }, never a path.
+  exportStats: (format, table, filter, view) => ipcRenderer.invoke('stats-export', { format, table, filter, view }),
   // #450: what pointing a project's CLIs at its plans directory would write, and writing it.
   planConventionPreview: (projectPath, options) => ipcRenderer.invoke('plan-convention-preview', projectPath, options),
   planConventionApply: (projectPath, options) => ipcRenderer.invoke('plan-convention-apply', projectPath, options),

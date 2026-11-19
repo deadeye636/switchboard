@@ -353,7 +353,29 @@ capped at a larger N with the cap written in the file), plus the key figures.
 - **JSON:** one document `{ schema: 'switchboard.stats/1', generatedAt, filter, range, previousRange, keyFigures,
   tables: { projects, models, backends, sessions } }`, cost fields as `{ usd, estimated }` or `null`.
 - No backend id other than the neutral bucket id the registry already exposes; the file carries labels. The Projects
-  and Sessions tables hold a project column, which is a local path in the user's own file; see O6.
+  and Sessions tables hold a project column with the project's display name only, never a local path (O6).
+
+As built (T8): `src/app/stats-export.js` (its own module, not inside `stats.js`: it owns a dialog and a file write, `stats.js` stays
+DB-free and dialog-free) takes `{ format, table, filter, view }` and asks `stats.getExportData`, the same sanitise and
+`buildPayload` path as `stats-get` with `full = true`: every project row (no top 50, no "Other") and the Sessions list at the
+SQL's ceiling of 500 lines, ranked by the view's measure. Nothing is remembered by it. The renderer sends the filter and view it
+shows, never rows. Display names only (O6): rows are built field by field, so `openPath`, `projectPath` and the filter's
+`project` path never reach a file; the JSON filter carries the project's display name. The save dialog is the `statsExport`
+kind of `dialog-dirs.js`; default names are `switchboard-stats-<table>-<from>_<to>.csv` and `switchboard-stats-<from>_<to>.json`.
+- **CSV bytes:** UTF-8 **with** a byte order mark (a spreadsheet then reads the text as UTF-8) and CRLF line ends, so it goes through
+  `safeWrite.writeBinaryFile`; `writeTextFile` writes LF and no mark. Quoting only where a field holds a comma, quote or line break.
+  Text cells starting with `=`, `+`, `-`, `@`, a tab or a CR get a leading `'`; numbers, a negative one included, are never touched.
+  A cost is two columns, `cost_usd` and `cost_estimated`, both empty without a figure.
+- **The Sessions cap** is carried in the file NAME for CSV (`switchboard-stats-sessions-top500-...` when the list is full; RFC 4180 has
+  no room for a note in the data) and as `limits.sessions: { cap, truncated }` in the JSON. "Cut" means more than the cap existed: main asks
+  the SQL for cap + 1 lines (`sessionsTable` clamps at 501) and slices, so exactly 500 sessions is not marked as cut.
+- **Dates and numbers:** `started` and `last_active` are both LOCAL day keys (`started` is the stored timestamp through `localDayKey`).
+  Numbers are written in plain decimal notation, never `1e-7`.
+- **JSON** adds that `limits` field to the shape above; `tables.*` rows use camelCase and `cost: { usd, estimated } | null`.
+- **UI:** `[Export v]` at the right end of the breakdown head (`.settings-action-btn`, menu in the `new-session-popover` and
+  `popover-option` classes): "CSV: <tab> table" and "JSON: everything". Escape and an outside click close it, and its document
+  listeners exist only while it is open. The outcome is a `showControlToast`: the file name on success, the translated error on
+  failure, nothing on cancel.
 
 ## V11 — usage windows with burn rate (later)
 

@@ -2445,6 +2445,10 @@ stats.init({
   db: { getStatsPayload, getStatsFacets, getStatsFirstDate, getStatsProjectPaths, getProjectStates, getProjectDisplayNames },
 });
 stats.registerIpc(ipcMain);
+// The Stats page's export (#877, spec 48 V10): re-runs the page's query in full, asks the save dialog, writes through safe-write.
+const statsExport = require('./app/stats-export');
+statsExport.init({ stats, dialog, getParentWindow: (sender) => BrowserWindow.fromWebContents(sender) || mainWindow, log });
+statsExport.registerIpc(ipcMain);
 
 
 // --- IPC: app version ---

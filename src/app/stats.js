@@ -39,6 +39,8 @@ const REMOVED_BACKEND = 'removed';
 const REMOVED_LABEL = 'Removed backend or template';
 const SERIES_TOP = 8;
 const PROJECTS_CAP = 50;
+// The most session lines an export carries (`sessionsTable` clamps at one more).
+const EXPORT_SESSIONS_CAP = 500;
 const OTHER_KEY = '__other__';
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86400000;
@@ -461,7 +463,7 @@ function foldSeries(rows, range, view, kind, today, know) {
 // not flagged as an estimate and any estimated part is.
 const partsOf = (r) => ({ backendId: r.costBackendId, costStatus: r.costStatus, estimatedCostUsd: r.estimatedCostUsd, actualCostUsd: r.actualCostUsd });
 
-function foldProjects(rows, know) {
+function foldProjects(rows, know, cap = PROJECTS_CAP) {
   const byOwner = new Map();
   for (const r of rows) {
     const o = ownerOfPath(r.projectPath, know);
@@ -474,8 +476,8 @@ function foldProjects(rows, know) {
   }
   const all = [...byOwner.values()].sort((a, b) => b.tokens - a.tokens);
   const out = ({ parts, ...e }) => ({ ...e, cost: costFold(parts, know.idx) });
-  const shown = all.slice(0, PROJECTS_CAP).map(out);
-  const rest = all.slice(PROJECTS_CAP);
+  const shown = all.slice(0, cap).map(out);
+  const rest = all.slice(cap);
   if (rest.length) {
     shown.push(out({
       projectPath: '', name: 'Other', other: true, selectable: false,
@@ -567,7 +569,9 @@ function foldSidebar(rows, days, know) {
 
 // --- the payload ---------------------------------------------------------------------------------------------------------
 
-function buildPayload(clean, view, today, know) {
+// `full` is the export's ask (spec 48 V10): every project row instead of the top 50 plus "Other", and the largest session
+// list the SQL allows, one line past the cap, so the export can tell a full list from a cut one.
+function buildPayload(clean, view, today, know, full = false) {
   const range = resolveRange(clean.range, today, ctx.db.getStatsFirstDate());
   const filter = toSqlFilter(clean, range, know);
   const heatmapFrom = dayKey(dayNumber(range.to) - 364);
@@ -575,14 +579,14 @@ function buildPayload(clean, view, today, know) {
     filter,
     prevFrom: range.prevFrom,
     series: { measure: view.measure, split: view.split },
-    sessions: { by: view.sessionsBy, limit: 50 },
+    sessions: { by: view.sessionsBy, limit: full ? EXPORT_SESSIONS_CAP + 1 : 50 },
     heatmap: { from: heatmapFrom, to: range.to },
   });
   return {
     range,
     keyFigures: foldKeyFigures(raw, range.prevFrom != null, know.idx),
     series: foldSeries(raw.series, range, view, bucketKindFor(range.days), today, know),
-    projects: foldProjects(raw.projects, know),
+    projects: foldProjects(raw.projects, know, full ? Infinity : PROJECTS_CAP),
     models: foldModels(raw.models, know.idx),
     backends: foldBackends(raw.backends, know),
     sessions: foldSessions(raw.sessions, know),
@@ -626,6 +630,30 @@ function getStats(rawFilter, rawView) {
     return { ok: true, filter: clean, view, payload };
   } catch (err) {
     if (ctx.log && ctx.log.error) ctx.log.error('[stats] building the payload failed:', err);
+    return { ok: false, error: 'The statistics could not be read.' };
+  }
+}
+
+/**
+ * What an export is built from (spec 48 V10): the same sanitise and payload path as `getStats`, run fresh with the full row
+ * set, and nothing remembered (an export never changes the stored filter). `{ ok, filter, view, payload, projectName,
+ * sessionsCap, sessionsTruncated }`; `projectName` is the display name of the filter's project (the filter itself carries a path).
+ */
+function getExportData(rawFilter, rawView) {
+  if (!ctx) return { ok: false, error: 'The statistics are not ready.' };
+  try {
+    const know = knowledge();
+    const clean = sanitiseFilter(rawFilter == null ? readStored() : rawFilter, know);
+    const view = sanitiseView(rawView);
+    const payload = buildPayload(clean, view, localDayKey(ctx.now()), know, true);
+    const sessionsTruncated = payload.sessions.length > EXPORT_SESSIONS_CAP;
+    if (sessionsTruncated) payload.sessions = payload.sessions.slice(0, EXPORT_SESSIONS_CAP);
+    return {
+      ok: true, filter: clean, view, payload, projectName: clean.project ? projectName(clean.project, know) : null,
+      sessionsCap: EXPORT_SESSIONS_CAP, sessionsTruncated,
+    };
+  } catch (err) {
+    if (ctx.log && ctx.log.error) ctx.log.error('[stats] building the export failed:', err);
     return { ok: false, error: 'The statistics could not be read.' };
   }
 }
@@ -680,7 +708,7 @@ function registerIpc(ipc) {
 }
 
 module.exports = {
-  init, registerIpc, getStats, getFacets, setRhythmCollapsed,
+  init, registerIpc, getStats, getFacets, getExportData, setRhythmCollapsed,
   FILTER_KEY, defaultFilter, sanitiseFilter, sanitiseRange, sanitiseView, resolveRange, localDayKey,
   backendIds, bucketOf, costFold, foldKeyFigures, foldSeries, foldProjects, foldBackends, enumerateBuckets,
 };

@@ -627,6 +627,12 @@ test('sessions: the limit is applied to parents', () => {
   } finally { db.close(); }
 });
 
+test('sessions: the limit is clamped at 501 (the export asks for its cap plus one), a smaller one is kept', () => {
+  assert.match(q.sessionsTable(RANGE, { limit: 100000 }).sql, /LIMIT 501/);
+  assert.match(q.sessionsTable(RANGE, { limit: 501 }).sql, /LIMIT 501/);
+  assert.match(q.sessionsTable(RANGE, { limit: 50 }).sql, /LIMIT 50/);
+});
+
 test('the grid leaves hour -1 out', () => {
   const db = seed();
   try {

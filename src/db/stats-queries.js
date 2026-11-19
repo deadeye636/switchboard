@@ -257,13 +257,13 @@ function backendsTable(filter) {
 const SESSION_ORDER = { tokens: 'tokens', cost: 'cost', messages: 'messages' };
 
 /**
- * The sessions table: one line per PARENT session (a subagent's rows add into its parent's line), top `limit` by the
+ * The sessions table: one line per PARENT session (a subagent's rows add into its parent's line), top `limit` (at most 501: the export asks for its cap plus one to know whether the list was cut) by the
  * measure (tokens, cost or messages; a session with no cost figure sorts last). `lastModel` is the session's latest
  * model over all its rows and its subagents', not narrowed to the range.
  */
 function sessionsTable(filter, { by = 'tokens', limit = 50 } = {}) {
   const order = pick(SESSION_ORDER, by, 'sort measure');
-  const n = Math.max(1, Math.min(500, Number(limit) | 0 || 50));
+  const n = Math.max(1, Math.min(501, Number(limit) | 0 || 50));
   const inner = selectFrom(
     `${SESSION_KEY} AS key, SUM(m.messageCount) AS messages,
        ${TOKENS} AS tokens, MAX(m.date) AS lastDate, ${COST_VALUE} AS cost,

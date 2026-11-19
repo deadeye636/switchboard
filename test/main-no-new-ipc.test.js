@@ -112,6 +112,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/session-changes.js     what a session changed since the last review (the Changes group, Details, Clear, a diff by row id)
   src/app/vscode-tasks.js        a project's VS Code tasks, read-only, as plain rows for the launch popover (#616)
   src/app/stats.js               the Stats page: its filter, range, folds and payload (#877)
+  src/app/stats-export.js        the Stats page saved to a file (CSV of a table, JSON of all): full re-query, save dialog, safe-write (#877)
 
 None of the above? A NEW src/app/<area>.js — not main.js.
 

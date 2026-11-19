@@ -7,7 +7,8 @@
 // Depends on globals: mountStatsChart + unmountStatsChart (views/stats-chart.js, loaded before this file), statsViewerBody (app.js),
 //   getUsageLimitCards + observedAgo (shell/usage-status.js), renderBackendIcon (backend-icons.js, rate limits) and
 //   backendIconKnownColour (backend-icons.js, the chart's colour tokens), openSession (app.js) and sessionMap (app.js), which
-//   a Sessions row opens through (the sidebar's own path), all read at call time.
+//   a Sessions row opens through (the sidebar's own path), and showControlToast (dialogs/control-dialogs.js, the export's outcome;
+//   feature-detected), all read at call time.
 
 let cachedUsage = null;
 let usageGen = 0;
@@ -479,10 +480,115 @@ function buildStatsBreakdown(payload) {
   // Not the chart's switches: those are looked up by their class.
   tabs.classList.replace('stats-chart-switch', 'stats-breakdown-tabs');
   head.appendChild(tabs);
+  closeExportMenu(false);
+  head.appendChild(buildExportControl());
   const body = document.createElement('div');
   body.className = 'stats-breakdown-body';
   section.append(head, body);
   return section;
+}
+
+// --- export (V10) ----------------------------------------------------------------------------------------------------------
+// `[Export v]` beside the breakdown tabs: the CSV of the table the tab shows, or the JSON of everything. Main re-runs the query
+// from the filter and view this page shows (it takes no rows from here), asks for the file and answers `{ ok, canceled, error,
+// name }`. The menu's document listeners exist only while it is open.
+
+// The open menu: its element, the button that opened it and the function that takes the listeners off.
+let statsExportMenu = null;
+let statsExporting = false;
+
+function closeExportMenu(refocus) {
+  if (!statsExportMenu) return;
+  const { el, button, off } = statsExportMenu;
+  statsExportMenu = null;
+  off();
+  el.remove();
+  button.setAttribute('aria-expanded', 'false');
+  if (refocus) button.focus();
+}
+
+function sayStatsExport(message) {
+  if (typeof showControlToast === 'function') showControlToast({ message, timeoutMs: 4000 });
+}
+
+async function runStatsExport(format, tabId) {
+  const a = window.api;
+  if (statsExporting || !a || typeof a.exportStats !== 'function') return;
+  statsExporting = true;
+  const button = statsViewerBody && statsViewerBody.querySelector('.stats-export-btn');
+  if (button) button.disabled = true;
+  let res = null;
+  try { res = await a.exportStats(format, tabId, statsState.filter, statsState.view); } catch { res = null; }
+  statsExporting = false;
+  const again = statsViewerBody && statsViewerBody.querySelector('.stats-export-btn');
+  if (again) again.disabled = false;
+  if (!res) sayStatsExport('The export failed.');
+  else if (res.ok) sayStatsExport('Exported' + (res.name ? ' to ' + res.name : '') + '.');
+  else if (!res.canceled) sayStatsExport(res.error || 'The export failed.');
+}
+
+function openExportMenu(wrap, button) {
+  closeExportMenu(false);
+  const tabId = STATS_TABS.some(t => t.id === statsTable.tab) ? statsTable.tab : 'projects';
+  const tab = STATS_TABS.find(t => t.id === tabId);
+  const el = document.createElement('div');
+  el.className = 'new-session-popover stats-export-pop';
+  el.setAttribute('role', 'menu');
+  el.setAttribute('aria-label', 'Export');
+  const items = [
+    { label: `CSV: ${tab.label} table`, format: 'csv' },
+    { label: 'JSON: everything', format: 'json' },
+  ];
+  for (const it of items) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'popover-option';
+    item.setAttribute('role', 'menuitem');
+    item.textContent = it.label;
+    item.onclick = () => { closeExportMenu(true); runStatsExport(it.format, tabId); };
+    el.appendChild(item);
+  }
+  wrap.appendChild(el);
+  button.setAttribute('aria-expanded', 'true');
+  const options = [...el.querySelectorAll('button')];
+  const onKey = (e) => {
+    if (!el.isConnected || el.offsetParent === null) { closeExportMenu(false); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeExportMenu(true); return; }
+    // The arrows belong to the menu only while focus is inside it: after a Tab out, they are the page's again.
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && el.contains(document.activeElement)) {
+      e.preventDefault();
+      const i = options.indexOf(document.activeElement);
+      const next = e.key === 'ArrowDown' ? (i + 1) % options.length : (i <= 0 ? options.length - 1 : i - 1);
+      options[next].focus();
+    }
+  };
+  const onDown = (e) => { if (!el.contains(e.target) && !button.contains(e.target)) closeExportMenu(false); };
+  // Focus that moves outside the menu and its button (Tab) closes it, without taking the focus back.
+  const onFocusOut = (e) => { if (e.relatedTarget && !el.contains(e.relatedTarget) && !button.contains(e.relatedTarget)) closeExportMenu(false); };
+  document.addEventListener('keydown', onKey, true);
+  document.addEventListener('mousedown', onDown, true);
+  el.addEventListener('focusout', onFocusOut);
+  statsExportMenu = {
+    el, button,
+    off: () => { document.removeEventListener('keydown', onKey, true); document.removeEventListener('mousedown', onDown, true); el.removeEventListener('focusout', onFocusOut); },
+  };
+  options[0].focus();
+}
+
+function buildExportControl() {
+  const wrap = document.createElement('div');
+  wrap.className = 'stats-export';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'settings-action-btn stats-export-btn';
+  button.textContent = 'Export ▾';
+  button.title = 'Save the table as CSV, or the whole page as JSON';
+  button.setAttribute('aria-haspopup', 'menu');
+  button.setAttribute('aria-expanded', 'false');
+  button.disabled = statsExporting;
+  button.onclick = () => (statsExportMenu ? closeExportMenu(true) : openExportMenu(wrap, button));
+  wrap.appendChild(button);
+  return wrap;
 }
 
 /** Redraw the tab strip and the table in place (a tab change asks main for nothing). */
@@ -578,6 +684,7 @@ function renderStatsBreakdownBody() {
 
 async function loadStats() {
   closeLimitsPop(false);
+  closeExportMenu(false);
   statsRhythmFold = null;
   const body = statsViewerBody;
   unmountStatsCharts();

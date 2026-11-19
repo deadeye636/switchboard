@@ -466,3 +466,37 @@ test('sidebar rows: an owner project is selectable, the "(no project)" line is n
   assert.equal(own.selectable, true);
   assert.equal(rows.find(r => r.projectPath === '').selectable, false);
 });
+
+test('export data: the full row set (no top 50, 500 sessions), the project as a display name, nothing remembered', () => {
+  const { calls, store } = makeCtx();
+  const res = stats.getExportData({ range: '7d', project: ROOT }, { sessionsBy: 'cost' });
+  assert.equal(res.ok, true);
+  assert.equal(res.projectName, 'Project A');
+  assert.equal(res.sessionsCap, 500);
+  assert.equal(calls.payload[0].sessions.limit, 501, 'one past the cap, to tell a full list from a cut one');
+  assert.equal(res.sessionsTruncated, false);
+  assert.equal(calls.payload[0].sessions.by, 'cost');
+  assert.equal(store.has('statsFilter'), false, 'an export does not change the remembered filter');
+  assert.equal(stats.getExportData({}, {}).projectName, null);
+  const raw = { ...emptyRaw(), projects: Array.from({ length: 60 }, (_, i) => ({ projectPath: '/work/p' + i, sessions: 1, messages: 1, tokens: 100 - i })) };
+  makeCtx({ raw: () => raw });
+  const full = stats.getExportData({}, {});
+  assert.equal(full.payload.projects.length, 60);
+  assert.ok(!full.payload.projects.some(p => p.other));
+  assert.equal(stats.getStats({}, {}).payload.projects.length, 51);
+});
+
+test('export data: 501 session lines mean cut (sliced to the cap), exactly 500 do not; the page itself still asks for 50', () => {
+  const lines = (n) => Array.from({ length: n }, (_, i) => ({ sessionId: 's' + i, projectPath: ROOT, backendId: 'alpha', messages: 1, tokens: 1 }));
+  makeCtx({ raw: () => ({ ...emptyRaw(), sessions: lines(501) }) });
+  const cut = stats.getExportData({}, {});
+  assert.equal(cut.sessionsTruncated, true);
+  assert.equal(cut.payload.sessions.length, 500);
+  makeCtx({ raw: () => ({ ...emptyRaw(), sessions: lines(500) }) });
+  const exact = stats.getExportData({}, {});
+  assert.equal(exact.sessionsTruncated, false);
+  assert.equal(exact.payload.sessions.length, 500);
+  const { calls } = makeCtx();
+  stats.getStats({}, {});
+  assert.equal(calls.payload[0].sessions.limit, 50);
+});
