@@ -331,11 +331,11 @@ test('the "(no project)" row is not selectable and a session without a project p
   assert.deepEqual(res.sessions.map(r => [r.sessionId, r.openable, r.openPath]), [['orphan', false, null], ['fine', true, OTHER]]);
 });
 
-test('registerIpc binds the two channels', () => {
+test('registerIpc binds the channels', () => {
   makeCtx();
   const seen = [];
   stats.registerIpc({ handle: (name) => seen.push(name) });
-  assert.deepEqual(seen, ['stats-get', 'stats-facets']);
+  assert.deepEqual(seen, ['stats-get', 'stats-set-rhythm', 'stats-facets']);
 });
 
 test('tables: a fully settled backend row is not an estimate, an unsettled actual is', () => {

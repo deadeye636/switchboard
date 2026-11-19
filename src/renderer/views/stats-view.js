@@ -19,6 +19,9 @@ let statsState = { filter: null, view: null, payload: null, facets: null };
 // What the last request SENT (not what main echoed): a second change made before the first reply builds on this, so it does
 // not undo the first. The page itself is always drawn from the echo in statsState.
 let statsPending = { filter: null, view: null };
+// The Rhythm fold the user set since the last answer landed (null = not touched): it wins over the echo of a request that
+// left before the click.
+let statsRhythmFold = null;
 
 /** The filter and view the next change builds on: what was last sent, else what was last shown. */
 function statsBase() {
@@ -122,6 +125,17 @@ function statsBucketSpan(bucket, range) {
   const to = bucket.end > range.to ? range.to : bucket.end;
   if (from > to) return null;
   return from === to ? { kind: 'day', from, to } : { kind: 'custom', from, to };
+}
+
+/** The range a click on a heatmap day sets (O1 = A): that day alone, or null for anything that is not a day key. */
+function statsDaySpan(dateKey) {
+  if (typeof dateKey !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
+  return { kind: 'day', from: dateKey, to: dateKey };
+}
+
+/** True when the filter says the Rhythm block is folded (remembered with the filter, spec 48 V6). */
+function statsRhythmCollapsed(filter) {
+  return !!(filter && filter.rhythmCollapsed === true);
 }
 
 /** The label of a filter value before the dropdown choices have arrived, taken from what the payload already names. */
@@ -497,6 +511,8 @@ function renderStatsBreakdownBody() {
 // --- requesting ---------------------------------------------------------------------------------------------------------
 
 async function loadStats() {
+  closeLimitsPop(false);
+  statsRhythmFold = null;
   const body = statsViewerBody;
   unmountStatsCharts();
   body.innerHTML = '';
@@ -506,12 +522,11 @@ async function loadStats() {
   barHost.className = 'stats-bar-host';
   const results = document.createElement('div');
   results.className = 'stats-results';
-  const usageHost = document.createElement('div');
-  usageHost.className = 'stats-usage-host';
-  page.append(barHost, results, usageHost);
+  page.append(barHost, results);
   body.appendChild(page);
 
-  // Rate limits are their own read and never hold the page up (they can be a network fetch).
+  // Rate limits are their own read and never hold the page up (they can be a network fetch): not awaited, and the strip
+  // is drawn into the bar whenever both are there, in either order.
   loadUsage();
 
   const spinner = document.createElement('div');
@@ -545,6 +560,12 @@ async function requestStats(filter, view) {
     renderStatsError(res && res.error);
     return;
   }
+  if (statsRhythmFold !== null && res.filter) {
+    if (statsRhythmFold) res.filter.rhythmCollapsed = true; else delete res.filter.rhythmCollapsed;
+    // The store may have taken the old fold from that request after the click's own write: say it again.
+    try { Promise.resolve(window.api.setStatsRhythm(statsRhythmFold)).catch(() => {}); } catch { /* shown as asked either way */ }
+    statsRhythmFold = null;
+  }
   statsState = { filter: res.filter, view: res.view, payload: res.payload, facets: null };
   statsPending = { filter: res.filter, view: res.view };
   renderStatsPage();
@@ -568,8 +589,10 @@ function applyFilter(patch) {
 }
 
 function resetFilter() {
-  // An empty object is not null: main sanitises it to the defaults (O3), so the renderer names none of them.
-  return requestStats({});
+  // An empty object is not null: main sanitises it to the defaults (O3), so the renderer names none of them. The Rhythm fold
+  // is how the block is shown, not a filter: it stays.
+  const { filter } = statsBase();
+  return requestStats(statsRhythmCollapsed(filter) ? { rhythmCollapsed: true } : {});
 }
 
 // --- drawing ------------------------------------------------------------------------------------------------------------
@@ -635,6 +658,7 @@ function unmountStatsCharts() {
 function drawFilterBar() {
   const host = statsViewerBody.querySelector('.stats-bar-host');
   if (!host) return;
+  closeLimitsPop(false);
   host.replaceChildren();
   const filter = statsState.filter;
   if (!filter) return;
@@ -686,8 +710,18 @@ function drawFilterBar() {
   reset.onclick = () => resetFilter();
   bar.appendChild(reset);
 
+  // The rate limits (V8): at the right of the bar, hidden until a reading with a window has arrived.
+  const limits = document.createElement('div');
+  limits.className = 'stats-limits';
+  limits.hidden = true;
+  limits.title = STATS_LIMITS_TITLE;
+  limits.setAttribute('role', 'group');
+  limits.setAttribute('aria-label', 'Subscription limits');
+  bar.appendChild(limits);
+
   host.appendChild(bar);
   fillBarSelects();
+  if (cachedUsage) drawUsageStrip();
 }
 
 /** Fill the three selects from the facets when they are in, else with the one value the filter holds. */
@@ -888,18 +922,29 @@ function buildChartSection(payload) {
 }
 
 /**
- * The Rhythm block. T7 gives it its collapse state, the day click and the hour grid following the range; until then it
- * only keeps what the page showed before: the year heatmap (O1 = A: a year ending at the range end, not narrowed by the
- * range) and the weekday-by-hour grid.
+ * The Rhythm block (V6): the year heatmap (O1 = A: the 365 days ending at the range end, not narrowed by the range; a day
+ * click sets the range to that day) and the weekday-by-hour grid (follows the range). One fold, remembered with the filter.
+ * Folded, neither grid is built: no work nobody can see; opening it builds from the payload already held.
  */
 function buildRhythm(payload) {
   const section = document.createElement('div');
   section.className = 'stats-rhythm';
+  const collapsed = statsRhythmCollapsed(statsState.filter);
   const title = document.createElement('div');
   title.className = 'daily-chart-title';
-  title.textContent = 'Rhythm';
+  const toggle = document.createElement('button');
+  toggle.className = 'settings-action-btn stats-rhythm-toggle';
+  toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  toggle.textContent = (collapsed ? '▸ ' : '▾ ') + 'Rhythm';
+  toggle.title = collapsed ? 'Show when you work' : 'Hide the activity grids';
+  toggle.onclick = toggleRhythm;
+  title.appendChild(toggle);
   section.appendChild(title);
+  if (!collapsed) section.appendChild(buildRhythmBlocks(payload));
+  return section;
+}
 
+function buildRhythmBlocks(payload) {
   const blocks = document.createElement('div');
   blocks.className = 'stats-blocks';
   const counts = {};
@@ -907,7 +952,7 @@ function buildRhythm(payload) {
   if (Object.keys(counts).length) {
     const wide = document.createElement('div');
     wide.className = 'stats-block stats-block-wide';
-    wide.appendChild(buildHeatmap(counts));
+    wide.appendChild(buildHeatmap(counts, payload.heatmap && payload.heatmap.to, payload.heatmap && payload.heatmap.from));
     blocks.appendChild(wide);
   }
   const hours = buildHourGrid(payload.grid || []);
@@ -917,34 +962,181 @@ function buildRhythm(payload) {
     cell.appendChild(hours);
     blocks.appendChild(cell);
   }
-  section.appendChild(blocks);
-  return section;
+  return blocks;
+}
+
+/** Fold or open the block in place from the held payload (no new query) and remember it with the filter. */
+function toggleRhythm() {
+  const filter = statsState.filter;
+  const payload = statsState.payload;
+  if (!filter || !payload) return;
+  const collapsed = !statsRhythmCollapsed(filter);
+  // A request already in flight was cloned over IPC with the OLD fold, and main will echo it back. What the page holds is the
+  // authority: the fold is applied onto that echo when it lands (`requestStats`), then forgotten.
+  statsRhythmFold = collapsed;
+  for (const f of new Set([filter, statsPending.filter])) {
+    if (!f) continue;
+    if (collapsed) f.rhythmCollapsed = true; else delete f.rhythmCollapsed;
+  }
+  try { Promise.resolve(window.api.setStatsRhythm(collapsed)).catch(() => {}); } catch { /* the block is shown as asked either way */ }
+  const old = statsViewerBody.querySelector('.stats-rhythm');
+  if (!old) return;
+  const next = buildRhythm(payload);
+  old.replaceWith(next);
+  const btn = next.querySelector('.stats-rhythm-toggle');
+  if (btn) btn.focus();
 }
 
 // --- rate limits (get-usage, never filtered) -----------------------------------------------------------------------------
+// A strip at the right of the filter bar (V8): one chip per backend that reports a limit, showing its tightest window; a chip
+// opens that backend's full per-window detail in a popover. The read is its own async path: nothing in the stats render waits
+// for it, and a slow or failed read leaves the stats as they are.
+
+const STATS_LIMITS_TITLE = 'Subscription limits, not affected by the filter';
+
+/**
+ * The window that is closest to its limit among the cards of one backend (the first of equals), or null when it has none.
+ */
+function statsTightestLimit(cards) {
+  let best = null;
+  for (const c of cards || []) {
+    if (c && Number.isFinite(c.percent) && (!best || c.percent > best.percent)) best = c;
+  }
+  return best;
+}
+
+/**
+ * What a backend says instead of windows: the usage API was throttled or the limit was reached (`_rateLimited`), the read
+ * failed (`_error`), or no limit is exposed (`_noData`). null for a plain reading.
+ */
+function statsUsageNotice(usage) {
+  if (!usage) return null;
+  if (usage._rateLimited) {
+    const mins = Math.ceil((usage.retryAfterSeconds || 0) / 60);
+    return usage.message
+      || (mins > 0
+        ? `Usage API rate limited. Try again in ~${mins} min${mins !== 1 ? 's' : ''}.`
+        : 'Usage API rate limited. Try again later.');
+  }
+  if (usage._error) return usage.message || 'Could not fetch usage data.';
+  if (usage._noData) return usage._limitsUnavailable && usage.message ? usage.message : 'No usage limit reported yet.';
+  return null;
+}
+
+/**
+ * The chips of the strip: `[{ usage, tight }]`. One per backend with at least one window (`tight` is its fullest). A backend
+ * that is rate limited or failed gets a chip with `tight: null`, so its message stays reachable; one that reports no limit
+ * (`_noData`) or has no window has none (not a zero). `cardsOf(usage)` is `getUsageLimitCards`.
+ */
+function statsLimitChips(list, cardsOf) {
+  const chips = [];
+  for (const usage of Array.isArray(list) ? list : []) {
+    if (!usage) continue;
+    if (usage._rateLimited || usage._error) { chips.push({ usage, tight: null }); continue; }
+    if (usage._noData) continue;
+    const tight = statsTightestLimit(cardsOf(usage));
+    if (tight) chips.push({ usage, tight });
+  }
+  return chips;
+}
 
 async function loadUsage() {
   const gen = ++usageGen;
-  if (cachedUsage) buildUsageSection(cachedUsage);
+  if (cachedUsage) drawUsageStrip();
   try {
     const fresh = await window.api.getUsage();
     if (gen !== usageGen) return;
     if (fresh && Array.isArray(fresh.backends)) {
       cachedUsage = fresh;
-      buildUsageSection(fresh);
+      drawUsageStrip();
     }
   } catch { /* the cached reading, if any, stays */ }
 }
 
-// Rate limits, one group per backend that reports them (#191). Was a single Claude block; a Codex user
-// now sees Codex's windows here, and a user of both sees both — each labelled, because two identical
-// grids of percentages with no owner would be worse than one.
-function buildUsageSection(payload) {
-  const existing = statsViewerBody.querySelector('.usage-container');
-  if (existing) existing.remove();
+// The open popover: its element, the chip that opened it and the one function that closes it (so a redraw of the bar, which
+// removes both, can still take the document listeners off).
+let statsLimitsPop = null;
 
-  const list = (payload && Array.isArray(payload.backends)) ? payload.backends : [];
+function closeLimitsPop(refocus) {
+  if (!statsLimitsPop) return;
+  const { el, chip, off } = statsLimitsPop;
+  statsLimitsPop = null;
+  off();
+  el.remove();
+  if (chip) {
+    chip.setAttribute('aria-expanded', 'false');
+    if (refocus) chip.focus();
+  }
+}
 
+function limitsCards(usage) {
+  return typeof getUsageLimitCards === 'function' ? getUsageLimitCards(usage) : [];
+}
+
+/** (Re)draw the strip into the bar. Called when the answer arrives and every time the bar is drawn; a no-op without a bar. */
+function drawUsageStrip() {
+  const strip = statsViewerBody && statsViewerBody.querySelector('.stats-limits');
+  if (!strip) return;
+  const reopen = statsLimitsPop && statsLimitsPop.backendId;
+  closeLimitsPop(false);
+  strip.replaceChildren();
+  const chips = statsLimitChips(cachedUsage && cachedUsage.backends, limitsCards);
+  strip.hidden = chips.length === 0;
+  for (const { usage, tight } of chips) {
+    const chip = document.createElement('button');
+    const level = tight ? tight.level : 'critical';
+    chip.className = 'backend-filter-pill stats-limit-chip' + (level && level !== 'normal' ? ` is-${level}` : '');
+    chip.dataset.backend = usage.backendId || '';
+    chip.setAttribute('aria-haspopup', 'dialog');
+    chip.setAttribute('aria-expanded', 'false');
+    const name = usage.label || usage.backendId;
+    chip.title = tight ? `${name}: ${tight.label} ${tight.percent}%. ${STATS_LIMITS_TITLE}` : `${name}: ${usage.message || statsUsageNotice(usage)}`;
+    if (typeof renderBackendIcon === 'function') {
+      chip.appendChild(renderBackendIcon(usage.icon || usage.backendId, 12, { monogram: usage.monogram }));
+    }
+    const text = document.createElement('span');
+    text.className = 'stats-limit-chip-text';
+    text.textContent = tight ? `${tight.label} ${tight.percent}%` : name;
+    chip.appendChild(text);
+    chip.onclick = () => (statsLimitsPop && statsLimitsPop.chip === chip ? closeLimitsPop(true) : openLimitsPop(strip, chip, usage));
+    strip.appendChild(chip);
+    if (reopen && reopen === usage.backendId) openLimitsPop(strip, chip, usage);
+  }
+}
+
+function openLimitsPop(strip, chip, usage) {
+  closeLimitsPop(false);
+  const el = document.createElement('div');
+  el.className = 'new-session-popover stats-limits-pop';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', `${usage.label || usage.backendId}: usage limits`);
+  el.tabIndex = -1;
+  el.appendChild(buildUsageDetail(usage));
+  strip.appendChild(el);
+  chip.setAttribute('aria-expanded', 'true');
+
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    // The popover's host went away or is hidden without a close (the view was hidden, moved or rebuilt): clean up, do not
+    // swallow the key. A hidden Stats view keeps the popover connected, so `offsetParent` is what tells it is not on screen.
+    if (!el.isConnected || el.offsetParent === null) { closeLimitsPop(false); return; }
+    e.preventDefault(); e.stopPropagation(); closeLimitsPop(true);
+  };
+  const onDown = (e) => {
+    if (!el.contains(e.target) && !chip.contains(e.target)) closeLimitsPop(false);
+  };
+  // Listening only while open: closed, nothing here can shadow a key of the page.
+  document.addEventListener('keydown', onKey, true);
+  document.addEventListener('mousedown', onDown, true);
+  statsLimitsPop = {
+    el, chip, backendId: usage.backendId,
+    off: () => { document.removeEventListener('keydown', onKey, true); document.removeEventListener('mousedown', onDown, true); },
+  };
+  el.focus();
+}
+
+/** The popover's body: the backend's windows (what the page body used to draw) and the refresh that re-reads them. */
+function buildUsageDetail(usage) {
   const container = document.createElement('div');
   container.className = 'usage-container';
 
@@ -959,152 +1151,127 @@ function buildUsageSection(payload) {
   refreshBtn.className = 'usage-refresh-btn';
   refreshBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>';
   refreshBtn.title = 'Refresh usage';
+  refreshBtn.setAttribute('aria-label', 'Refresh usage');
   refreshBtn.onclick = async () => {
     refreshBtn.classList.add('usage-refresh-spinning');
     refreshBtn.disabled = true;
+    // A refresh is the newest ask: an older `loadUsage` answer arriving later must not overwrite it.
+    const gen = ++usageGen;
     try {
       const fresh = await window.api.getUsage();
+      if (gen !== usageGen) return;
       if (fresh && Array.isArray(fresh.backends)) {
         cachedUsage = fresh;
-        buildUsageSection(fresh);
+        drawUsageStrip();
+        return;
       }
     } catch { /* the existing render stays */ }
     refreshBtn.classList.remove('usage-refresh-spinning');
     refreshBtn.disabled = false;
   };
   titleRow.appendChild(refreshBtn);
-  container.appendChild(titleRow);
-
-  if (list.length === 0) {
-    const notice = document.createElement('div');
-    notice.className = 'usage-rate-limited';
-    notice.textContent = 'No enabled backend reports a usage limit.';
-    container.appendChild(notice);
-    mountUsageContainer(container);
-    return;
-  }
-
-  for (const usage of list) {
-    const group = document.createElement('div');
-    group.className = 'usage-backend-group';
-
-    const head = document.createElement('div');
-    head.className = 'usage-backend-head';
-    if (typeof renderBackendIcon === 'function') {
-      head.appendChild(renderBackendIcon(usage.icon || usage.backendId, 14, { monogram: usage.monogram }));
-    }
-    const name = document.createElement('span');
-    name.className = 'usage-backend-name';
-    name.textContent = usage.label || usage.backendId;
-    head.appendChild(name);
-
-    // A non-live backend states when its figure was true. Codex's comes out of its last rollout, so
-    // "42%" with no date is a number pretending to be current.
-    //
-    // A LIVE backend served from the cache is the same number pretending the same thing, and this surface
-    // said nothing about it (#604): the tooltip in the status bar dates a cached reading, and a figure
-    // read here had no marker at all. `_cachedAt` is when the cache took it; asked only when nothing has
-    // dated the reading already, so one number never carries two ages.
-    const asOf = (!usage.live && usage.observedAt) ? usage.observedAt : (usage._stale ? usage._cachedAt : null);
-    if (asOf && typeof observedAgo === 'function') {
-      const ago = observedAgo(asOf);
-      if (ago) {
-        const when = document.createElement('span');
-        when.className = 'usage-backend-asof';
-        when.textContent = `measured ${ago}`;
-        head.appendChild(when);
-      }
-    }
-    group.appendChild(head);
-
-    if (usage._rateLimited || usage._error || usage._noData) {
-      const notice = document.createElement('div');
-      notice.className = 'usage-rate-limited';
-      if (usage._rateLimited) {
-        const mins = Math.ceil((usage.retryAfterSeconds || 0) / 60);
-        // A backend that named the reason says it here — Codex reports one and has no usage API to be
-        // rate limited by (#494).
-        notice.textContent = usage.message
-          || (mins > 0
-            ? `Usage API rate limited. Try again in ~${mins} min${mins !== 1 ? 's' : ''}.`
-            : 'Usage API rate limited. Try again later.');
-      } else if (usage._error) {
-        notice.textContent = usage.message || 'Could not fetch usage data.';
-      } else {
-        // A backend that named why no limit is exposed says it here, as the status bar does.
-        notice.textContent = usage._limitsUnavailable && usage.message
-          ? usage.message
-          : 'No usage limit reported yet.';
-      }
-      group.appendChild(notice);
-      container.appendChild(group);
-      continue;
-    }
-
-    // A reading AND a reason: the windows below are current, and the backend has also said it ran into a
-    // limit. Both are true, so both are shown rather than one replacing the other (#494).
-    if (usage.limitReachedMessage) {
-      const reached = document.createElement('div');
-      reached.className = 'usage-rate-limited';
-      reached.textContent = usage.limitReachedMessage;
-      group.appendChild(reached);
-    }
-
-    const grid = document.createElement('div');
-    grid.className = 'usage-grid';
-    const cards = typeof getUsageLimitCards === 'function' ? getUsageLimitCards(usage) : [];
-
-    for (const card of cards) {
-      const usageCard = document.createElement('div');
-      usageCard.className = 'usage-card';
-
-      const header = document.createElement('div');
-      header.className = 'usage-card-header';
-      const label = document.createElement('span');
-      label.className = 'usage-card-label';
-      label.textContent = card.label;
-      header.appendChild(label);
-      const pctEl = document.createElement('span');
-      pctEl.className = 'usage-card-pct';
-      pctEl.textContent = card.percent + '%';
-      header.appendChild(pctEl);
-      usageCard.appendChild(header);
-
-      const track = document.createElement('div');
-      track.className = 'usage-track';
-      const fill = document.createElement('div');
-      fill.className = 'usage-fill' + (card.level && card.level !== 'normal' ? ` usage-fill-${card.level}` : '');
-      fill.style.width = Math.max(card.percent, 1) + '%';
-      track.appendChild(fill);
-      usageCard.appendChild(track);
-
-      if (card.detail) {
-        const detail = document.createElement('div');
-        detail.className = 'usage-card-reset';
-        detail.textContent = card.detail;
-        usageCard.appendChild(detail);
-      }
-
-      if (card.reset) {
-        const reset = document.createElement('div');
-        reset.className = 'usage-card-reset';
-        reset.textContent = 'Resets ' + card.reset;
-        usageCard.appendChild(reset);
-      }
-
-      grid.appendChild(usageCard);
-    }
-
-    group.appendChild(grid);
-    container.appendChild(group);
-  }
-
-  mountUsageContainer(container);
+  container.append(titleRow, buildUsageGroup(usage));
+  return container;
 }
 
-function mountUsageContainer(container) {
-  const host = statsViewerBody.querySelector('.stats-usage-host');
-  if (host) host.replaceChildren(container);
+// One backend's windows (#191). Each group is labelled, because two identical grids of percentages with no owner would be
+// worse than one.
+function buildUsageGroup(usage) {
+  const group = document.createElement('div');
+  group.className = 'usage-backend-group';
+
+  const head = document.createElement('div');
+  head.className = 'usage-backend-head';
+  if (typeof renderBackendIcon === 'function') {
+    head.appendChild(renderBackendIcon(usage.icon || usage.backendId, 14, { monogram: usage.monogram }));
+  }
+  const name = document.createElement('span');
+  name.className = 'usage-backend-name';
+  name.textContent = usage.label || usage.backendId;
+  head.appendChild(name);
+
+  // A non-live backend states when its figure was true. Codex's comes out of its last rollout, so
+  // "42%" with no date is a number pretending to be current.
+  //
+  // A LIVE backend served from the cache is the same number pretending the same thing, and this surface
+  // said nothing about it (#604): the tooltip in the status bar dates a cached reading, and a figure
+  // read here had no marker at all. `_cachedAt` is when the cache took it; asked only when nothing has
+  // dated the reading already, so one number never carries two ages.
+  const asOf = (!usage.live && usage.observedAt) ? usage.observedAt : (usage._stale ? usage._cachedAt : null);
+  if (asOf && typeof observedAgo === 'function') {
+    const ago = observedAgo(asOf);
+    if (ago) {
+      const when = document.createElement('span');
+      when.className = 'usage-backend-asof';
+      when.textContent = `measured ${ago}`;
+      head.appendChild(when);
+    }
+  }
+  group.appendChild(head);
+
+  // A backend that says why it has no windows says it here (rate limited, failed, nothing exposed), as the status bar does.
+  const notice = statsUsageNotice(usage);
+  if (notice) {
+    const box = document.createElement('div');
+    box.className = 'usage-rate-limited';
+    box.textContent = notice;
+    group.appendChild(box);
+    return group;
+  }
+
+  // A reading AND a reason: the windows below are current, and the backend has also said it ran into a
+  // limit. Both are true, so both are shown rather than one replacing the other (#494).
+  if (usage.limitReachedMessage) {
+    const reached = document.createElement('div');
+    reached.className = 'usage-rate-limited';
+    reached.textContent = usage.limitReachedMessage;
+    group.appendChild(reached);
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'usage-grid';
+  for (const card of limitsCards(usage)) {
+    const usageCard = document.createElement('div');
+    usageCard.className = 'usage-card';
+
+    const header = document.createElement('div');
+    header.className = 'usage-card-header';
+    const label = document.createElement('span');
+    label.className = 'usage-card-label';
+    label.textContent = card.label;
+    header.appendChild(label);
+    const pctEl = document.createElement('span');
+    pctEl.className = 'usage-card-pct';
+    pctEl.textContent = card.percent + '%';
+    header.appendChild(pctEl);
+    usageCard.appendChild(header);
+
+    const track = document.createElement('div');
+    track.className = 'usage-track';
+    const fill = document.createElement('div');
+    fill.className = 'usage-fill' + (card.level && card.level !== 'normal' ? ` usage-fill-${card.level}` : '');
+    fill.style.width = Math.max(card.percent, 1) + '%';
+    track.appendChild(fill);
+    usageCard.appendChild(track);
+
+    if (card.detail) {
+      const detail = document.createElement('div');
+      detail.className = 'usage-card-reset';
+      detail.textContent = card.detail;
+      usageCard.appendChild(detail);
+    }
+
+    if (card.reset) {
+      const reset = document.createElement('div');
+      reset.className = 'usage-card-reset';
+      reset.textContent = 'Resets ' + card.reset;
+      usageCard.appendChild(reset);
+    }
+
+    grid.appendChild(usageCard);
+  }
+  group.appendChild(grid);
+  return group;
 }
 
 // --- Rhythm: the year heatmap (below) and the weekday-by-hour grid ---------------------------------------------------------
@@ -1183,16 +1350,17 @@ function buildHourGrid(rows) {
   return container;
 }
 
-function buildHeatmap(counts) {
+function buildHeatmap(counts, endKey, fromKey) {
   const container = document.createElement('div');
   container.className = 'heatmap-container';
 
-  // Generate 52 weeks of dates ending today
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const dayOfWeek = today.getDay(); // 0=Sun
-  const endDate = new Date(today);
-  const startDate = new Date(today);
+  // 52 weeks of dates ending at the range end (a local day key from main), else today
+  const last = new Date();
+  if (typeof endKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(endKey)) last.setFullYear(+endKey.slice(0, 4), +endKey.slice(5, 7) - 1, +endKey.slice(8, 10));
+  last.setHours(0, 0, 0, 0);
+  const dayOfWeek = last.getDay(); // 0=Sun
+  const endDate = new Date(last);
+  const startDate = new Date(last);
   startDate.setDate(startDate.getDate() - (52 * 7 + dayOfWeek));
 
   // Month labels
@@ -1266,13 +1434,30 @@ function buildHeatmap(counts) {
     }
 
     const cell = document.createElement('div');
+    // The week alignment starts a few days before main's 365-day window: those cells are outside it, neither "no activity" nor clickable.
+    if (typeof fromKey === 'string' && dateStr < fromKey) {
+      cell.className = 'heatmap-cell heatmap-level-0 is-outside';
+      grid.appendChild(cell);
+      cursor.setDate(cursor.getDate() + 1);
+      continue;
+    }
     cell.className = `heatmap-cell heatmap-level-${level}`;
+    cell.dataset.date = dateStr;
     const displayDate = cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     cell.title = count > 0 ? `${displayDate}: ${count} messages` : `${displayDate}: No activity`;
     grid.appendChild(cell);
 
     cursor.setDate(cursor.getDate() + 1);
   }
+
+  // A day click sets the range to that day (O1 = A), the way a chart bar sets its bucket; one listener for every cell.
+  grid.addEventListener('click', (e) => {
+    const cell = e.target && e.target.closest ? e.target.closest('.heatmap-cell') : null;
+    const span = cell ? statsDaySpan(cell.dataset.date) : null;
+    const range = statsState.payload && statsState.payload.range;
+    if (!span || (range && span.from === range.from && span.to === range.to)) return;
+    applyFilter({ rangeSpec: span });
+  });
 
   wrapper.appendChild(grid);
   container.appendChild(wrapper);

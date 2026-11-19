@@ -107,7 +107,7 @@ test('the page draws the echoed filter, six tiles, the chart host and the Rhythm
   assert.deepEqual([...doc.querySelectorAll('select.stats-select')].map(s => s.dataset.field), ['backend', 'project', 'model']);
   // facets arrive after the page and fill the selects
   assert.ok([...doc.querySelector('select[data-field="model"]').options].some(o => o.value === 'm-1'));
-  assert.ok(doc.querySelector('.stats-usage-host'));
+  assert.ok(doc.querySelector('.stats-filter-bar .stats-limits'), 'the limits strip sits in the bar');
 });
 
 test('an estimated cost is drawn with "~" and the amber class; no cost is a dash, not $0.00', async () => {

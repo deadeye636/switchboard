@@ -4917,7 +4917,19 @@ html body .terminal-container.conversation-container:not(.visible) {
 }
 .stats-block { min-width: 0; }
 .stats-block-wide { grid-column: 1 / -1; overflow-x: auto; }
-.stats-usage-host { margin-top: 8px; }
+/* The rate-limit strip (V8) at the right of the sticky bar; its popover is the new-session popover, anchored under it. */
+.stats-limits { position: relative; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.stats-limits[hidden] { display: none; }
+.stats-limit-chip { display: inline-flex; align-items: center; gap: 6px; }
+.stats-limit-chip.is-moderate .stats-limit-chip-text { color: #e0c85a; }
+.stats-limit-chip.is-high .stats-limit-chip-text { color: #f09646; }
+.stats-limit-chip.is-critical .stats-limit-chip-text { color: #e8505a; }
+.new-session-popover.stats-limits-pop { position: absolute; top: calc(100% + 6px); right: 0; width: min(380px, 90vw); max-height: 70vh; overflow-y: auto; padding: 8px 12px 12px; outline: none; }
+.stats-limits-pop .usage-container { margin: 0; padding: 0; }
+.stats-limits-pop .usage-grid { max-width: none; }
+.heatmap-cell[data-date] { cursor: pointer; }
+.heatmap-cell.is-outside { visibility: hidden; }
+.settings-action-btn.stats-rhythm-toggle { padding: 4px 10px; font-size: 13px; }
 .stats-block .hour-grid { max-width: none; }
 
 .chart-subtitle {

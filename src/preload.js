@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('api', {
   // { ok, filter (sanitised echo, remembered), view, payload }; `getStatsFacets(filter)` the filter bar's choices, read lazily.
   getStats: (filter, view) => ipcRenderer.invoke('stats-get', filter, view),
   getStatsFacets: (filter) => ipcRenderer.invoke('stats-facets', filter),
+  // Fold or open the Rhythm block; remembered with the filter, answers no payload.
+  setStatsRhythm: (collapsed) => ipcRenderer.invoke('stats-set-rhythm', !!collapsed),
   // #450: what pointing a project's CLIs at its plans directory would write, and writing it.
   planConventionPreview: (projectPath, options) => ipcRenderer.invoke('plan-convention-preview', projectPath, options),
   planConventionApply: (projectPath, options) => ipcRenderer.invoke('plan-convention-apply', projectPath, options),

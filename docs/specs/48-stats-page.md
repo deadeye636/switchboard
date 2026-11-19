@@ -291,12 +291,30 @@ switch builds nothing. Rows are buttons flagged `selectable` by main (the "(no p
 The heatmap and the weekday-by-hour grid become one collapsible block, collapsed state remembered with the filter. The
 hour grid follows the range; the heatmap is a navigator and is affected by O3. Local time, hour -1 excluded, as today.
 
+As built (T7): `buildRhythm` in `src/renderer/views/stats-view.js` draws a header button (`aria-expanded`) and, only while open, the
+heatmap and the hour grid; folded, neither DOM is built, and opening builds from the payload the page already holds, with no
+query. The fold lives in the remembered filter as `rhythmCollapsed` (written only when true, sanitised in `src/app/stats.js`),
+changed through the small `stats-set-rhythm` handler (`setStatsRhythm` in preload) that touches the stored filter and runs no
+payload. A request already in flight was cloned over IPC with the old fold and main echoes that back, so the page keeps the fold the user set (`statsRhythmFold`), applies it onto the echo when the reply lands, says it to main once more and forgets it. Reset keeps the fold. The heatmap runs
+365 days to `payload.heatmap.to` (the range end, O1 = A), its cells carry `data-date`, and one delegated click sets the range to
+that day through `applyFilter({ rangeSpec })`, the same path a chart bar uses. The hour grid is the payload's `grid`, which main
+already cuts to the range with hour -1 left out.
+
 ### Rate limits (V8)
 
 They leave the page body. A compact strip at the right of the filter bar shows one chip per backend that reports a
 limit, with its tightest window, and a tooltip that says plainly "Subscription limits, not affected by the filter". The
-full per-window detail (what `buildUsageSection` draws today) opens from the chip. Data is the existing `get-usage`
+full per-window detail (what the page body drew before T7) opens from the chip. Data is the existing `get-usage`
 answer; the strip is drawn when it arrives and never blocks the stats. Nothing here is filtered.
+
+As built (T7): `drawUsageStrip` fills `.stats-limits` at the right of the sticky bar; the page body holds no limits block any more.
+`loadUsage` is started, not awaited, by `loadStats`, and the strip is drawn when the answer arrives and again whenever the bar is
+drawn, so either order works; a slow or failed `get-usage` leaves the stats untouched. One `backend-filter-pill` chip per backend
+that has a window (`statsLimitChips`: a backend that reports no limit (`_noData`) or has no window has no chip; one that is rate limited or failed gets a warning-styled chip without a percentage, titled with its message, and its popover shows the notice text (`statsUsageNotice`)), showing the tightest
+window (`statsTightestLimit`) with the level colour; label, icon and monogram come from the usage answer. A chip opens a popover
+(`new-session-popover`, anchored under the strip) with the former `buildUsageSection` rendering for that backend (`buildUsageGroup`
+over `getUsageLimitCards`) and its refresh. It closes on Escape and on a click outside; the document listeners exist only while it
+is open. The strip's tooltip is the plain sentence above. The popover's refresh takes a `usageGen` number, so an older `loadUsage` answer cannot overwrite it. The heatmap's leading cells before `heatmap.from` (week alignment) are drawn hidden, not as zero days, and are not clickable.
 
 ## Export (V10)
 

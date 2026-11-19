@@ -124,6 +124,9 @@ function sanitiseFilter(raw, know) {
     const m = f.model.trim().slice(0, MAX_MODEL_LENGTH);
     if (m) out.model = m;
   }
+  // The Rhythm block's fold (spec 48 V6) is remembered with the filter. Only a collapsed block is written, so the default
+  // shape of a filter stays what it was.
+  if (f.rhythmCollapsed === true) out.rhythmCollapsed = true;
   return out;
 }
 
@@ -656,13 +659,27 @@ function getFacets(rawFilter) {
   }
 }
 
+/**
+ * `stats-set-rhythm`: fold or open the Rhythm block. Remembers the flag in the stored filter and nothing else, so the page
+ * does not ask for a new payload to change a block it already holds. `{ ok }`.
+ */
+function setRhythmCollapsed(collapsed) {
+  if (!ctx) return { ok: false };
+  const stored = readStored();
+  const next = { ...(stored && typeof stored === 'object' ? stored : defaultFilter()) };
+  if (collapsed === true) next.rhythmCollapsed = true; else delete next.rhythmCollapsed;
+  persist(next, stored);
+  return { ok: true };
+}
+
 function registerIpc(ipc) {
   ipc.handle('stats-get', (_event, filter, view) => getStats(filter, view));
+  ipc.handle('stats-set-rhythm', (_event, collapsed) => setRhythmCollapsed(collapsed));
   ipc.handle('stats-facets', (_event, filter) => getFacets(filter));
 }
 
 module.exports = {
-  init, registerIpc, getStats, getFacets,
+  init, registerIpc, getStats, getFacets, setRhythmCollapsed,
   FILTER_KEY, defaultFilter, sanitiseFilter, sanitiseRange, sanitiseView, resolveRange, localDayKey,
   backendIds, bucketOf, costFold, foldKeyFigures, foldSeries, foldProjects, foldBackends, enumerateBuckets,
 };
