@@ -42,7 +42,7 @@
 const fs = require('fs');
 
 const { walkStore, readFileTail } = require('../file-store');
-const { formatResetTime, tierForWindowMinutes, labelForWindowMinutes } = require('../usage-format');
+const { formatResetTime, resetIso, tierForWindowMinutes, labelForWindowMinutes } = require('../usage-format');
 
 // How many recent rollouts to look through before giving up. Raised from five in #494: Codex writes one
 // rollout per session and a burst of them can be started in the same second, so five slots were used up
@@ -159,17 +159,20 @@ function bucketFrom(window, key) {
   if (!window || typeof window !== 'object') return null;
   const percent = Number(window.used_percent);
   if (!Number.isFinite(percent)) return null;
-  const minutes = Number(window.window_minutes);
+  // `Number(null)` is 0: a missing or non-positive length is null, not a window of nought minutes.
+  const rawMinutes = Number(window.window_minutes);
+  const minutes = Number.isFinite(rawMinutes) && rawMinutes > 0 ? rawMinutes : null;
   const label = labelForWindowMinutes(minutes);
   return {
     key,
     label,
     percent: Math.floor(percent),
     reset: window.resets_at ? formatResetTime(window.resets_at) : null,
+    resetsAt: resetIso(window.resets_at),
     tier: tierForWindowMinutes(minutes),
     bar: true,
-    cardLabel: Number.isFinite(minutes) && minutes > 0 ? `Window (${label})` : `Window (${key})`,
-    windowMinutes: Number.isFinite(minutes) ? minutes : null,
+    cardLabel: minutes !== null ? `Window (${label})` : `Window (${key})`,
+    windowMinutes: minutes,
   };
 }
 

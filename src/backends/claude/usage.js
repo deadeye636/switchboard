@@ -73,7 +73,11 @@ function getOAuthToken() {
 // A reset time as the status bar wants to read it: a 24h clock in the system timezone, with the date
 // added once it is further out than a day. Shared with Codex via `usage-format.js` — both backends
 // hand us an epoch or an ISO string and want the same string back.
-const { formatResetTime } = require('../usage-format');
+const { formatResetTime, resetIso } = require('../usage-format');
+
+// The window length of each bucket the API names, in minutes. The API reports a percent and a reset time but no
+// length, so the length is Claude's own knowledge of its bucket keys (#883); it is declared here, never in the core.
+const WINDOW_MINUTES = { five_hour: 300, seven_day: 10080, seven_day_sonnet: 10080, seven_day_opus: 10080 };
 
 // `bucketKey` is the name of a window in the API's response — 'five_hour', 'seven_day' and so on.
 // It was called `apiKey`, which reads as a credential: a human skims the log line below and sees a
@@ -87,6 +91,8 @@ function mapBucket(apiUsage, bucketKey, bucket, out) {
       ...bucket,
       percent: Math.floor(u.utilization),
       reset: u.resets_at ? formatResetTime(u.resets_at) : null,
+      resetsAt: resetIso(u.resets_at),
+      windowMinutes: WINDOW_MINUTES[bucketKey] ?? null,
     });
   } catch (err) {
     console.error('[claude-usage] Error mapping bucket', bucketKey, err.message);

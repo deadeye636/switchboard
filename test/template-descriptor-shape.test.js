@@ -53,6 +53,7 @@ const NOT_INHERITED = {
   reviewProfile: 'spec 39 — a review starts the built-in pipe driver with its own read-only profile; src/backends/review-targets.js skips isProfile, so a template answering it would be a second target over one binary',
   taskProfile: 'spec 41 — a task starts the built-in pipe driver with its own profile; src/backends/review-targets.js skips isProfile for tasks too, so a template answering it would be a second target over one binary',
   idleMaintenance: 'spec 45 — the consumer asks a live session on a pipe, and BASE_IDS in src/backends/profiles.js refuses a template on a pipe driver (test/backend-parity.test.js holds that), so the answer would describe a session it cannot have',
+  reportsUsageWindows: 'spec 48 V11 (#883, E7) — a template with its own endpoint or key is not on the subscription of its base, so a window of that account says nothing about its sessions',
   listPlugins: '#803 — src/app/plugins-inventory.js skips isProfile and asks one entry per CLI; a template reads its base\'s install record, so answering it would list every plugin a second time',
   listApps: '#803 — the same consumer and the same reason as listPlugins: one app list per CLI, answered by the base',
   modeLabel: '#761 — names how a pipe driver opens its owner rows ("GUI"); a template on a driver is refused (BASE_IDS in src/backends/profiles.js) and a template on a CLI is not a mode of anything, so it would label a row it cannot be',

@@ -281,6 +281,8 @@ module.exports = {
   // Spec 48 (#877): the transcript and its figures are Pi's.
   cacheAccounting: pi.cacheAccounting,
   costSettled: pi.costSettled,
+  // Spec 48 V11 (#883): declines. Its owner Pi has no usage reading, so there is no window to project.
+  reportsUsageWindows: false,
   capabilities,
   configFields,
   buildLaunch,

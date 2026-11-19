@@ -129,8 +129,8 @@ function withMainProcessUsageCache(usage, cachedValue) {
     return {
       response: {
         ...cachedUsage,
-        // Identity is re-stamped by the collector after this returns, but keep whatever the live
-        // response knew so a cached body can never claim to be another backend.
+        // Identity is stamped by the collector BEFORE this call (and `reportsWindows` after it), but keep
+        // whatever the live response knew so a cached body can never claim to be another backend.
         backendId: usage?.backendId || cachedUsage.backendId,
         _stale: true,
         _staleKind: usageStaleKind(usage),

@@ -1280,8 +1280,11 @@ async function collectUsage() {
     usage.icon = b.icon || null;
     usage.monogram = b.monogram || null;
     usage.live = !!b.usage.live;
-
     const result = withMainProcessUsageCache(usage, cached);
+    // Whether this backend's buckets carry a window length and a reset time (#883). Stamped on the ANSWER, after the
+    // cache call: a stale reading cached before #883 has no such field, and this is the one place that adds it. A
+    // renderer reads a field, never an id.
+    result.response.reportsWindows = b.reportsUsageWindows === true;
     if (result.cacheValue) {
       try { setSetting(cacheKey, result.cacheValue); }
       catch (err) { log.warn(`[usage] ${b.id}: failed to persist cache`, err?.message || String(err)); }

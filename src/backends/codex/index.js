@@ -348,6 +348,8 @@ description:
   // Spec 48 (#877): measured (T1) `cached_input_tokens` is a subset of `input_tokens`. The parser writes no `costStatus`.
   cacheAccounting: 'included',
   costSettled: () => false,
+  // Spec 48 V11 (#883): each window bucket carries `resetsAt` and `windowMinutes` (usage.js).
+  reportsUsageWindows: true,
   capabilities: {
     fork: { state: 'limited', note: 'only after its first reply — Codex names its own sessions' },
     deleteSessions: 'yes',
@@ -372,6 +374,7 @@ description:
     task: { state: 'no', note: 'a task runs on a pipe, and Codex has no pipe driver here' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and Codex has no pipe driver here' },
     sessionFlow: { state: 'limited', note: 'one lane with steps, an AGENTS.md block (not per file), context checkpoints, compactions and permission changes; one lane per spawned subagent, found by scanning later rollouts; risk marks are a built-in pattern list on the shell calls (heuristic) plus escalation requests and a policy without a sandbox, and the only approval read is the guardian\'s verdict on an escalated call (spec 46)' },
+    usageWindows: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     sessionChanges: { state: 'limited', note: 'edits only from apply-patch text (shell writes are not attributed); a script that catches a failed patch itself still reports success; commits and pushes only from a script or call holding exactly one command, and only the first when that command runs in a loop' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',

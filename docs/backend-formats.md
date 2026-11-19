@@ -357,6 +357,11 @@ network call, no credential access, and `~/.codex/auth.json` stays untouched:
   `window_minutes` — the label (`5h`, `7d`) is **derived** from that number, never hardcoded: the provider
   is free to change the window, and `secondary` is frequently `null`.
 - `used_percent` is a **float**, `resets_at` is **epoch seconds** (Claude sends an ISO string).
+- **Machine-readable window fields (#883, spec 48 V11).** Each bucket Switchboard builds carries `resetsAt` (ISO string, from
+  `resets_at`, or `null`) and `windowMinutes` (from `window_minutes`, or `null`) beside the display string `reset`. Claude's usage
+  endpoint sends a percent and an ISO `resets_at` but no length, so Claude's own folder maps its bucket keys to a length
+  (`five_hour` 300, `seven_day*` 10080, `src/backends/claude/usage.js`). The descriptor answer `reportsUsageWindows` is `true` for
+  Claude and Codex only; the other five decline, each with its reason on the descriptor.
 - **The last block that MEASURES something wins — not the last block** (#494). A session ends by writing
   one with no windows at all, so the literal final block is regularly a reason rather than a reading:
 

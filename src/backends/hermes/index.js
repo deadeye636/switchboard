@@ -389,6 +389,8 @@ module.exports = {
   // This is the list that used to sit in the renderer (`SETTLED_COST_STATUS`).
   cacheAccounting: 'additive',
   costSettled: (status) => ['actual', 'settled', 'final', 'confirmed', 'billed'].includes(String(status || '').toLowerCase()),
+  // Spec 48 V11 (#883): declines. Hermes has no usage reading, so there is no window to project.
+  reportsUsageWindows: false,
   capabilities: {
     fork: { state: 'no', note: 'no confirmed fork flag' },
     deleteSessions: { state: 'no', note: 'its history is in a database Switchboard may only read' },
@@ -414,6 +416,7 @@ module.exports = {
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and Hermes has no pipe driver here' },
     sessionFlow: 'no',
     sessionChanges: 'no',
+    usageWindows: { state: 'no', note: 'reports no usage reading' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
     resourceWrite: 'yes',

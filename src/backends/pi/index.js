@@ -616,6 +616,8 @@ module.exports = {
   // when a cost exists (parser.js), never a settled one. pi-native forwards both through its owner.
   cacheAccounting: 'additive',
   costSettled: () => false,
+  // Spec 48 V11 (#883): declines. Pi has no usage reading, so there is no window to project.
+  reportsUsageWindows: false,
   capabilities: {
     fork: { state: 'limited', note: 'only after its first reply — Pi names its own sessions' },
     deleteSessions: 'yes',
@@ -640,6 +642,7 @@ module.exports = {
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is pi-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is pi-native' },
     sessionFlow: { state: 'limited', note: 'one lane: a delegated agent writes no session file, so it is one summary step; no permission mode, no approval step in a terminal; risk marks are a built-in pattern list on bash and powershell calls (heuristic), and a pi-native refusal shows as a denied call (spec 46)' },
+    usageWindows: { state: 'no', note: 'reports no usage reading' },
     sessionChanges: { state: 'limited', note: 'edits, commits and pushes from its own transcript (every branch); a delegated agent (the subagent tool) runs without a session file, so what it changes is not seen' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',

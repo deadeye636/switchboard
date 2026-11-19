@@ -5,7 +5,10 @@
 //   {
 //     backendId, live,                  // `live`: fetched now (Claude) vs. as of the last run (Codex)
 //     observedAt: <ISO> | null,         // when a NON-live figure was actually true. null when live.
-//     buckets: [ { key, label, percent, reset, tier, bar, cardLabel } ],
+//     buckets: [ { key, label, percent, reset, tier, bar, cardLabel,
+//                  resetsAt, windowMinutes } ],   // machine-readable twins of `reset` and the label: ISO string | null,
+//                                                 // minutes | null. Claude and Codex fill them (#883); a backend that
+//                                                 // cannot leaves them absent or null, never guessed.
 //     quota: { percent, used, limit, currency } | null,   // a credit pool beside the buckets
 //     _error | _rateLimited | ...       // a state the bar renders, never a throw
 //   }
@@ -25,7 +28,7 @@
 // A reset time as the status bar wants to read it: 24h clock in the system timezone, with the date added
 // once it is further out than a day. Accepts an ISO string, epoch seconds, or epoch millis — Claude sends
 // ISO, Codex sends epoch seconds.
-function formatResetTime(value) {
+function resetDateOf(value) {
   if (!value) return null;
   let resetDate;
   if (typeof value === 'string') {
@@ -35,7 +38,19 @@ function formatResetTime(value) {
   } else {
     resetDate = new Date(value * 1000);
   }
-  if (isNaN(resetDate.getTime())) return null;
+  return isNaN(resetDate.getTime()) ? null : resetDate;
+}
+
+// The same reset as an ISO string, or null (#883). Parsed by the one function `formatResetTime` uses, so the display
+// string and the machine-readable one cannot name two different moments.
+function resetIso(value) {
+  const d = resetDateOf(value);
+  return d ? d.toISOString() : null;
+}
+
+function formatResetTime(value) {
+  const resetDate = resetDateOf(value);
+  if (!resetDate) return null;
   const diffMs = resetDate - new Date();
 
   const hours = resetDate.getHours();
@@ -69,4 +84,4 @@ function labelForWindowMinutes(minutes) {
   return `${Math.round(m / (24 * 60))}d`;
 }
 
-module.exports = { formatResetTime, tierForWindowMinutes, labelForWindowMinutes };
+module.exports = { formatResetTime, resetIso, tierForWindowMinutes, labelForWindowMinutes };

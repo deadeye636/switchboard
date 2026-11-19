@@ -43,6 +43,13 @@ test('a fresh reading is returned as-is and cached', () => {
   assert.equal(result.fromCache, false);
 });
 
+test('a cached reading carries the window fields through unchanged (#883)', () => {
+  const buckets = [{ key: 'session', label: '5h', percent: 42, tier: 'short', bar: true, resetsAt: '2026-07-14T18:00:00.000Z', windowMinutes: 300 }];
+  const cachedValue = buildCachedUsageValue(reading({ buckets }), '2026-06-16T10:00:00.000Z');
+  const result = withMainProcessUsageCache({ backendId: 'claude', _error: true, message: 'No token' }, cachedValue);
+  assert.deepEqual(result.response.buckets, buckets);
+});
+
 test('a failed poll serves the last good reading, marked stale', () => {
   const cachedValue = buildCachedUsageValue(reading(), '2026-06-16T10:00:00.000Z');
   const result = withMainProcessUsageCache({ backendId: 'claude', _error: true, message: 'No token' }, cachedValue);

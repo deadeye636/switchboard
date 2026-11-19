@@ -28,6 +28,7 @@ const PINNED = {
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is claude-native
     sessionFlow: 'limited', // spec 46: main and subagent lanes, risk marks; a background agent's end and approvals not read
     sessionChanges: 'yes', // spec 47: read from the transcript by the parser
+    usageWindows: 'yes', // spec 48 V11: window length and reset time reported
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'yes', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
@@ -45,6 +46,7 @@ const PINNED = {
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
     sessionFlow: 'limited', // spec 46: main plus child lanes, risk marks; approvals only as the guardian's verdict
     sessionChanges: 'limited', // spec 47: edits from apply-patch text only; commits and pushes only from one-command scripts
+    usageWindows: 'limited', // spec 48 V11: window length and reset time, as fresh as the last turn
     turnDigest: 'yes',   // #507: a bounded tail read of its rollout
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -62,6 +64,7 @@ const PINNED = {
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
     sessionFlow: 'no', // spec 46: declined: SQLite rows, nothing measured
     sessionChanges: 'no', // spec 47: declined for now
+    usageWindows: 'no', // spec 48 V11: declined, see its descriptor
     turnDigest: 'yes',   // #507: the viewer's SQL reader, bounded by a row limit
     resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'no',
     // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
@@ -87,6 +90,7 @@ const PINNED = {
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is pi-native
     sessionFlow: 'limited', // spec 46: one lane, agents as a summary step, no approval step in a terminal
     sessionChanges: 'limited', // spec 47: a delegated agent (the subagent tool) runs without a session file, so its changes are not seen
+    usageWindows: 'no', // spec 48 V11: declined, see its descriptor
     turnDigest: 'yes',   // #507: a bounded tail read of its session file
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
@@ -109,6 +113,7 @@ const PINNED = {
     idleMaintenance: 'limited', // spec 45: the hit verdict is best effort
     sessionFlow: 'limited', // spec 46: read through its owner Pi
     sessionChanges: 'limited', // spec 47: through its owner Pi (a delegated agent is not seen)
+    usageWindows: 'no', // spec 48 V11: declined, see its descriptor
     turnDigest: 'yes',   // #507: Pi's answer, over the same store
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -130,6 +135,7 @@ const PINNED = {
     idleMaintenance: 'limited', // spec 45: the hit verdict is best effort
     sessionFlow: 'limited', // spec 46: read through its owner Claude
     sessionChanges: 'yes', // spec 47: read from the transcript by the parser
+    usageWindows: 'no', // spec 48 V11: declined, see its descriptor
     turnDigest: 'yes',   // #507: Claude's reader, over the same store
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -147,6 +153,7 @@ const PINNED = {
     idleMaintenance: 'no', // spec 45 E2: no pipe driver
     sessionFlow: 'no', // spec 46: declined: protobuf, no token counts
     sessionChanges: 'no', // spec 47: declined for now
+    usageWindows: 'no', // spec 48 V11: declined, see its descriptor
     turnDigest: 'limited', // #507: whole-database walk, so it declines above a size guard
     resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no

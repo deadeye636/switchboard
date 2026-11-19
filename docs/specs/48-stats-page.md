@@ -422,6 +422,12 @@ as a projection. A backend that reports no window shows nothing, not a zero. It 
 filtered by backend only (a window belongs to a subscription, not to a project). The "5-hour usage block" of the prior art
 is Claude's window; this spec does not name it, a descriptor does.
 
+**As built (step 1 of #883, data and declaration only).** Claude and Codex window buckets carry `resetsAt` (ISO or null) and
+`windowMinutes` (number or null); Claude's lengths come from its own bucket keys. Every descriptor answers `reportsUsageWindows`
+(claude, codex `true`; agy, hermes, pi, pi-native, claude-native `false` with a reason each), the capability row is `usageWindows`,
+templates do not inherit it (E7), and `collectUsage` stamps `reportsWindows` on each reading. No projection, query or renderer yet. A template's capability row `usageWindows` is forwarded wholesale with the rest
+(like review, task and idleMaintenance); only the descriptor answer is withheld from templates.
+
 ## Retired and moved
 
 Removed from the renderer: `collectBackendUsage`, `buildBackendBreakdown`, `sessionCost`, `costCellOf`,

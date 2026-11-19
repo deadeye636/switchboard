@@ -389,6 +389,12 @@ const SETTLED_PINNED = {
   claude: [], 'claude-native': [], codex: [], pi: [], 'pi-native': [], agy: [],
   hermes: ['actual', 'settled', 'final', 'confirmed', 'billed'],
 };
+// Spec 48 V11 (#883): every backend answers `reportsUsageWindows`; only the two that report a window length and a reset say yes.
+const USAGE_WINDOWS_PINNED = { claude: true, codex: true, 'claude-native': false, pi: false, 'pi-native': false, hermes: false, agy: false };
+test('every backend declares reportsUsageWindows, pinned per backend', () => {
+  assert.deepEqual(Object.fromEntries(READY.map(b => [b.id, b.reportsUsageWindows])), USAGE_WINDOWS_PINNED);
+});
+
 test('every backend declares cacheAccounting and costSettled, pinned per backend', () => {
   const { CACHE_ACCOUNTING } = require('../src/backends/cache-accounting');
   assert.deepEqual(Object.fromEntries(READY.map(b => [b.id, b.cacheAccounting])), CACHE_ACCOUNTING_PINNED);

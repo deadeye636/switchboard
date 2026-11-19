@@ -221,6 +221,7 @@ const capabilities = {
   liveRebinding: { state: 'no', note: 'follows its session through the ids the stream names instead of a binding' },
   queuedTurn: { state: 'no', note: 'the stream says when a queued line starts, not how many are waiting' },
   quota: { state: 'no', note: 'shown for the terminal Claude backend, whose account this is' },
+  usageWindows: { state: 'no', note: 'does not forward usage yet (#885)' },
   resourcesFrom: 'no',
   mcpInject: { state: 'yes', note: 'passes a project\'s external servers in a per-session --mcp-config file, and the app\'s own discovery group there when discoveryTools is on; measured on the pipe: listed, and a call arrives as an approval card (spec 37 M3)' },
   mcpPrune: { state: 'yes', note: 'drops every server not given by Switchboard (--strict-mcp-config): the user\'s own servers, a project .mcp.json, plugin servers and claude.ai connectors' },
@@ -388,6 +389,8 @@ module.exports = {
   // Spec 48 (#877): the transcript and its figures are Claude's.
   cacheAccounting: claude.cacheAccounting,
   costSettled: claude.costSettled,
+  // Spec 48 V11 (#883): declines. It does not forward usage (its gap is #885), so there is no window to project.
+  reportsUsageWindows: false,
   capabilities,
   configFields,
   buildLaunch,

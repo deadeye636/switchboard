@@ -330,6 +330,8 @@ module.exports = {
   // Spec 48 (#877): no token or cache usage found in the store (T1), the parser writes totals of 0 and no `costStatus`.
   cacheAccounting: 'none',
   costSettled: () => false,
+  // Spec 48 V11 (#883, E6): declines. agy reports no window length; its cadence would be a guess from a label.
+  reportsUsageWindows: false,
   capabilities: {
     fork: { state: 'no', note: 'no confirmed fork flag' },
     deleteSessions: 'yes',
@@ -355,6 +357,7 @@ module.exports = {
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and agy has no pipe driver here' },
     sessionFlow: 'no',
     sessionChanges: 'no',
+    usageWindows: { state: 'no', note: 'reports no window length; its cadence would be guessed from a label' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

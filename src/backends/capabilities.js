@@ -193,6 +193,14 @@ const CATALOG = [
     declaredBy: 'usage',
   },
   {
+    // Spec 48 V11 (#883): the usage answer's window buckets carry `resetsAt` and `windowMinutes`, so a burn rate can be projected.
+    id: 'usageWindows',
+    group: 'live',
+    label: 'Usage windows with a reset time',
+    description: 'Report each plan window with its length and reset time, so the Stats page can project the burn rate to the reset.',
+    declaredBy: 'reportsUsageWindows',
+  },
+  {
     id: 'resourceDiscovery',
     group: 'resources',
     label: 'Find its settings, skills and rules',

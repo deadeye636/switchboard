@@ -54,6 +54,29 @@ test('codex usage: both windows become buckets, tiered by how fast they refill',
   assert.equal(usage.planType, 'team');
 });
 
+test('codex usage: resetsAt is the ISO form of resets_at, and windowMinutes is carried (#883)', () => {
+  const usage = transformRateLimits({ ...RATE_LIMITS, secondary: { used_percent: 1, window_minutes: 10080 } });
+  assert.equal(usage.buckets[0].resetsAt, new Date(1784493536 * 1000).toISOString());
+  assert.equal(usage.buckets[0].windowMinutes, 300);
+  assert.equal(usage.buckets[1].resetsAt, null);   // no resets_at: null, not 1970
+  assert.equal(usage.buckets[1].windowMinutes, 10080);
+});
+
+test('codex usage: a missing, zero or negative window_minutes is null, never 0 (#883)', () => {
+  for (const wm of [null, 0, -5, undefined]) {
+    const b = transformRateLimits({ ...RATE_LIMITS, primary: { used_percent: 1, window_minutes: wm, resets_at: 1784493536 }, secondary: null }).buckets[0];
+    assert.equal(b.windowMinutes, null, String(wm));
+    assert.equal(b.tier, 'long');
+    assert.equal(b.label, '?');
+    assert.equal(b.cardLabel, 'Window (primary)');
+  }
+});
+
+test('codex usage: reset and resetsAt come from one parse (#883)', () => {
+  const b = transformRateLimits({ ...RATE_LIMITS, primary: { used_percent: 1, window_minutes: 300, resets_at: 1784493536000 }, secondary: null }).buckets[0];
+  assert.equal(b.resetsAt, new Date(1784493536000).toISOString());
+});
+
 test('codex usage: a null secondary window is absent, not zero', () => {
   const usage = transformRateLimits({ ...RATE_LIMITS, secondary: null });
   assert.deepEqual(usage.buckets.map(b => b.key), ['primary']);
