@@ -52,6 +52,11 @@ function getStatsFacets(filter) {
   };
 }
 
+// This machine's figures since a usage window started (#883): see statsQueries.usageWindowFigures.
+function getUsageWindowFigures(backend, fromDate, fromHour, toDate, toHour) {
+  return runSpec(statsQueries.usageWindowFigures(backend, fromDate, fromHour, toDate, toHour));
+}
+
 // The first day with metrics ('YYYY-MM-DD'), or null on an empty database: where the "all" range starts.
 let _firstDateStmt = null;
 function getStatsFirstDate() {
@@ -75,4 +80,5 @@ module.exports = {
   getStatsProjectPaths,
   getStatsPayload,
   getStatsFacets,
+  getUsageWindowFigures,
 };

@@ -705,3 +705,33 @@ test('an empty database answers every block with no rows and no error', () => {
     for (const [name, spec] of Object.entries(plan)) assert.deepEqual(run(db, spec), [], name);
   } finally { db.close(); }
 });
+
+test('usageWindowFigures: exact backend ids, both hour bounds, no hour -1 rows, the parent cost status (#883)', () => {
+  const db = openMemory();
+  try {
+    db.exec(SCHEMA);
+    db.exec(`
+      INSERT INTO session_cache (sessionId, parentSessionId, backendId, projectPath, costStatus) VALUES
+        ('a', NULL, 'claude', '/p/a', 'actual'), ('sub', 'a', 'claude', '/p/a', 'estimated'),
+        ('t', NULL, 'my-template', '/p/a', NULL), ('l', NULL, NULL, '/p/b', NULL);
+      INSERT INTO session_metrics (sessionId, date, hour, model, inputTokens, outputTokens, estimatedCostUsd, actualCostUsd) VALUES
+        ('a', '2026-06-02',  8, 'm', 100, 0, 1, NULL),
+        ('a', '2026-06-02', 10, 'm',  10, 5, NULL, 3),
+        ('sub', '2026-06-02', 11, 'm', 1, 1, 2, NULL),
+        ('a', '2026-06-03',  0, 'm',   1, 1, NULL, NULL),
+        ('a', '2026-06-03', -1, 'm', 999, 0, NULL, NULL),
+        ('a', '2026-06-09',  4, 'm', 50, 0, NULL, NULL),
+        ('a', '2026-06-09',  5, 'm', 50, 0, NULL, NULL),
+        ('t', '2026-06-03',  5, 'm', 500, 0, 5, NULL),
+        ('l', '2026-06-03',  6, 'm',   7, 0, NULL, NULL);
+    `);
+    const rows = run(db, q.usageWindowFigures(['claude'], '2026-06-02', 10, '2026-06-09', 5));
+    assert.deepEqual(rows.map(r => r.costStatus).sort(), ['actual', null], 'the subagent rides with its parent status; the NULL-backend row has none of its own');
+    const g = rows.find(r => r.costStatus === 'actual');
+    assert.equal(g.costBackendId, 'claude');
+    assert.equal(g.tokens, 15 + 2 + 2 + 50, 'start hour whole; earlier, hour -1, the reset hour, later rows and the template left out');
+    assert.equal(g.actualCostUsd, 3);
+    assert.equal(g.estimatedCostUsd, 2, 'the subagent estimate is an estimate under the parent status');
+    assert.equal(rows.find(r => r.costStatus === null).tokens, 7, 'a NULL backend is claude');
+  } finally { db.close(); }
+});

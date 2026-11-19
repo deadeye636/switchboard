@@ -396,7 +396,7 @@ test('registerIpc binds the channels', () => {
   makeCtx();
   const seen = [];
   stats.registerIpc({ handle: (name) => seen.push(name) });
-  assert.deepEqual(seen, ['stats-get', 'stats-set-rhythm', 'stats-facets']);
+  assert.deepEqual(seen, ['stats-get', 'stats-set-rhythm', 'stats-facets', 'stats-usage-windows']);
 });
 
 test('tables: a fully settled backend row is not an estimate, an unsettled actual is', () => {

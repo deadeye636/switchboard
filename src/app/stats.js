@@ -17,6 +17,7 @@ const { pathKey } = require('./path-containment');
 const { networkShareOf } = require('./network-path');
 const { startTimer } = require('../perf');
 const { bucketKindFor } = require('../db/stats-queries');
+const usageWindows = require('./usage-windows');
 
 // The one remembered filter (spec 48 "Persistence", O10): an internal key of the settings table, like `lastDialogDir`,
 // not a field of the settings screen and not in a settings export.
@@ -44,6 +45,8 @@ const EXPORT_SESSIONS_CAP = 500;
 const OTHER_KEY = '__other__';
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86400000;
+// This machine's figures are shown for a window of at least a day (#883 E4): the start hour counts whole, which skews a short window.
+const MACHINE_MIN_WINDOW_MINUTES = 1440;
 
 let ctx = null;
 
@@ -723,14 +726,71 @@ function setRhythmCollapsed(collapsed) {
   return { ok: true };
 }
 
+/**
+ * `stats-usage-windows` (#883, spec 48 V11): the usage windows of the backends that report them, each with a projection to
+ * its reset (usage-windows.js) and, for a window of a day or longer, this machine's tokens and cost since it started (E4).
+ * `backend` is a CLI id or null for all. It reads what the poll already sampled and never fetches. Backend filter only.
+ * `{ ok, windows: [{ backendId, backendLabel, colour, icon, key, label, percent, resetsAt, startsAt, windowMinutes,
+ * elapsedFraction, projection, machine }] }`; `machine` is `null` under a day, for an expired window or when the query failed, else
+ * `{ tokens, cost: { usd, estimated } | null, tokensPerHour }`.
+ *
+ * Templates do not count (E7): a template with its own endpoint or key is not on the subscription. A template session's row is
+ * stored under the TEMPLATE's id (the provenance the user chose), so the id list is the CLI's non-template ids only, a GUI driver
+ * that writes under it included. A removed template's rows carry an id the registry no longer lists and are left out as well.
+ */
+function getUsageWindows(rawBackend) {
+  if (!ctx || !ctx.usageSampler) return { ok: false, error: 'The usage windows are not ready.' };
+  try {
+    const idx = backendIndex();
+    const only = typeof rawBackend === 'string' && rawBackend ? rawBackend : null;
+    const nowMs = ctx.now().getTime();
+    const windows = [];
+    for (const { backendId, window: w, projection } of usageWindows.describeAll(ctx.usageSampler, nowMs)) {
+      const d = idx.byId.get(backendId);
+      if (!d || !d.enabled || d.isProfile || (only && backendId !== only)) continue;
+      const facts = backendFacts(backendId, idx);
+      windows.push({
+        backendId, backendLabel: facts.label, colour: facts.colour, icon: facts.icon, ...w, projection,
+        machine: projection.basis === 'expired' ? null : machineFigures(w, backendId, idx, nowMs),
+      });
+    }
+    return { ok: true, windows };
+  } catch (err) {
+    if (ctx.log && ctx.log.error) ctx.log.error('[stats] reading the usage windows failed:', err);
+    return { ok: false, error: 'The usage windows could not be read.' };
+  }
+}
+
+/** This machine's figures in one window, or null: under a day (E4), no query available, or the query failed. */
+function machineFigures(w, backendId, idx, nowMs) {
+  if (w.windowMinutes < MACHINE_MIN_WINDOW_MINUTES || !ctx.db.getUsageWindowFigures) return null;
+  try {
+    const start = new Date(w.startsAt);
+    const ids = backendIds(backendId, idx).filter(id => { const d = idx.byId.get(id); return d && !d.isProfile; });
+    const end = new Date(w.resetsAt);
+    const rows = ctx.db.getUsageWindowFigures(ids, localDayKey(start), start.getHours(), localDayKey(end), end.getHours());
+    const tokens = rows.reduce((sum, r) => sum + num(r.tokens), 0);
+    const hours = (Math.min(nowMs, new Date(w.resetsAt).getTime()) - start.getTime()) / 3600000;
+    return {
+      tokens,
+      cost: costFold(rows.map(partsOf), idx),
+      tokensPerHour: hours > 0 ? tokens / hours : null,
+    };
+  } catch (err) {
+    if (ctx.log && ctx.log.error) ctx.log.error('[stats] reading the usage window figures failed:', err);
+    return null;
+  }
+}
+
 function registerIpc(ipc) {
   ipc.handle('stats-get', (_event, filter, view) => getStats(filter, view));
   ipc.handle('stats-set-rhythm', (_event, collapsed) => setRhythmCollapsed(collapsed));
   ipc.handle('stats-facets', (_event, filter) => getFacets(filter));
+  ipc.handle('stats-usage-windows', (_event, backend) => getUsageWindows(backend));
 }
 
 module.exports = {
-  init, registerIpc, getStats, getFacets, getExportData, setRhythmCollapsed,
+  init, registerIpc, getStats, getFacets, getUsageWindows, getExportData, setRhythmCollapsed,
   FILTER_KEY, defaultFilter, sanitiseFilter, sanitiseRange, sanitiseView, resolveRange, localDayKey, localDayOf,
   backendIds, bucketOf, costFold, foldKeyFigures, foldSeries, foldProjects, foldBackends, enumerateBuckets,
 };

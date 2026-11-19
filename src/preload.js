@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('api', {
   // { ok, filter (sanitised echo, remembered), view, payload }; `getStatsFacets(filter)` the filter bar's choices, read lazily.
   getStats: (filter, view) => ipcRenderer.invoke('stats-get', filter, view),
   getStatsFacets: (filter) => ipcRenderer.invoke('stats-facets', filter),
+  getStatsUsageWindows: (backend) => ipcRenderer.invoke('stats-usage-windows', backend || null),
   // Fold or open the Rhythm block; remembered with the filter, answers no payload.
   setStatsRhythm: (collapsed) => ipcRenderer.invoke('stats-set-rhythm', !!collapsed),
   // Save the page as a file: `format` 'csv' (the table named, one of the four) or 'json' (everything). Main re-runs the query from

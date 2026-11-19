@@ -199,6 +199,7 @@ module.exports = {
   getStatsFacets: statsStore.getStatsFacets,
   getStatsFirstDate: statsStore.getStatsFirstDate,
   getStatsProjectPaths: statsStore.getStatsProjectPaths,
+  getUsageWindowFigures: statsStore.getUsageWindowFigures,
   // --- keeping the file from drifting upward (compact.js, #430) ---
   freeSpace: compact.freeSpace,
   optimizeSearchIndex: compact.optimizeSearchIndex,

@@ -438,10 +438,31 @@ function rangeDays(filter) {
   return days;
 }
 
+
+/**
+ * This machine's tokens and cost inside a usage window (#883, spec 48 V11): the shared predicate with the backend dimension
+ * only (no range, project or model), plus an hour bound at both ends, in LOCAL (date, hour). The START hour counts whole
+ * (`>=` its hour); the RESET hour is not counted (`<` its hour): hours are whole, so the hour the window ends in holds activity
+ * after the reset as well, and the window's own last partial hour is dropped (under an hour of a week, in the other direction
+ * from the start hour). `hour = -1` rows (a backend that cannot place the row within its day) are left out.
+ * `backend` is the EXACT id list the caller wants (templates are not added here). Cost is grouped the way the page does
+ * (COST_PARTS: the PARENT's backend and status, a subagent riding with its parent) so "settled" means the same:
+ * `[{ costBackendId, costStatus, tokens, estimatedCostUsd, actualCostUsd }]`.
+ */
+function usageWindowFigures(backend, fromDate, fromHour, toDate, toHour) {
+  const extra = ['m.hour >= 0', '(m.date > ? OR (m.date = ? AND m.hour >= ?))', '(m.date < ? OR (m.date = ? AND m.hour < ?))'];
+  const sel = selectFrom(
+    `${COST_PARTS}, ${TOKENS} AS tokens`,
+    { backend },
+    { extra, parent: true, tail: `GROUP BY ${COST_BACKEND}, ${COST_STATUS}` },
+  );
+  return { sql: sel.sql, params: [...sel.params, fromDate, fromDate, fromHour, toDate, toDate, toHour] };
+}
+
 module.exports = {
   idList,
   // #877: the page's queries. They take a filter object (see buildPredicate).
   buildPredicate, bucketKindFor, payloadPlan,
   keyFigures, periodCounts, series, projectsTable, modelsTable, backendsTable, sessionsTable, sessionsRollup, rollupGate, ROLLUP_MAX_DEPTH,
-  rhythmDays, rhythmGrid, sidebarSeries, facetModels, facetBackends,
+  rhythmDays, rhythmGrid, sidebarSeries, facetModels, facetBackends, usageWindowFigures,
 };

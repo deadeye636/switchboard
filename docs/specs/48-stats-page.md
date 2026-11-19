@@ -1,6 +1,6 @@
 # 48 — The Stats page (one filter bar, key figures, drill-down, project scope)
 
-Issue #877. Status: **built** (V1–V10; V11 is its own later issue, see "V11" and "Known gaps"). Requirements V1–V11
+Issue #877. Status: **built** (V1–V10; V11 is its own later issue, #883, built in steps, see "V11" and "Known gaps"). Requirements V1–V11
 keep the issue's IDs. This file is the design record; the working plan was local (gitignored). Decisions made with the
 owner: all of V1–V11 are in scope, V11 is a later phase; the page was rebuilt as a whole, not patched block by block;
 the shared multi-field filter in SQL is the foundation every block depends on; rate limits stay unfiltered.
@@ -427,6 +427,41 @@ is Claude's window; this spec does not name it, a descriptor does.
 (claude, codex `true`; agy, hermes, pi, pi-native, claude-native `false` with a reason each), the capability row is `usageWindows`,
 templates do not inherit it (E7), and `collectUsage` stamps `reportsWindows` on each reading. No projection, query or renderer yet. A template's capability row `usageWindows` is forwarded wholesale with the rest
 (like review, task and idleMaintenance); only the descriptor answer is withheld from templates.
+
+**As built (step 2 of #883, the main-process half; no renderer yet).** `src/app/usage-windows.js` (pure: no Electron, no database)
+holds the window model, the projection and the sampler; `stats-usage-windows(backend|null)` in `src/app/stats.js` answers
+`{ ok, windows }`, bound as `window.api.getStatsUsageWindows`.
+
+- **Window** (E5): a bucket flagged `bar` with `resetsAt` and `windowMinutes`, from a reading whose `reportsWindows` is true.
+  Start = reset - length; `elapsedFraction` from the clock. A reading that is an error, rate-limited, or a bucket with no
+  usable reset or length gives no window. A backend without `reportsWindows`, or one switched off, gives nothing.
+- **Projection** (E1, E3, E8), per window `{ ratePerHour, projectedAtReset, reachesLimitAt, basis, asOf }`. `projectedAtReset` is
+  the raw figure (it can exceed 100; capping is for the display). Basis, in order: `reached` (percent >= 100: no projection);
+  `expired` (the reset has passed, an addition to the four of the plan: a stale reading from a finished window must not
+  project); `samples` once at least 3 samples spanning at least 30 minutes lie inside the current window: least-squares slope
+  of the last 60 minutes of samples, floored at 0, projected from the reading to the reset (`percent` is integer, so a slow
+  burn reads as a flat 0 until a point of percent ticks over, which is why 30 minutes is the floor); `too-early` below 5 % of the
+  window elapsed (15 min of a 5 h window; one point of percent is then 20x noise); else `linear` = percent / elapsed fraction.
+  `reachesLimitAt` is set only when the rate is above 0 and the projection exceeds 100.
+- **Stale** (E8): a cached `_stale` reading is true at `_cachedAt`, a non-live one (Codex) at `observedAt`; elapsed time and the
+  projection are taken at that moment and `asOf` carries it. A stale reading adds no sample.
+- **Sampler** (E3): in memory in `main.js` (`usageSampler`), fed by `collectUsage` once per poll for a reporting backend; no timer,
+  nothing persisted, no setting. Per backend and bucket key at most 120 samples and 3 hours behind the newest. A percent that
+  fell, or a reset time that moved by more than 5 minutes, starts the series again (a new window). A non-live reading repeats one
+  observation on every poll and is sampled once per observation time. Right after a start the sampler is empty until the first
+  poll answers (the renderer polls at once); the linear projection applies until 30 minutes of samples exist.
+- **This machine** (E2, E4, E7): `machine` is `null` for a window under a day (E4). Otherwise one query per window
+  (`usageWindowFigures`: the shared predicate with the backend dimension only, plus `(date, hour) >= the window start in local
+  time`, the start hour counted whole, `hour = -1` rows left out) gives `{ tokens, cost: { usd, estimated } | null,
+  tokensPerHour }`; the cost fold is `costFold`, so "settled" is the descriptor's answer. Template sessions are excluded (E7):
+  a session launched from a template stores the TEMPLATE's id as its backend, so the id list is the CLI's non-template ids only
+  (a GUI driver writing under it counts, as it does in every backend filter) and a removed template's rows, whose id the registry
+  no longer lists, are left out as well. A failing query answers `machine: null`, never raw text. The window is bounded at both ends in local (date, hour): the start hour counts whole, the reset hour is not
+  counted (it holds post-reset activity; the window's own last partial hour is dropped), and the cost is grouped by the
+  parent's backend and status like the rest of the page. `machine` is also `null` for an `expired` window. The renderer shows
+  nothing for a `null` machine, whichever of those reasons it had (G5).
+- **A live reading is true when it was recorded** (`recordedAt` of the sampler), not now: after a sleep or a paused poll the
+  projection is taken at that moment and carries `asOf` once the reading is older than 150 s (2 poll intervals plus slack).
 
 ## Retired and moved
 

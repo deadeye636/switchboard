@@ -208,7 +208,7 @@ const {
   getSetting, setSetting, deleteSetting, listSettings,
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   reorderSavedVariables,
-  getStatsPayload, getStatsFacets, getStatsFirstDate, getStatsProjectPaths,
+  getStatsPayload, getStatsFacets, getStatsFirstDate, getStatsProjectPaths, getUsageWindowFigures,
   recordTimelineEvent, getTimelineEvents, getTimelineEventsSince, deleteTimelineForSession, rekeyTimeline,
   freeSpace, optimizeSearchIndex, needsFullVacuum, incrementalVacuum, fullVacuum, autoVacuumMode,
   closeDb,
@@ -1240,6 +1240,7 @@ function resolveSpawnEnv(bundle, source, sessionId, options = {}) {
 //
 // No backend id appears here. A backend that can report usage says so on its descriptor; everything
 // below derives from that, which is what lets Antigravity arrive later as a folder and nothing else.
+const usageSampler = require('./app/usage-windows').createSampler();
 async function collectUsage() {
   const capable = backends.list().filter(b => b.enabled && b.usage && typeof b.usage.fetch === 'function');
   if (capable.length === 0) return { backends: [] };
@@ -1285,6 +1286,8 @@ async function collectUsage() {
     // cache call: a stale reading cached before #883 has no such field, and this is the one place that adds it. A
     // renderer reads a field, never an id.
     result.response.reportsWindows = b.reportsUsageWindows === true;
+    // The in-memory sampler of the Stats page's usage windows (#883, E3): fed here, once per poll, nothing persisted.
+    if (result.response.reportsWindows) usageSampler.record(result.response, Date.now());
     if (result.cacheValue) {
       try { setSetting(cacheKey, result.cacheValue); }
       catch (err) { log.warn(`[usage] ${b.id}: failed to persist cache`, err?.message || String(err)); }
@@ -2445,7 +2448,8 @@ stats.init({
   getSetting, setSetting, log, backends, isForeignNetworkFile,
   now: () => new Date(),
   refreshKnownWorktrees: (paths, states) => require('./projects/known-worktree').refresh(paths, states),
-  db: { getStatsPayload, getStatsFacets, getStatsFirstDate, getStatsProjectPaths, getProjectStates, getProjectDisplayNames },
+  usageSampler,
+  db: { getStatsPayload, getStatsFacets, getStatsFirstDate, getStatsProjectPaths, getUsageWindowFigures, getProjectStates, getProjectDisplayNames },
 });
 stats.registerIpc(ipcMain);
 // The Stats page's export (#877, spec 48 V10): re-runs the page's query in full, asks the save dialog, writes through safe-write.
