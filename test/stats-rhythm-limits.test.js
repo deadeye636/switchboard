@@ -440,7 +440,36 @@ test('refocus (a): a second request from the bar before the first answer leaves 
   assert.equal(onHeatmapCell(w), false, 'the dropped answer and the later one do not pull focus back to the old day');
 });
 
-test('refocus (b): a day whose answer is empty clears the refocus; the next unrelated draw does not move focus', async () => {
+test('an empty answer keeps the Rhythm block: the heatmap and the fold, and focus lands on the empty day\'s cell', async () => {
+  const empty = { keyFigures: { cur: { sessions: 0, messages: 0, tokens: 0 } }, grid: [] };
+  const { w } = scripted([okAnswer(), okAnswer(empty)]);
+  await w.loadStats();
+  await tick();
+  const doc = w.document;
+  const cell = doc.querySelector('.heatmap-cell[data-date="2026-11-17"]');
+  cell.focus();
+  key(w, cell, 'Enter');
+  await tick();
+  assert.ok(doc.querySelector('.stats-results .plans-empty'), 'the empty message stays');
+  assert.ok(doc.querySelector('.stats-rhythm-toggle'), 'the fold toggle is drawn');
+  assert.ok(doc.querySelector('.stats-rhythm .heatmap-cell'), 'the heatmap is the way back');
+  assert.equal(doc.activeElement.dataset.date, '2026-11-17', 'focus lands on the empty day\'s cell');
+});
+
+test('refocus (b): an empty answer to a request that was not the heatmap\'s does not move focus', async () => {
+  const empty = { keyFigures: { cur: { sessions: 0, messages: 0, tokens: 0 } } };
+  const { w } = scripted([okAnswer(), okAnswer(empty)]);
+  await w.loadStats();
+  await tick();
+  const doc = w.document;
+  doc.querySelector('.stats-rhythm-toggle').focus();
+  await w.applyFilter({ range: '7d' });
+  await tick();
+  assert.ok(doc.querySelector('.heatmap-cell'));
+  assert.equal(onHeatmapCell(w), false);
+});
+
+test('refocus (b2): after an empty day the next unrelated draw does not move focus', async () => {
   const empty = { keyFigures: { cur: { sessions: 0, messages: 0, tokens: 0 } } };
   const { w, asked } = scripted([okAnswer(), okAnswer(empty), okAnswer()]);
   await w.loadStats();
@@ -450,7 +479,7 @@ test('refocus (b): a day whose answer is empty clears the refocus; the next unre
   cell.focus();
   key(w, cell, 'Enter');
   await tick();
-  assert.equal(doc.querySelector('.heatmap-cell'), null, 'the empty page has no heatmap');
+  assert.ok(doc.querySelector('.heatmap-cell'), 'the empty page keeps its heatmap');
   await w.applyFilter({ range: '90d' });
   await tick();
   assert.equal(asked.length, 3);

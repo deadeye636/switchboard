@@ -149,7 +149,8 @@ function statsHeatmapKeyTarget(key, index, count) {
 }
 
 // The day just applied from the heatmap and the request it belongs to: `{ date, gen }`. Only the answer to exactly that request
-// may move focus; any other request, an error or an empty page clears it (`requestStats`, `renderStatsPage`).
+// may move focus; any other request or an error clears it (`requestStats`, `renderStatsPage`). An empty page answering the
+// heatmap's own request still gets it, because the heatmap is drawn there too.
 let statsHeatmapRefocus = null;
 
 /** A click or Enter/Space on a heatmap day: the range becomes that day, unless it already is. */
@@ -392,8 +393,22 @@ function buildStatsSpark(values) {
   svg.setAttribute('height', '16');
   svg.setAttribute('viewBox', '0 0 60 16');
   svg.setAttribute('aria-hidden', 'true');
+  const points = statsSparkPoints(values, 60, 16);
+  if (points && !points.includes(' ')) {
+    // One point: a polyline of one point draws nothing, so it is a dot.
+    // The point sits on the top or bottom edge (it is the maximum or zero), so the centre is kept inside by the radius.
+    const [cx, cy] = points.split(',');
+    const r = 1.5;
+    const dot = document.createElementNS(NS, 'circle');
+    dot.setAttribute('cx', cx);
+    dot.setAttribute('cy', String(Math.min(16 - r, Math.max(r, Number(cy)))));
+    dot.setAttribute('r', String(r));
+    dot.setAttribute('fill', 'currentColor');
+    svg.appendChild(dot);
+    return svg;
+  }
   const line = document.createElementNS(NS, 'polyline');
-  line.setAttribute('points', statsSparkPoints(values, 60, 16));
+  line.setAttribute('points', points);
   line.setAttribute('fill', 'none');
   line.setAttribute('stroke', 'currentColor');
   line.setAttribute('stroke-width', '1.5');
@@ -713,6 +728,11 @@ function renderStatsPage() {
     empty.className = 'plans-empty';
     empty.textContent = 'No sessions match this filter in this period. Widen the range or reset the filter.';
     results.appendChild(empty);
+    // The heatmap is the navigator back: an empty day or range keeps it (and the fold), the hour grid simply draws nothing.
+    if (payload && payload.heatmap) {
+      results.appendChild(buildRhythm(payload));
+      statsHeatmapRestoreFocus(refocusDate);
+    }
     return;
   }
 
@@ -1042,6 +1062,12 @@ function buildRhythmBlocks(payload) {
     wide.className = 'stats-block stats-block-wide';
     wide.appendChild(buildHeatmap(counts, payload.heatmap && payload.heatmap.to, payload.heatmap && payload.heatmap.from));
     blocks.appendChild(wide);
+  } else {
+    // No message in the whole year for this backend, project and model: say so, rather than an open block with nothing in it.
+    const none = document.createElement('div');
+    none.className = 'plans-empty';
+    none.textContent = 'No activity in the 365 days up to the end of the range.';
+    blocks.appendChild(none);
   }
   const hours = buildHourGrid(payload.grid || []);
   if (hours) {

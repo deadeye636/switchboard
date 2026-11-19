@@ -140,6 +140,8 @@ test('an empty answer keeps the bar and shows an empty state below it', async ()
   assert.ok(w.document.querySelector('.stats-filter-bar'));
   assert.ok(w.document.querySelector('.stats-results .plans-empty'));
   assert.equal(w.document.querySelectorAll('.stats-tile').length, 0);
+  assert.ok(w.document.querySelector('.stats-results .heatmap-cell'), 'the heatmap stays as the way back');
+  assert.ok(w.document.querySelector('.stats-results .stats-rhythm-toggle'));
 });
 
 test('a late reply to an older request never overwrites a newer one', async () => {
@@ -514,6 +516,18 @@ test('statsSparkPoints: the largest value is the top edge, zeros and an empty li
   assert.equal(w.statsSparkPoints([0, 0], 60, 16), '0,15 60,15');
   assert.equal(w.statsSparkPoints([], 60, 16), '');
   assert.equal(w.statsSparkPoints([7], 60, 16), '30,1');
+});
+
+test('buildStatsSpark: one point is a dot, two or more a polyline, both in currentColor', () => {
+  const w = setup({});
+  const one = w.buildStatsSpark([7]);
+  assert.equal(one.querySelectorAll('polyline').length, 0);
+  const dot = one.querySelector('circle');
+  assert.ok(dot);
+  assert.equal(dot.getAttribute('fill'), 'currentColor');
+  const two = w.buildStatsSpark([1, 5]);
+  assert.equal(two.querySelectorAll('circle').length, 0);
+  assert.equal(two.querySelector('polyline').getAttribute('stroke'), 'currentColor');
 });
 
 test('statsSidebarShown: only a host that is on screen is built into', () => {

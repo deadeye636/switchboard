@@ -246,6 +246,7 @@ Rhythm (collapsible): year heatmap  |  weekday x hour grid
   is written; no bare `<button>` or `<select>`.
 - **Empty states.** The filter bar is always drawn, even when the result is empty: a filter that vanishes with its own
   result set is a trap (the #159 principle). An empty result names the active filters and offers reset.
+  As built (#877): an empty answer keeps the Rhythm block below the message (`renderStatsPage`): the fold toggle and the heatmap, which is the navigator back from an empty day and is drawn from the payload's `heatmap` (main builds it for any range, empty or not). The hour grid has no rows and draws nothing. Focus restore after an empty day lands on that day's cell, still only for the heatmap's own request. When the backend, project and model filters have no message in the whole 365-day window, there is no heatmap to navigate with: the block says "No activity in the 365 days up to the end of the range." and the way back is the filter bar's reset.
 - **A failed answer (as built).** `stats-get` remembers the filter only after the payload was built, so a filter that makes the build throw is never asked again on reopen. In the renderer, a failed answer that is current (the generation check comes first) says so in the sidebar too: with a list on screen, a non-interactive line "Could not refresh. Showing the last list." (`role="status"`, class `stats-side-notice`, styled with the #431 notice rules) sits above the unchanged list; with only the placeholder, it is replaced by "The projects could not be read.". The notice lives inside `#stats-content`, so the next good `renderStatsSidebar` removes it. When no filter was ever echoed (first load failed, no filter bar), the page error offers "Reset filter" beside "Try again"; it sends an explicit empty filter, which main turns into the defaults.
 - **Stale answers.** The generation counter of `loadStats` stays: a slower old answer never overwrites a newer one.
   Changing a filter field re-queries; the bar is not redrawn from the answer except for the echoed, sanitised filter.
@@ -285,7 +286,7 @@ apply (renderer.md); the plan decides whether it is a morphed list or a small re
 As built (T6): `renderStatsSidebar` in `src/renderer/views/stats-view.js` replaces the list as a whole on each answer (at most 50
 rows, in `#stats-content`, which the session list's morphdom and `preserveSidebarState` do not touch; the focused row is found
 again by its path). It returns at once unless `#stats-content` is shown (`statsSidebarShown`), so a reply that lands after a tab
-switch builds nothing. Rows are buttons flagged `selectable` by main (the "(no project)" line is not); the sparkline is a hand-drawn SVG polyline.
+switch builds nothing. Rows are buttons flagged `selectable` by main (the "(no project)" line is not); the sparkline is a hand-drawn SVG polyline; a single point (a one-day range) draws nothing as a polyline, so it is a small `circle` in `currentColor`.
 
 ### Rhythm (V6)
 
