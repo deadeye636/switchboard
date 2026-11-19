@@ -615,9 +615,10 @@ function getStats(rawFilter, rawView) {
     const stored = readStored();
     const know = knowledge();
     const clean = sanitiseFilter(rawFilter == null ? stored : rawFilter, know);
-    persist(clean, stored);
     const view = sanitiseView(rawView);
     const payload = buildPayload(clean, view, localDayKey(ctx.now()), know);
+    // Only a filter the page could be built under is remembered: one that throws would be asked again on every reopen.
+    persist(clean, stored);
     if (ctx.log && ctx.log.debug) {
       ctx.log.debug(`[stats] payload ${done().toFixed(1)} ms (range ${clean.range.kind}, ${payload.range.days} days, `
         + `backend ${clean.backend ? 1 : 0}, project ${clean.project ? 1 : 0}, model ${clean.model ? 1 : 0})`);

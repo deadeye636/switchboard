@@ -1146,7 +1146,8 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
    is something to say. It differs in colour alone, because the two say different things — one is a fact
    about your projects, the other is the app admitting it could not read them. */
 #unlisted-notice,
-#projects-error-notice {
+#projects-error-notice,
+.stats-side-notice {
   flex-shrink: 0;
   display: block;
   width: 100%;
@@ -1164,10 +1165,13 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
 #unlisted-notice:hover { background: rgba(217,119,87,0.12); color: #d97757; }
 
 /* Red, not the amber above: this is a failure, and it stays until a load succeeds. */
-#projects-error-notice {
+#projects-error-notice,
+.stats-side-notice {
   background: rgba(220,80,80,0.10);
   color: #d98080;
 }
+/* The Stats sidebar's copy (#877) is a statement, not a button: no pointer, no hover. */
+.stats-side-notice { cursor: default; border-top: 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
 #projects-error-notice:hover { background: rgba(220,80,80,0.18); color: #ff9a9a; }
 
 /* The chip the project manager wears while it is filtered to those projects. */
@@ -4845,6 +4849,7 @@ html body .terminal-container.conversation-container:not(.visible) {
 .stats-results.is-loading { opacity: 0.55; }
 .stats-caption { margin: 0 0 12px; }
 .settings-action-btn.stats-retry-btn { margin-top: 10px; }
+.settings-action-btn.stats-retry-btn + .stats-retry-btn { margin-left: 8px; }
 /* Key figures and blocks use the whole width; the columns follow it. */
 .stats-figures {
   display: grid;

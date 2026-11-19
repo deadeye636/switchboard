@@ -558,6 +558,7 @@ async function requestStats(filter, view) {
     // A failed re-ask of the Sessions measure may be tried again by the next successful draw.
     statsAlignedMeasure = null;
     renderStatsError(res && res.error);
+    renderStatsSidebarError();
     return;
   }
   if (statsRhythmFold !== null && res.filter) {
@@ -590,7 +591,8 @@ function applyFilter(patch) {
 
 function resetFilter() {
   // An empty object is not null: main sanitises it to the defaults (O3), so the renderer names none of them. The Rhythm fold
-  // is how the block is shown, not a filter: it stays.
+  // is how the block is shown, not a filter: it stays. After a failed first load no filter was ever echoed, so the fold is
+  // unknown here and a reset from that state drops a stored fold (accepted: a rare path, and the block only opens).
   const { filter } = statsBase();
   return requestStats(statsRhythmCollapsed(filter) ? { rhythmCollapsed: true } : {});
 }
@@ -611,6 +613,37 @@ function renderStatsError(message) {
   retry.textContent = 'Try again';
   retry.onclick = () => requestStats(statsState.filter);
   results.append(box, retry);
+  // No answer has ever been echoed, so no filter bar was drawn and "Reset filter" is nowhere else: offer it here. It sends
+  // an explicit default filter (resetFilter), never null, which would ask for the remembered one again.
+  if (!statsState.filter) {
+    const reset = document.createElement('button');
+    reset.className = 'settings-action-btn stats-retry-btn';
+    reset.textContent = 'Reset filter';
+    reset.onclick = () => resetFilter();
+    results.append(reset);
+  }
+}
+
+/**
+ * A failed answer says so in the sidebar too, inside `#stats-content` so that the next good `renderStatsSidebar` replaces it.
+ * A list on screen stays as it is, under a line saying it may be old; with no list yet the placeholder gives way to the message.
+ */
+function renderStatsSidebarError() {
+  const host = document.getElementById('stats-content');
+  if (!statsSidebarShown(host)) return;
+  const notice = document.createElement('div');
+  notice.className = 'stats-side-notice';
+  notice.setAttribute('role', 'status');
+  const list = host.querySelector('.stats-side-list');
+  if (list) {
+    const old = host.querySelector('.stats-side-notice');
+    if (old) old.remove();
+    notice.textContent = 'Could not refresh. Showing the last list.';
+    host.insertBefore(notice, list);
+  } else {
+    notice.textContent = 'The projects could not be read.';
+    host.replaceChildren(notice);
+  }
 }
 
 function renderStatsPage() {

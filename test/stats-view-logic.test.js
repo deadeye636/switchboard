@@ -568,3 +568,59 @@ test('the sidebar list builds nothing while its host is hidden, lists the rows w
   await tick();
   assert.equal(JSON.parse(JSON.stringify(sent[sent.length - 1])).project, null);
 });
+
+function failingSetup(answers) {
+  const sent = [];
+  const w = setup({
+    getStats: async (f) => { sent.push(f); const a = answers.shift(); return a === 'fail' ? { ok: false, error: 'x' } : { ok: true, filter: f || FILTER, view: VIEW, payload: payload({ sidebar: SIDE }) }; },
+    getStatsFacets: async () => FACETS,
+    getUsage: async () => ({ backends: [] }),
+  });
+  const host = w.document.createElement('div');
+  host.id = 'stats-content';
+  host.innerHTML = '<div class="plans-empty">Reading projects…</div>';
+  w.document.body.appendChild(host);
+  return { w, host, sent };
+}
+
+test('a failed answer after a success puts a notice above the unchanged list; the next success removes it', async () => {
+  const { w, host } = failingSetup(['ok', 'fail', 'ok']);
+  await w.loadStats();
+  await tick();
+  assert.equal(host.querySelectorAll('.stats-side-row').length, 2);
+  await w.requestStats(FILTER);
+  await tick();
+  const notice = host.querySelector('.stats-side-notice');
+  assert.ok(notice);
+  assert.equal(notice.getAttribute('role'), 'status');
+  assert.equal(notice.textContent, 'Could not refresh. Showing the last list.');
+  assert.equal(notice.nextElementSibling, host.querySelector('.stats-side-list'));
+  assert.equal(host.querySelectorAll('.stats-side-row').length, 2, 'rows kept');
+  await w.requestStats(FILTER);
+  await tick();
+  assert.equal(host.querySelector('.stats-side-notice'), null);
+  assert.equal(host.querySelectorAll('.stats-side-row').length, 2);
+});
+
+test('a failed first answer replaces the placeholder with the message and offers Reset filter with a non-null default', async () => {
+  const { w, host, sent } = failingSetup(['fail', 'ok']);
+  await w.loadStats();
+  await tick();
+  assert.equal(host.textContent, 'The projects could not be read.');
+  assert.equal(host.querySelector('.stats-side-notice').getAttribute('role'), 'status');
+  const btn = [...w.document.querySelectorAll('.stats-results button')].find(b => b.textContent === 'Reset filter');
+  assert.ok(btn, 'a first-load failure has a way out');
+  assert.ok(btn.classList.contains('settings-action-btn'));
+  btn.click();
+  await tick();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[sent.length - 1])), {});
+  assert.equal(host.querySelector('.stats-side-notice'), null);
+});
+
+test('a failed answer leaves a hidden sidebar host alone', async () => {
+  const { w, host } = failingSetup(['fail']);
+  host.style.display = 'none';
+  await w.loadStats();
+  await tick();
+  assert.equal(host.textContent, 'Reading projects…');
+});

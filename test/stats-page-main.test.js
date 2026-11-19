@@ -142,6 +142,16 @@ test('get: a failure answers a fixed sentence, not the raw error', () => {
   assert.doesNotMatch(res.error, /secret|ENOENT/);
 });
 
+test('get: a filter whose payload build throws is not remembered (#877)', () => {
+  const kept = { v: 1, range: { kind: '90d' }, backend: null, project: null, model: null };
+  const { store, calls } = makeCtx({ raw: () => { throw new Error('boom'); } });
+  store.set(stats.FILTER_KEY, kept);
+  const res = stats.getStats({ range: '7d' });
+  assert.equal(res.ok, false);
+  assert.deepEqual(calls.sets, [], 'nothing was written');
+  assert.equal(store.get(stats.FILTER_KEY), kept, 'the stored filter is unchanged');
+});
+
 test('key figures: previous period, change, weighted cache rate, excluded backends named', () => {
   makeCtx({
     raw: () => ({

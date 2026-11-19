@@ -246,6 +246,7 @@ Rhythm (collapsible): year heatmap  |  weekday x hour grid
   is written; no bare `<button>` or `<select>`.
 - **Empty states.** The filter bar is always drawn, even when the result is empty: a filter that vanishes with its own
   result set is a trap (the #159 principle). An empty result names the active filters and offers reset.
+- **A failed answer (as built).** `stats-get` remembers the filter only after the payload was built, so a filter that makes the build throw is never asked again on reopen. In the renderer, a failed answer that is current (the generation check comes first) says so in the sidebar too: with a list on screen, a non-interactive line "Could not refresh. Showing the last list." (`role="status"`, class `stats-side-notice`, styled with the #431 notice rules) sits above the unchanged list; with only the placeholder, it is replaced by "The projects could not be read.". The notice lives inside `#stats-content`, so the next good `renderStatsSidebar` removes it. When no filter was ever echoed (first load failed, no filter bar), the page error offers "Reset filter" beside "Try again"; it sends an explicit empty filter, which main turns into the defaults.
 - **Stale answers.** The generation counter of `loadStats` stays: a slower old answer never overwrites a newer one.
   Changing a filter field re-queries; the bar is not redrawn from the answer except for the echoed, sanitised filter.
 - **Backend colours (V3).** The series colour for a backend comes from the registry (`colour` on the descriptor);
