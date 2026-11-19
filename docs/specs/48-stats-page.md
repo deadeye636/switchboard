@@ -434,7 +434,7 @@ holds the window model, the projection and the sampler; `stats-usage-windows(bac
 
 - **Window** (E5): a bucket flagged `bar` with `resetsAt` and `windowMinutes`, from a reading whose `reportsWindows` is true.
   Start = reset - length; `elapsedFraction` from the clock. A reading that is an error, rate-limited, or a bucket with no
-  usable reset or length gives no window. A backend without `reportsWindows`, or one switched off, gives nothing.
+  usable reset or length gives no window. A backend without `reportsWindows`, or one switched off, gives nothing; an owner switched off while a launchable driver of it is on still counts (#885, `usageReaders()`).
 - **Projection** (E1, E3, E8), per window `{ ratePerHour, projectedAtReset, reachesLimitAt, basis, asOf }`. `projectedAtReset` is
   the raw figure (it can exceed 100; capping is for the display). Basis, in order: `reached` (percent >= 100: no projection);
   `expired` (the reset has passed, an addition to the four of the plan: a stale reading from a finished window must not

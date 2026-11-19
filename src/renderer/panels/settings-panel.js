@@ -257,7 +257,7 @@
     const usage7dWarnValue = fieldValue('usage7dWarn', 75);
     const usage7dCritValue = fieldValue('usage7dCrit', 90);
 
-    // The status-bar usage selection (#191). A row exists only for a backend that is ENABLED and DECLARES
+    // The status-bar usage selection (#191). A row exists only for a backend that has its usage READ (`usage.read`, #885: its own switch or a driver's) and DECLARES
     // a usage capability — the list is derived, never a hardcoded set. An ABSENT key means "not decided"
     // and shows the segment; only an explicit false hides it, which is why the stored value is a map.
     // Disabling a backend drops its row but must NOT erase the tick, or turning Codex off for a day
@@ -271,7 +271,7 @@
     try {
       const res = await window.api.backends.list();
       usageCapable = ((res && res.backends) || [])
-        .filter(b => b.usage && b.status === 'ready' && b.enabled)
+        .filter(b => b.usage && b.usage.read === true)
         .sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id)));
     } catch { /* no list, no rows — the thresholds below still render */ }
     const usageBackendRowsHtml = usageCapable.map(b => `

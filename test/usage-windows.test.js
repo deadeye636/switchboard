@@ -138,7 +138,14 @@ function setup({ readings = [], rows = [], nowMs = T0, figures } = {}) {
   const queries = [];
   stats.init({
     now: () => new Date(nowMs), log: { debug() {}, warn() {}, error() {} }, usageSampler: sampler,
-    backends: { list: () => DESCRIPTORS, rowOwnerOf: (id) => (DESCRIPTORS.find(x => x.id === id) || {}).transcriptsOf || id },
+    backends: {
+      list: () => DESCRIPTORS,
+      rowOwnerOf: (id) => (DESCRIPTORS.find(x => x.id === id) || {}).transcriptsOf || id,
+      // A COPY of `usageReaders` (src/backends/index.js) over these fixtures: the real one reads the live registry, which a
+      // fake ctx cannot seed. The relation itself is pinned against the real registry in test/driver-row-owner.test.js.
+      usageReaders: () => DESCRIPTORS.filter(b => !b.isProfile && (b.enabled
+        || DESCRIPTORS.some(d => d.transcriptsOf === b.id && d.status === 'ready' && d.enabled))),
+    },
     db: { getUsageWindowFigures: figures || ((ids, date, hour, toDate, toHour) => { queries.push({ ids, date, hour, toDate, toHour }); return rows; }) },
   });
   return { queries };
@@ -193,7 +200,20 @@ test('handler: backend filter, nothing sampled, a backend without windows, a fai
 test('handler: a disabled backend shows nothing', () => {
   setup({ readings: [reading()] });
   DESCRIPTORS[0].enabled = false;
-  try { assert.deepEqual(stats.getUsageWindows(null).windows, []); } finally { DESCRIPTORS[0].enabled = true; }
+  DESCRIPTORS[1].enabled = false;   // its driver too (#885: a driver that is on keeps the owner's windows)
+  try { assert.deepEqual(stats.getUsageWindows(null).windows, []); } finally { DESCRIPTORS[0].enabled = true; DESCRIPTORS[1].enabled = true; }
+});
+
+test('handler: a disabled owner still shows its windows while a driver of it is on, with the driver in the figures (#885)', () => {
+  const { queries } = setup({ readings: [weekly()] });
+  DESCRIPTORS[0].enabled = false;
+  try {
+    const res = stats.getUsageWindows(null);
+    assert.deepEqual(res.windows.map(w => w.backendId), ['alpha']);
+    assert.deepEqual(queries[0].ids.slice().sort(), ['alpha', 'alpha-gui']);
+    DESCRIPTORS[1].enabled = false;
+    assert.deepEqual(stats.getUsageWindows(null).windows, []);
+  } finally { DESCRIPTORS[0].enabled = true; DESCRIPTORS[1].enabled = true; }
 });
 
 test('the hour bound is read from local fields of the window start, whatever the zone does on that day', () => {

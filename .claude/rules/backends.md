@@ -503,6 +503,8 @@ older line "a disabled backend's store is not re-scanned" holds for a store nobo
 `custom` entry the driver writes, Claude's is the `entrypoint` Claude Code writes itself from
 `CLAUDE_CODE_ENTRYPOINT` (`claude/transport-marker.js`).
 
+`usageReaders()` is the same relation for the subscription's usage reading (#885): the owner that declares `usage.fetch` is asked while it or a launchable driver is on, once, under the owner's id and label; a driver declares no `usage` of its own and a template never borrows the reading. `collectUsage` and `getUsageWindows` both ask it. `backends-list` stamps `usage.read` from it, and the settings pane's rows and the tray's backend choice filter on that, not on `enabled`.
+
 **A driver's shared launch fields live under its owner (#761).** The settings screen shows an owner and its drivers as one
 CLI, and `src/shared/backend-modes.js` is the one answer for it: `cliGroups` for the grouping, `sharedIdsOfGroup` for
 which fields are stored once (the same id, type, default and choices in the owner and in every driver; computed, never

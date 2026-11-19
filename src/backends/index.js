@@ -545,6 +545,24 @@ function storesRead() {
   return ids;
 }
 
+/**
+ * Which backends' subscription USAGE is read right now (#885): the descriptors that declare `usage.fetch`
+ * and whose own switch is on, or that have a launchable driver (`transcriptsOf`), the way `storesRead()`
+ * treats the store. One reading per CLI and it stays the OWNER's (its id, its label), so claude-native over
+ * a switched-off Claude shows the subscription once, under Claude. A driver declares no `usage` of its own,
+ * and a template never counts: it does not inherit `usage` (it may sit on its own endpoint or key).
+ * Returns descriptors from `list()`, so each carries its merged `enabled`.
+ */
+function usageReaders() {
+  const all = list();
+  const driven = new Set();
+  for (const b of all) {
+    if (b.transcriptsOf && b.status === 'ready' && b.enabled) driven.add(b.transcriptsOf);
+  }
+  return all.filter(b => !b.isProfile && b.usage && typeof b.usage.fetch === 'function'
+    && (b.enabled || driven.has(b.id)));
+}
+
 function storeIsRead(id) {
   return storesRead().has(id);
 }
@@ -848,6 +866,6 @@ _seedDefaults();
 
 module.exports = {
   init, register, get, has, list, backendCoreEnv,
-  getDefaultLaunchTarget, forgetPathListing, isEnabled, isLaunchable, launchable, launchableIds, isOpenerFor, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, cliOwnerOf, storesRead, storeIsRead, profileToDescriptor,
+  getDefaultLaunchTarget, forgetPathListing, isEnabled, isLaunchable, launchable, launchableIds, isOpenerFor, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, cliOwnerOf, storesRead, usageReaders, storeIsRead, profileToDescriptor,
   _resetForTests, _seedDefaults, plannedDummy,
 };

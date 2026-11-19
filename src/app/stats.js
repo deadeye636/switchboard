@@ -745,9 +745,11 @@ function getUsageWindows(rawBackend) {
     const only = typeof rawBackend === 'string' && rawBackend ? rawBackend : null;
     const nowMs = ctx.now().getTime();
     const windows = [];
+    // The registry's one answer to "whose usage is read" (#885): the owner's own switch or a launchable driver's.
+    const readers = new Set(ctx.backends.usageReaders().map(b => b.id));
     for (const { backendId, window: w, projection } of usageWindows.describeAll(ctx.usageSampler, nowMs)) {
       const d = idx.byId.get(backendId);
-      if (!d || !d.enabled || d.isProfile || (only && backendId !== only)) continue;
+      if (!d || !readers.has(backendId) || d.isProfile || (only && backendId !== only)) continue;
       const facts = backendFacts(backendId, idx);
       windows.push({
         backendId, backendLabel: facts.label, colour: facts.colour, icon: facts.icon, ...w, projection,

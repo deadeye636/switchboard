@@ -1242,7 +1242,7 @@ function resolveSpawnEnv(bundle, source, sessionId, options = {}) {
 // below derives from that, which is what lets Antigravity arrive later as a folder and nothing else.
 const usageSampler = require('./app/usage-windows').createSampler();
 async function collectUsage() {
-  const capable = backends.list().filter(b => b.enabled && b.usage && typeof b.usage.fetch === 'function');
+  const capable = backends.usageReaders();
   if (capable.length === 0) return { backends: [] };
 
   const results = await Promise.all(capable.map(async (b) => {
@@ -1253,7 +1253,8 @@ async function collectUsage() {
       if (!session || session.exited || !session.pty) continue;
       const realId = session.realSessionId || sessionId;
       const owner = sessionBackends.get(realId) || sessionBackends.get(sessionId);
-      if (owner?.backendId !== b.id) continue;
+      // A driver's live sessions count for the owner whose account they run on (#885).
+      if (!owner?.backendId || backends.rowOwnerOf(owner.backendId) !== b.id) continue;
       const pid = Number(session.pty.pid);
       if (Number.isInteger(pid) && pid > 0) livePids.push(pid);
     }
@@ -1713,6 +1714,8 @@ ipcMain.handle('session-tags-all', () => {
 // --- IPC: multi-LLM backends (Phase 1, T-1.5). Kebab-case, matching the convention above.
 // Renderer reads the registry + the launch-time overlay; it doesn't act on them yet (Phase 2/3).
 ipcMain.handle('backends-list', () => {
+  // Whose usage reading is shown right now (#885), asked once per projection: the owner's own switch or a driver's.
+  const usageRead = new Set(backends.usageReaders().map(r => r.id));
   // Only JSON-safe descriptor data crosses IPC (hook functions are stripped).
   return {
     backends: backends.list().map(b => ({
@@ -1772,7 +1775,8 @@ ipcMain.handle('backends-list', () => {
       // Can this backend report a quota, and is that figure live (#191)? The DECLARATION crosses IPC;
       // the fetch stays in main. Settings offers a status-bar checkbox only for backends that say yes —
       // Hermes and Pi have no quota at all, so they never get a control that could never show a value.
-      usage: b.usage ? { live: !!b.usage.live } : null,
+      // `read` says whether that reading is shown now (#885): the owner's switch OR a launchable driver's.
+      usage: b.usage ? { live: !!b.usage.live, read: usageRead.has(b.id) } : null,
       // Backend-owned extras that are not launch options (#212) — Claude's attention hook patches its
       // own settings.json, so it belongs to Claude and not to a generic app section. The DECLARATION
       // crosses IPC, exactly like `usage` above: the settings panel renders what is declared and names

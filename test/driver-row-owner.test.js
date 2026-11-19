@@ -148,3 +148,23 @@ test('a driver never lands in the scan roster itself — it has no store of its 
     assert.ok(!backends.storesRead().has('pi-native'));
   });
 });
+
+// --- whose usage is read (#885) ---------------------------------------------------------------------
+
+test('usage is read for the owner while it OR a launchable driver is on, once, under the owner (#885)', () => {
+  const ids = () => backends.usageReaders().map(b => b.id);
+  withSettings({ claude: true, [DRIVER]: false }, [], () => assert.ok(ids().includes('claude'), 'owner on'));
+  withSettings({ claude: false, [DRIVER]: true }, [], () => {
+    assert.equal(ids().filter(id => id === 'claude').length, 1, 'owner off, driver on: asked once');
+    assert.ok(!ids().includes(DRIVER), 'the driver declares no usage of its own');
+  });
+  withSettings({ claude: false, [DRIVER]: false }, [], () => assert.ok(!ids().includes('claude'), 'both off'));
+  withSettings({ claude: true, [DRIVER]: true }, [], () => assert.equal(ids().filter(id => id === 'claude').length, 1, 'both on: once'));
+  withSettings({ claude: false, [DRIVER]: true }, [{ id: 'tpl-885', backendId: 'claude', label: 'Template' }], () => {
+    assert.ok(!ids().includes('tpl-885'), 'a template never borrows the reading');
+  });
+  withSettings({ claude: true }, [], () => {
+    for (const b of backends.usageReaders()) assert.equal(typeof b.usage.fetch, 'function');
+    assert.ok(!ids().includes('codex') || typeof backends.get('codex').usage?.fetch === 'function', 'only a backend with usage');
+  });
+});
