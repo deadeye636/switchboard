@@ -408,6 +408,8 @@ rules unchanged), the JSON `tokensInclStarted` and `costInclStarted` (`{ usd, es
 - **Measured** (copy of a dev database, 363 sessions in the table, 200 synthetic spawn rows in the copy): 8 ms for 50 roots, 30 ms for 501
   roots; the own sessions block alone is 17-22 ms. Synthetic large set (20 000 sessions x 10 metrics days, 501 roots): no spawn rows 14 ms
   (was 260 ms before the CROSS JOIN, which scanned the range), 1 000 spawn rows 94 ms (was 473), a 4 999-link chain 131 ms (was 190).
+  Both measurements are repeatable with `scripts/stats-rollup-probe.js` (`--synthetic`, or a copy's data folder); a re-run under
+  other load reads 17, 135 and 162 ms for the three synthetic cases, so the figures are an order of magnitude, not a contract.
 - **Sorting by an incl. column** reorders only the lines already ranked by the own figures (the top N the SQL chose by the view's measure);
   it does not pick a different top N. Accepted.
 
