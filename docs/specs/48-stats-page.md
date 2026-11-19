@@ -413,7 +413,7 @@ rules unchanged), the JSON `tokensInclStarted` and `costInclStarted` (`{ usd, es
 - **Sorting by an incl. column** reorders only the lines already ranked by the own figures (the top N the SQL chose by the view's measure);
   it does not pick a different top N. Accepted.
 
-## V11 — usage windows with burn rate (later)
+## V11 — usage windows with burn rate (built, #883)
 
 Not specified in detail until the earlier phases land. Constraints now: it needs a descriptor answer that says a backend
 reports a rolling limit window, and the per-window start and reset from the existing `get-usage` data; the burn rate
@@ -462,6 +462,19 @@ holds the window model, the projection and the sampler; `stats-usage-windows(bac
   nothing for a `null` machine, whichever of those reasons it had (G5).
 - **A live reading is true when it was recorded** (`recordedAt` of the sampler), not now: after a sleep or a paused poll the
   projection is taken at that moment and carries `asOf` once the reading is older than 150 s (2 poll intervals plus slack).
+
+**As built (step 3 of #883, the renderer block).** `buildStatsWindows` in `src/renderer/views/stats-view.js` draws a "Usage windows" block
+below Rhythm, on the empty page too (no fold). It reads `window.api.getStatsUsageWindows(backendId|null)` on its own path
+(`loadStatsWindows`, a generation counter drops a stale answer; no timer): after each `loadUsage` and strip refresh, and when the
+page's backend filter changes (project, model and range changes do not re-ask). No windows or a failed read: no block, no heading.
+One `.usage-card` per window: backend icon and label, window label, the provider's percent with the usage bar, "resets <local time,
+weekday when not today>", then the projection line by basis. `linear` / `samples`: "~X %/h · projected ~Y % at reset (projection)",
+or, when `reachesLimitAt` is set, "~X %/h · at this pace the limit is reached around <time> (projection)" instead: the provider
+stops at 100, so a capped "~100 % at reset" read as "just about enough" while the window would run out hours earlier; the tooltip says
+"from the last hour of readings" or "from the average since the window started". `too-early`: "too early to project". `reached`:
+"limit reached, resets <time>". `expired`: "window ended — waiting for a new reading". `asOf`: a muted "as of <time>". `machine` non-null:
+a muted italic "this machine: N tokens · ~$M or — · ~K tok/h". The card's left border takes the backend's colour token through
+`backendIconKnownColour` (none when unknown). Test: `test/stats-usage-windows-view.test.js`.
 
 ## Retired and moved
 
@@ -530,7 +543,7 @@ old `get-stats-from-db` and `refresh-stats` handlers were removed there. What is
    no usage" is not a proof. Codex's `cache_write_input_tokens` is not read by the parser.
 6. **Stale model filter.** `sanitiseFilter` only trims and caps the model, so a remembered model with no rows in the data gives an empty page (bar and Reset stay) instead of falling back to "all" like a project or backend.
 7. **Project filter depth.** It matches subagents one level deep only; a nested subagent (none on a real copy, 2026-11-18) would not follow its top-level session.
-8. **V11** (usage windows with burn rate) is not built; it is its own issue.
+8. **V11** (usage windows with burn rate) is built (#883, three steps).
 
 ## Open points (owner)
 

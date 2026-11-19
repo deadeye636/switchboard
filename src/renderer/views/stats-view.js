@@ -5,7 +5,7 @@
 // shows the echo, never what was sent. Names no backend: labels come from the payload.
 //
 // Depends on globals: mountStatsChart + unmountStatsChart (views/stats-chart.js, loaded before this file), statsViewerBody (app.js),
-//   getUsageLimitCards + observedAgo (shell/usage-status.js), renderBackendIcon (backend-icons.js, rate limits) and
+//   getUsageLimitCards + usageLevel + observedAgo (shell/usage-status.js), renderBackendIcon (backend-icons.js, rate limits) and
 //   backendIconKnownColour (backend-icons.js, the chart's colour tokens), openSession (app.js) and sessionMap (app.js), which
 //   a Sessions row opens through (the sidebar's own path), and showControlToast (dialogs/control-dialogs.js, the export's outcome;
 //   feature-detected), all read at call time.
@@ -754,6 +754,8 @@ async function requestStats(filter, view) {
   renderStatsPage();
   renderStatsSidebar();
   loadFacets(gen);
+  // The windows follow the BACKEND filter only: ask again when it changed, and draw what is held meanwhile.
+  if (statsShownBackend() !== statsWindows.backend) loadStatsWindows();
 }
 
 /** The choices behind the dropdowns. Read after the page is drawn, never before; a stale answer is dropped. */
@@ -787,6 +789,7 @@ function renderStatsError(message) {
   drawFilterBar();
   unmountStatsCharts();
   results.replaceChildren();
+  delete results.dataset.drawn;
   const box = document.createElement('div');
   box.className = 'plans-empty';
   box.textContent = message || 'The statistics could not be read.';
@@ -836,6 +839,7 @@ function renderStatsPage() {
   drawFilterBar();
   unmountStatsCharts();
   results.replaceChildren();
+  results.dataset.drawn = '1';
 
   if (statsIsEmpty(payload)) {
     const empty = document.createElement('div');
@@ -847,6 +851,7 @@ function renderStatsPage() {
       results.appendChild(buildRhythm(payload));
       statsHeatmapRestoreFocus(refocusDate);
     }
+    drawStatsWindows();
     return;
   }
 
@@ -868,6 +873,7 @@ function renderStatsPage() {
   statsAlignSessionsMeasure();
 
   results.appendChild(buildRhythm(payload));
+  drawStatsWindows();
   statsHeatmapRestoreFocus(refocusDate);
 }
 
@@ -1215,6 +1221,166 @@ function toggleRhythm() {
   if (btn) btn.focus();
 }
 
+// --- usage windows (V11, #883) --------------------------------------------------------------------------------------------
+// A block below Rhythm: one card per rolling limit window the main process models, with the provider's percent, when it
+// resets, a projection of that percent to the reset, and (muted) what this machine used in the window. Filtered by the
+// page's BACKEND only. Its own async read, like the strip: the stats render never waits for it, a stale answer is dropped
+// by `statsWindowsGen`, a failed read leaves the block out. Names no backend: label, icon and colour token come from the answer.
+
+let statsWindowsGen = 0;
+// The last good answer and the backend id (null = all) it was asked for.
+let statsWindows = { list: [], backend: null };
+
+/** A reset or "as of" time in local time: the clock, with a short weekday in front when it is not today. */
+function statsWindowTime(iso, nowMs) {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return '';
+  const clock = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const now = new Date(Number.isFinite(nowMs) ? nowMs : Date.now());
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (sameDay) return clock;
+  // Seven days or more away, a bare weekday would read as the one of this week: say the date.
+  const far = Math.abs(d.getTime() - now.getTime()) > 6 * 86400e3;
+  const day = d.toLocaleDateString([], far ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'short' });
+  return `${day} ${clock}`;
+}
+
+function statsWindowRate(perHour) {
+  const n = Number(perHour);
+  if (!Number.isFinite(n)) return '0';
+  return n >= 10 ? String(Math.round(n)) : String(Math.round(n * 10) / 10);
+}
+
+/**
+ * The lines of one window card: `{ reset, projection, note, asOf, machine }` (strings; empty when not shown). `note` is the
+ * tooltip saying where the projection comes from.
+ */
+function statsWindowLines(w, nowMs) {
+  const p = w.projection || {};
+  const resetAt = statsWindowTime(w.resetsAt, nowMs);
+  const out = { reset: resetAt ? `resets ${resetAt}` : '', projection: '', note: '', asOf: '', machine: '' };
+  if (p.basis === 'reached') {
+    out.projection = resetAt ? `limit reached, resets ${resetAt}` : 'limit reached';
+    out.reset = '';
+  } else if (p.basis === 'expired') {
+    out.projection = 'window ended — waiting for a new reading';
+    out.reset = '';
+  } else if (p.basis === 'too-early') {
+    out.projection = 'too early to project';
+  } else if (p.basis === 'linear' || p.basis === 'samples') {
+    // A pace that reaches the limit before the reset is said as WHEN, not as a percent: the provider stops at 100, so a
+    // capped "~100 % at reset" read as "just about enough" while the window would run out hours earlier.
+    const at = p.reachesLimitAt ? statsWindowTime(p.reachesLimitAt, nowMs) : '';
+    const projected = Math.min(100, Math.max(0, Math.round(p.projectedAtReset || 0)));
+    out.projection = at
+      ? `~${statsWindowRate(p.ratePerHour)} %/h · at this pace the limit is reached around ${at} (projection)`
+      : `~${statsWindowRate(p.ratePerHour)} %/h · projected ~${projected} % at reset (projection)`;
+    out.note = p.basis === 'samples' ? 'Projection from the last hour of readings' : 'Projection from the average since the window started';
+  }
+  const asOfAt = p.asOf ? statsWindowTime(p.asOf, nowMs) : '';
+  if (asOfAt) out.asOf = `as of ${asOfAt}`;
+  const m = w.machine;
+  if (m) {
+    const parts = [`${fmtTokens(m.tokens)} tokens`, statsCostText(m.cost)];
+    if (Number.isFinite(m.tokensPerHour)) parts.push(`~${fmtTokens(Math.round(m.tokensPerHour))} tok/h`);
+    out.machine = `this machine: ${parts.join(' · ')}`;
+  }
+  return out;
+}
+
+/** The bar's level class: the same `usageLevel` the limits chips and the Stats cards colour by (shell/usage-status.js). */
+function statsWindowLevelClass(percent) {
+  const level = typeof usageLevel === 'function' ? usageLevel(percent) : 'normal';
+  return level && level !== 'normal' ? ` usage-fill-${level}` : '';
+}
+
+function buildStatsWindowCard(w) {
+  const lines = statsWindowLines(w);
+  const card = document.createElement('div');
+  card.className = 'usage-card stats-window-card';
+  const accent = typeof window.backendIconKnownColour === 'function' ? window.backendIconKnownColour(w.colour) : null;
+  if (accent) card.style.borderLeft = `3px solid ${accent}`;
+  const head = document.createElement('div');
+  head.className = 'usage-card-header';
+  const label = document.createElement('span');
+  label.className = 'usage-card-label stats-window-label';
+  if (typeof renderBackendIcon === 'function') label.appendChild(renderBackendIcon(w.icon || w.backendId, 12, {}));
+  label.appendChild(document.createTextNode(` ${w.backendLabel || ''} · ${w.label || ''}`));
+  const pct = document.createElement('span');
+  pct.className = 'usage-card-pct';
+  const known = Number.isFinite(w.percent);
+  const percent = known ? w.percent : 0;
+  pct.textContent = known ? `${Math.round(percent)}%` : '—';
+  head.append(label, pct);
+  const track = document.createElement('div');
+  track.className = 'usage-track';
+  const fill = document.createElement('div');
+  fill.className = 'usage-fill' + (known ? statsWindowLevelClass(percent) : '');
+  fill.style.width = known ? `${Math.max(0, Math.min(100, percent))}%` : '0%';
+  track.appendChild(fill);
+  card.append(head, track);
+  const add = (cls, text, title) => {
+    if (!text) return;
+    const el = document.createElement('div');
+    el.className = cls;
+    el.textContent = text;
+    if (title) el.title = title;
+    card.appendChild(el);
+  };
+  add('usage-card-reset stats-window-reset', lines.reset);
+  add('stats-window-projection', lines.projection, lines.note);
+  add('usage-card-reset stats-window-asof', lines.asOf);
+  add('usage-card-reset stats-window-machine', lines.machine);
+  return card;
+}
+
+/** The block for a list of windows, or null for none (no empty heading). */
+function buildStatsWindows(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  const section = document.createElement('div');
+  section.className = 'stats-windows';
+  const title = document.createElement('div');
+  title.className = 'daily-chart-title';
+  title.textContent = 'Usage windows';
+  title.title = 'Subscription windows, filtered by backend only';
+  const grid = document.createElement('div');
+  grid.className = 'stats-windows-grid';
+  for (const w of list) if (w && typeof w === 'object') grid.appendChild(buildStatsWindowCard(w));
+  section.append(title, grid);
+  return section;
+}
+
+/** Put the block at the end of the drawn page (Rhythm is last); drops an older copy. A no-op on a page that is not drawn. */
+function drawStatsWindows() {
+  const results = statsViewerBody && statsViewerBody.querySelector('.stats-results');
+  if (!results) return;
+  const old = results.querySelector('.stats-windows');
+  if (old) old.remove();
+  if (!results.dataset.drawn) return;
+  if (statsWindows.backend !== statsShownBackend()) return;
+  const block = buildStatsWindows(statsWindows.list);
+  if (block) results.appendChild(block);
+}
+
+/** The backend filter of the page ON SCREEN (the echo), not of a request still in flight: the block follows what is drawn. */
+function statsShownBackend() {
+  const f = statsState.filter;
+  return (f && f.backend) || null;
+}
+
+async function loadStatsWindows() {
+  const gen = ++statsWindowsGen;
+  const backend = statsShownBackend();
+  let res = null;
+  try { res = await window.api.getStatsUsageWindows(backend); } catch { res = null; }
+  if (gen !== statsWindowsGen) return;
+  // The page moved to another backend while this was out (a change and a change back are not told apart by the held answer):
+  // drop the answer, keep what is drawn, and ask for the backend that is shown now. Ends once the shown backend holds still.
+  if (backend !== statsShownBackend()) { loadStatsWindows(); return; }
+  statsWindows = { list: res && res.ok && Array.isArray(res.windows) ? res.windows : [], backend };
+  drawStatsWindows();
+}
+
 // --- rate limits (get-usage, never filtered) -----------------------------------------------------------------------------
 // A strip at the right of the filter bar (V8): one chip per backend that reports a limit, showing its tightest window; a chip
 // opens that backend's full per-window detail in a popover. The read is its own async path: nothing in the stats render waits
@@ -1279,6 +1445,7 @@ async function loadUsage() {
       drawUsageStrip();
     }
   } catch { /* the cached reading, if any, stays */ }
+  loadStatsWindows();
 }
 
 // The open popover: its element, the chip that opened it and the one function that closes it (so a redraw of the bar, which
@@ -1391,6 +1558,7 @@ function buildUsageDetail(usage) {
       if (fresh && Array.isArray(fresh.backends)) {
         cachedUsage = fresh;
         drawUsageStrip();
+        loadStatsWindows();
         return;
       }
     } catch { /* the existing render stays */ }

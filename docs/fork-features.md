@@ -1103,7 +1103,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   previous period, one hand-drawn chart (measure and split switch, a bar click sets the range), sortable
   tables for projects, models, backends and sessions whose rows set the filter or open the session, a project
   list with trend lines in the left sidebar, a collapsible Rhythm block (year heatmap, weekday × hour grid),
-  CSV and JSON export, and #809 roll-up columns (what a session started, in the Sessions table only). Cache
+  CSV and JSON export, a usage-windows block (the provider's percent per window projected to its reset, #883), and #809 roll-up columns (what a session started, in the Sessions table only). Cache
   hit rate is a per-backend descriptor answer and shows "—" where a backend cannot report. Cost is never
   dressed up as a bill: an estimate is labelled as one, and a backend that reports no money shows "—". Rate
   limits are a compact strip that is deliberately unfiltered — they belong to a subscription.

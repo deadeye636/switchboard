@@ -288,7 +288,7 @@ chart rather than a row of zeroes.
   place in it, and says so instead of overwriting when both of you have changed it
 - **Stats** — one sticky filter bar (range, backend, project, model), key figures against the previous
   period, a chart with a measure and a split switch, drill-down tables, a project list with trend lines in
-  the sidebar, CSV and JSON export. → [spec 48](docs/specs/48-stats-page.md)
+  the sidebar, usage windows with a burn-rate projection, CSV and JSON export. → [spec 48](docs/specs/48-stats-page.md)
 - **Usage monitoring** — a status-bar segment per backend that reports a quota, with a durable cache
   that shows the last good reading when a poll fails
 - **Spring cleaning** — bulk-clear stale and abandoned-short sessions, never touching starred,

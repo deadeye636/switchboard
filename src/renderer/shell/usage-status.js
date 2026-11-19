@@ -252,7 +252,7 @@
 
   return {
     formatUsageStatus, getUsageLimitCards, getUsageRefreshDelayMs, getUsagePollDelayMs,
-    usageLevel3, getUsageBars, getUsageTooltip,
+    usageLevel, usageLevel3, getUsageBars, getUsageTooltip,
     selectedUsageBackends, observedAgo, isStaleReading,
   };
 });
