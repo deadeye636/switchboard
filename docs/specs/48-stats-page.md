@@ -271,14 +271,20 @@ figures appear in that table only, never in a total, so nothing is counted twice
 
 ### The left sidebar (V7)
 
-`#stats-content` in `src/renderer/index.html` today holds "Click the Stats tab to view activity heatmap." and is dead
-while the page is open. It becomes the **project list for the current filter**: project name (display name, worktrees
+`#stats-content` in `src/renderer/index.html` held "Click the Stats tab to view activity heatmap." and was dead
+while the page was open (its placeholder now reads "Reading projects…" until the first answer). It becomes the **project list for the current filter**: project name (display name, worktrees
 folded into their owner, label per `worktreeLabelOf`), a small trend line (at most 30 points) and the token total
 for the current range, backend and model filter. The list is **not** narrowed by the project filter itself (it would
-show one row); the active project is highlighted and a second click clears it. It uses the same payload field as the
-Projects table, so the two cannot disagree. It is refreshed by the same query; it builds nothing when the Stats tab is
+show one row); the active project is highlighted and a second click clears it. It comes from its own query (`sidebarSeries`), but with the
+same token expression, the same parent-row join and the same owner fold as the Projects table, so the two agree per
+owner for every project inside the sidebar's top 50. It is refreshed by the same query; it builds nothing when the Stats tab is
 not shown (the owner's "no work nobody can see" rule). The sidebar's own morphdom and `preserveSidebarState` rules
 apply (renderer.md); the plan decides whether it is a morphed list or a small replace-by-diff, with the click as the test.
+
+As built (T6): `renderStatsSidebar` in `src/renderer/views/stats-view.js` replaces the list as a whole on each answer (at most 50
+rows, in `#stats-content`, which the session list's morphdom and `preserveSidebarState` do not touch; the focused row is found
+again by its path). It returns at once unless `#stats-content` is shown (`statsSidebarShown`), so a reply that lands after a tab
+switch builds nothing. Rows are buttons flagged `selectable` by main (the "(no project)" line is not); the sparkline is a hand-drawn SVG polyline.
 
 ### Rhythm (V6)
 

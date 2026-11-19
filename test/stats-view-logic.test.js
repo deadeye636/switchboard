@@ -500,3 +500,71 @@ test('after a failed reply the next change builds on the last echo, not on what 
   assert.equal(third.f.model, null, 'the failed chain is gone: the third change starts from the last echo');
   assert.equal(third.v.measure, 'tokens');
 });
+
+// --- the left sidebar's project list (V7, T6) -----------------------------------------------------------------------------
+
+const SIDE = [
+  { projectPath: '/p/one', name: 'One', selectable: true, total: 3000, points: [0, 5, 10] },
+  { projectPath: '', name: '(no project)', selectable: false, total: 40, points: [0, 0, 0] },
+];
+
+test('statsSparkPoints: the largest value is the top edge, zeros and an empty list are safe', () => {
+  const w = setup({});
+  assert.equal(w.statsSparkPoints([0, 5, 10], 60, 16), '0,15 30,8 60,1');
+  assert.equal(w.statsSparkPoints([0, 0], 60, 16), '0,15 60,15');
+  assert.equal(w.statsSparkPoints([], 60, 16), '');
+  assert.equal(w.statsSparkPoints([7], 60, 16), '30,1');
+});
+
+test('statsSidebarShown: only a host that is on screen is built into', () => {
+  const w = setup({});
+  const host = w.document.createElement('div');
+  assert.equal(w.statsSidebarShown(null), false);
+  host.style.display = 'none';
+  assert.equal(w.statsSidebarShown(host), false);
+  host.style.display = '';
+  assert.equal(w.statsSidebarShown(host), true);
+});
+
+test('the sidebar list builds nothing while its host is hidden, lists the rows when shown, and a click sets and clears the project', async () => {
+  const sent = [];
+  const w = setup({
+    getStats: async (f, v) => { sent.push(f); return { ok: true, filter: f || FILTER, view: VIEW, payload: payload({ sidebar: SIDE }) }; },
+    getStatsFacets: async () => FACETS,
+    getUsage: async () => ({ backends: [] }),
+  });
+  const host = w.document.createElement('div');
+  host.id = 'stats-content';
+  host.innerHTML = '<div class="plans-empty">placeholder</div>';
+  host.style.display = 'none';
+  w.document.body.appendChild(host);
+
+  await w.loadStats();
+  await tick();
+  assert.equal(host.querySelector('.stats-side-row'), null, 'hidden: nothing was built');
+  assert.match(host.textContent, /placeholder/);
+
+  host.style.display = '';
+  await w.requestStats(FILTER);
+  await tick();
+  const rows = [...host.querySelectorAll('.stats-side-row')];
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].tagName, 'BUTTON');
+  assert.equal(rows[0].querySelector('.stats-side-name').textContent, 'One');
+  assert.equal(rows[0].querySelector('.stats-side-total').textContent, '3.0K');
+  assert.ok(rows[0].querySelector('svg.stats-spark polyline'));
+  assert.equal(rows[1].tagName, 'DIV', 'a row main did not flag selectable is no control');
+
+  rows[0].click();
+  await tick();
+  assert.equal(JSON.parse(JSON.stringify(sent[sent.length - 1])).project, '/p/one');
+
+  // The echo now names the project: the row is the active one and a second click clears it.
+  await w.requestStats({ ...FILTER, project: '/p/one' });
+  await tick();
+  const active = host.querySelector('.stats-side-row.is-active');
+  assert.equal(active.dataset.path, '/p/one');
+  active.click();
+  await tick();
+  assert.equal(JSON.parse(JSON.stringify(sent[sent.length - 1])).project, null);
+});

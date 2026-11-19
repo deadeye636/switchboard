@@ -443,3 +443,16 @@ test('range resolution across a month edge, a leap day and a DST change', () => 
   const yr = stats.resolveRange({ kind: 'year' }, '2028-03-01', null);
   assert.deepEqual([yr.days, yr.from], [365, '2027-03-03']);
 });
+
+test('sidebar rows: an owner project is selectable, the "(no project)" line is not, worktrees fold into the owner', () => {
+  makeCtx({ raw: () => ({ ...emptyRaw(), sidebar: [
+    { projectPath: ROOT, bucket: 0, tokens: 5 },
+    { projectPath: WT, bucket: 1, tokens: 7 },
+    { projectPath: null, bucket: 0, tokens: 2 },
+  ] }) });
+  const rows = stats.getStats({ range: '7d' }).payload.sidebar;
+  const own = rows.find(r => r.projectPath === ROOT);
+  assert.equal(own.total, 12);
+  assert.equal(own.selectable, true);
+  assert.equal(rows.find(r => r.projectPath === '').selectable, false);
+});

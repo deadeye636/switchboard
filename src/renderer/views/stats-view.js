@@ -298,6 +298,93 @@ function statsDrillInto(field, value) {
   return applyFilter({ [field]: active ? null : value });
 }
 
+// --- the left sidebar's project list (V7) ------------------------------------------------------------------------------------
+
+/** True when the sidebar host is on screen. "No work nobody can see": every other tab hides it, and then nothing is built. */
+function statsSidebarShown(host) {
+  return !!host && host.style.display !== 'none';
+}
+
+/** The `points` attribute of a sparkline polyline: values spread over `width` x `height`, the largest on the top edge. */
+function statsSparkPoints(values, width, height) {
+  const list = (values || []).map(v => (Number.isFinite(v) && v > 0 ? v : 0));
+  if (!list.length) return '';
+  const max = Math.max(...list);
+  const step = list.length > 1 ? width / (list.length - 1) : 0;
+  const pad = 1;
+  return list.map((v, i) => {
+    const x = list.length > 1 ? i * step : width / 2;
+    const y = max > 0 ? pad + (height - 2 * pad) * (1 - v / max) : height - pad;
+    return `${+x.toFixed(1)},${+y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function buildStatsSpark(values) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'stats-spark');
+  svg.setAttribute('width', '60');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('viewBox', '0 0 60 16');
+  svg.setAttribute('aria-hidden', 'true');
+  const line = document.createElementNS(NS, 'polyline');
+  line.setAttribute('points', statsSparkPoints(values, 60, 16));
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', 'currentColor');
+  line.setAttribute('stroke-width', '1.5');
+  line.setAttribute('stroke-linejoin', 'round');
+  line.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(line);
+  return svg;
+}
+
+/**
+ * The project list in the left sidebar, from `payload.sidebar` (the page's own answer, not narrowed by the project filter).
+ * Replaced as a whole on each answer, not morphed: it holds at most 50 small rows, lives in `#stats-content` which the
+ * session list's morphdom and `preserveSidebarState` never touch, and a refresh follows a filter change anyway. The focused
+ * row is found again by its path so the keyboard stays where it was.
+ */
+function renderStatsSidebar() {
+  const host = document.getElementById('stats-content');
+  if (!statsSidebarShown(host) || !statsState.payload) return;
+  const focusedPath = document.activeElement && host.contains(document.activeElement) ? document.activeElement.dataset.path : null;
+  const rows = statsState.payload.sidebar || [];
+  const active = (statsState.filter || {}).project ?? null;
+  const list = document.createElement('div');
+  list.className = 'stats-side-list';
+  if (!rows.length) {
+    const none = document.createElement('div');
+    none.className = 'plans-empty';
+    none.textContent = 'No project activity in this selection.';
+    list.appendChild(none);
+  }
+  for (const r of rows) {
+    const clickable = r.selectable === true;
+    const el = document.createElement(clickable ? 'button' : 'div');
+    el.className = 'stats-side-row' + (clickable && active === r.projectPath ? ' is-active' : '') + (clickable ? '' : ' is-static');
+    if (clickable) {
+      el.type = 'button';
+      el.dataset.path = r.projectPath;
+      el.setAttribute('aria-pressed', active === r.projectPath ? 'true' : 'false');
+      el.onclick = () => statsDrillInto('project', r.projectPath);
+    }
+    el.title = `${r.name}: ${fmtTokens(r.total)} tokens` + (clickable ? (active === r.projectPath ? ' (click to clear this filter)' : ' (click to filter the page to this project)') : '');
+    const name = document.createElement('span');
+    name.className = 'stats-side-name';
+    name.textContent = r.name;
+    const total = document.createElement('span');
+    total.className = 'stats-side-total';
+    total.textContent = fmtTokens(r.total);
+    el.append(name, buildStatsSpark(r.points), total);
+    list.appendChild(el);
+  }
+  host.replaceChildren(list);
+  if (focusedPath) {
+    const again = [...host.querySelectorAll('.stats-side-row[data-path]')].find(b => b.dataset.path === focusedPath);
+    if (again) again.focus();
+  }
+}
+
 function buildStatsBreakdown(payload) {
   const section = document.createElement('div');
   section.className = 'stats-breakdown';
@@ -461,6 +548,7 @@ async function requestStats(filter, view) {
   statsState = { filter: res.filter, view: res.view, payload: res.payload, facets: null };
   statsPending = { filter: res.filter, view: res.view };
   renderStatsPage();
+  renderStatsSidebar();
   loadFacets(gen);
 }
 

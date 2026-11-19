@@ -554,7 +554,7 @@ function foldSidebar(rows, days, know) {
   for (const r of rows) {
     const o = ownerOfPath(r.projectPath, know);
     let e = by.get(o.path);
-    if (!e) { e = { projectPath: o.path, name: o.name, total: 0, points: new Array(count).fill(0) }; by.set(o.path, e); }
+    if (!e) { e = { projectPath: o.path, name: o.name, selectable: !!o.path, total: 0, points: new Array(count).fill(0) }; by.set(o.path, e); }
     const b = Math.min(count - 1, Math.max(0, num(r.bucket)));
     e.points[b] += num(r.tokens);
     e.total += num(r.tokens);
