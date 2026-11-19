@@ -286,8 +286,9 @@ chart rather than a row of zeroes.
   editor as unreadable bytes. → [spec 22](docs/specs/22-pdf-preview.md)
 - **Documents stay live** — a file open in the viewer follows an agent rewriting it, keeping your
   place in it, and says so instead of overwriting when both of you have changed it
-- **Stats** — heatmap, per-backend tokens and cost, model share, and a when-you-work grid, all behind
-  one backend filter
+- **Stats** — one sticky filter bar (range, backend, project, model), key figures against the previous
+  period, a chart with a measure and a split switch, drill-down tables, a project list with trend lines in
+  the sidebar, CSV and JSON export. → [spec 48](docs/specs/48-stats-page.md)
 - **Usage monitoring** — a status-bar segment per backend that reports a quota, with a durable cache
   that shows the last good reading when a poll fails
 - **Spring cleaning** — bulk-clear stale and abandoned-short sessions, never touching starred,
@@ -416,8 +417,14 @@ A secret stays behind its template either way.
 
 ![Stats](docs/images/stats.png)
 
-One backend filter at the top scopes everything below it. The rate-limit panel stays unfiltered,
-because those are Claude's subscription limits and no other CLI has them.
+One filter bar at the top (time range, backend, project, model) scopes everything below it and is
+remembered across restarts. Under it: key figures with the change against the previous period (sessions,
+messages, tokens, cost, cache hit rate, active days), one chart with a measure and a split switch, and
+sortable tables for projects, models, backends and sessions. A row sets the matching filter or opens the
+session; a heatmap day sets the range to that day. A Sessions column pair rolls up the sessions an agent
+started (#809). The left sidebar lists the projects with a trend line, a Rhythm block holds the year heatmap
+and a weekday-by-hour grid, and the tables export as CSV or JSON. Rate limits are a compact strip that
+ignores the filter, because they belong to a subscription, not a project.
 
 ## Settings
 

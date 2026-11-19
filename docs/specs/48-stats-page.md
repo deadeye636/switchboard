@@ -1,13 +1,13 @@
 # 48 — The Stats page (one filter bar, key figures, drill-down, project scope)
 
-Issue #877. Status: **planned** (nothing built). Requirements V1–V11 keep the issue's IDs. This file is the design
-record; the working plan is local (gitignored). Decisions already made with the owner: all of V1–V11 are in scope,
-V11 is a later phase; the page is rebuilt as a whole, not patched block by block; the shared multi-field filter in
-SQL is the foundation every block depends on; rate limits stay unfiltered.
+Issue #877. Status: **built** (V1–V10; V11 is its own later issue, see "V11" and "Known gaps"). Requirements V1–V11
+keep the issue's IDs. This file is the design record; the working plan was local (gitignored). Decisions made with the
+owner: all of V1–V11 are in scope, V11 is a later phase; the page was rebuilt as a whole, not patched block by block;
+the shared multi-field filter in SQL is the foundation every block depends on; rate limits stay unfiltered.
 
 ## What it does
 
-The Stats tab becomes one page with one filter bar (time range, backend, project, model) that stays visible while the
+The Stats tab is one page with one filter bar (time range, backend, project, model) that stays visible while the
 page scrolls. Under it: a row of key figures with the change against the previous period, one main time series with
 a measure switch and a split switch, a Rhythm block (year heatmap plus weekday-by-hour grid), and sortable breakdown
 tables (projects, models, backends, sessions) whose rows set the matching filter or open the session. The left sidebar
@@ -21,10 +21,10 @@ the filter. The tables export as CSV and JSON.
   purpose: `sessionId` is `session_cache`'s key, the join cannot drift, and it is INNER so an orphan row is never counted.
   A NULL `backendId` means Claude.
 - **A backend filter is a LIST of ids (#168).** "Codex" is the backend plus every template running on it; flattening
-  the list to one string once blanked the page. `backendFilterIds` in `src/main.js` expands it, `plan()` in
-  `src/db/stats-queries.js` keys the prepared statement on the id COUNT.
+  the list to one string once blanked the page. `backendIds` in `src/app/stats.js` expands it, and the statement cache in
+  `src/db/stats-store.js` is keyed on the SQL text, whose shape changes with the id count.
 - **A GUI session counts under its owner CLI (#752).** The DB already files those rows under the owner; the page
-  folds a template into the backend it runs on (`statsBucketOf` in `src/renderer/views/stats-view.js`).
+  folds a template into the backend it runs on (`bucketOf` in `src/app/stats.js`).
 - **Dates are LOCAL (#75).** Buckets are written by the parsers in local time (`src/backends/metrics-bucket.js`);
   every day key the page or main builds is a local `YYYY-MM-DD`, never `toISOString().slice(0, 10)`.
 - **An estimate is never rendered as a bill.** A cost is settled only when the backend says so; any estimated
@@ -78,39 +78,39 @@ StatsFilter {
   `src/app/path-containment.js`, so two spellings of one directory are one project, #563/#671), and hands SQL the
   member paths as bound parameters of an `IN` list on a `session_cache` subquery. The same fold runs the other way for
   the Projects table: SQL groups by raw `projectPath`, main folds worktrees into their owner. The worktree knowledge
-  main already holds (`setKnownWorktrees`) must be loaded before this runs; the plan verifies it.
+  main already holds (`setKnownWorktrees`) must be loaded before this runs; `src/app/stats.js` runs `known-worktree.refresh`
+  first, because nothing guarantees it has run (T4a below).
   Names shown come from `worktreeLabelOf` and the project registry's display name, not from a path split.
-  A subagent belongs to its PARENT's project for every grouping and for the filter (a few stored subagent rows carry another `projectPath` than their parent); the SQL reads `COALESCE(parent.projectPath, projectPath)`.
+  A subagent belongs to its PARENT's project for every grouping and for the filter (a few stored subagent rows carry another `projectPath` than their parent); the SQL (`PROJECT_EXPR` in `src/db/stats-queries.js`) reads the parent's path when a parent row exists (`CASE WHEN p.sessionId IS NULL THEN sc.projectPath ELSE p.projectPath END`), and the row's own path only for a parent itself or an orphaned subagent. The project filter makes the same choice, one level deep (stored subagents hang off a top-level session).
 - **Model.** Exact match on `session_metrics.model`. Two consequences the page must show: the model filter excludes
   the model-less bucket (`''`), where a parser files messages it could not attribute, so with a model filter the
   message count is that model's assistant messages and a session counts only if it has rows for that model.
 - **Persistence.** The last filter is remembered across restarts under an internal key of the global settings blob
   (the way `dialog-dirs.js` remembers `lastDialogDir`: not a field of the settings screen). The write goes through
-  main; the answer echoes the sanitised filter so a project that left the register, a backend turned off or a model that
-  no longer has rows falls back to "all" for that field instead of showing an empty page. A `day` or `custom` range is
+  main; the answer echoes the sanitised filter so a project that left the register, or a backend turned off falls back to "all" for that field instead of showing an empty page. A model is only trimmed and capped: a remembered model that no longer has rows gives the empty state, with the bar and Reset (Known gaps). A `day` or `custom` range is
   stored as is. Because it is a settings-blob key, `docs/settings-reference.md` gets the entry in the same change
   (reflex 9). The Stats view lives in the main window only; no cross-window broadcast is needed.
 
 ## Main-process side
 
-A **new** `src/app/` module (planned name: stats) owns the page's IPC (reflex 4; the table in
-`.claude/rules/main-process.md` and the `WHERE_IT_GOES` string in `test/main-no-new-ipc.test.js` get a row in the
-same change). Its handlers, bound in `src/preload.js`:
+`src/app/stats.js` owns the page's IPC (reflex 4; the table in `.claude/rules/main-process.md` and the `WHERE_IT_GOES`
+string in `test/main-no-new-ipc.test.js` carry a row for it and one for `stats-export.js`). Its handlers, bound in
+`src/preload.js`:
 
 | Handler | Purpose |
 |---|---|
-| stats query | filter in; the whole page payload out (below) |
-| stats set filter | persist the sanitised filter (may be folded into the query call) |
-| stats export | V10 |
+| `stats-get` | filter in (or none: the remembered one); the sanitised echo and the whole page payload out. The echo is persisted here, so there is no separate set-filter handler |
+| `stats-facets` | the filter bar's choices, read lazily when a dropdown opens |
+| `stats-set-rhythm` | folds or opens the Rhythm block by editing only the stored filter, no payload |
+| `stats-export` (`src/app/stats-export.js`) | V10 |
 
 Rate limits keep their own existing `get-usage` handler (#191); the page calls it separately and never waits on it.
-`get-stats-from-db` and `refresh-stats` are retired once the page has moved (their only caller is the Stats view);
-removing handlers is not blocked by the no-new-IPC guard. `backendFilterIds` and `buildStatsFromDb` move out of
-`src/main.js` into the new module.
+`get-stats-from-db` and `refresh-stats` were removed in T4 (their only caller was the Stats view). `backendFilterIds` and
+`buildStatsFromDb` moved out of `src/main.js` and became `backendIds` and `buildPayload` in `src/app/stats.js`.
 
 SQL stays in `src/db/stats-queries.js` (Electron-free, testable against an in-memory SQLite with the real schema) and
-`src/db/stats-store.js`. `compose()` there grows from "one optional backend predicate" to **one shared predicate
-builder**: date range, backend id list, project path list, model. Every query below uses it, so no block can forget
+`src/db/stats-store.js`. `compose()` there grew from "one optional backend predicate" into **one shared predicate
+builder**, `buildPredicate`: date range, backend id list, project path list, model. Every query below uses it, so no block can forget
 a dimension; a test asserts that, for each query, adding each filter field narrows the result.
 
 ### One backend-neutral fold in main
@@ -119,7 +119,7 @@ SQL returns raw rows keyed by the stored `backendId` (and, for cost, the stored 
 registry, so no backend id or vocabulary enters SQL or the renderer (reflex 5):
 
 - **Bucket** (the CLI a row is counted under): profile ids fold to the owner of their base (`rowOwnerOf`), a GUI
-  driver is already filed under its owner. This replaces the renderer's `statsBucketOf`.
+  driver is already filed under its owner. This replaced the renderer's `statsBucketOf` (now `bucketOf` in `src/app/stats.js`).
 - **Label and colour** come from the registry projection the renderer already reads; the page names no backend.
 - **Cost settled or not** is decided by a descriptor answer, not by the renderer's `SETTLED_COST_STATUS` list (that list
   holds Hermes' vocabulary in a renderer file and is moved behind the descriptor as part of this work; the default
@@ -140,7 +140,7 @@ shared predicate. No row-level data crosses IPC except the capped session table.
 | Backends table | `GROUP BY backendId` | same figures as the key row, per bucket |
 | Sessions table | `GROUP BY COALESCE(sc.parentSessionId, m.sessionId) ORDER BY <measure> LIMIT N` | N = 50; title, project, backend, dates, last model, messages, tokens, cost |
 | Rhythm (V6) | `GROUP BY m.date` (year window) and `GROUP BY weekday, hour` (the range, hour >= 0) | per-day messages; the 7 x 24 grid |
-| Sidebar list (V7) | the Projects aggregate plus a per-project series bucketed to at most 30 points, for the top 50 projects | total and sparkline per project. The SQL ranks the top 50 on the RAW `projectPath`, before the worktree fold: a project whose tokens are split over many worktrees can fall out of the 50 although its folded total would rank. The caller passes folded path groups, or accepts and states this limit |
+| Sidebar list (V7) | the Projects aggregate plus a per-project series bucketed to at most 30 points, for the top 50 projects | total and sparkline per project. The SQL ranks the top 50 on the RAW `projectPath`, before the worktree fold: a project whose tokens are split over many worktrees can fall out of the 50 although its folded total would rank. This build accepts the limit (Known gaps) |
 | Facets | distinct models and distinct backends under the other filters | choices for the filter bar, so a choice never leads to an empty page |
 
 Rules that every figure follows:
@@ -205,7 +205,7 @@ What exists: `session_metrics` has primary key `(sessionId, date, hour, model)` 
 sessions x active days x active hours x models, so "all time" is a full scan of the largest table, and today's
 unfiltered page already runs about eight such scans on the main thread (better-sqlite3 is synchronous) on every open.
 
-This spec does not guess the number. The first plan step runs the planned queries against a **copy of a real database
+This spec does not guess the number. The first build step ran the queries against a **copy of a real database
 and an empty one** (`scripts/stats-query-probe.js`, which runs the way `scripts/db-probe.js` does, the db.md rule) and records time per block for `7d`, `year`, `all`, with and
 without a project filter. Decision rules fixed now, so the measurement has something to be compared to:
 
@@ -223,7 +223,7 @@ without a project filter. Decision rules fixed now, so the measurement has somet
   Not in these figures: main's fold after the SQL (projects cap, series top-8 "Other", worktree fold), a worktree-wide project
   filter and a model filter. Cost grows with the rows in range,
   so the figures scale with the corpus; re-run the script against a copy of your own database for the per-block table.
-- No migration is planned today. If one is added it is append-only (`migrations.length` is the version).
+- No migration was added. If one is added later it is append-only (`migrations.length` is the version).
 - Filter-bar choices (facets) are two `DISTINCT` queries under the other filters and are read lazily when a
   dropdown opens, not with every page load.
 
@@ -242,8 +242,7 @@ Rhythm (collapsible): year heatmap  |  weekday x hour grid
   container is the existing Stats body; the filter bar is `position: sticky` inside it, which also holds when the
   view is hosted in a pane (`stats` is a singleton pane kind, `.claude/rules/renderer.md`).
 - **Reuse existing styling (reflex 8).** The filter controls, tabs, tables and the export menu reuse existing classes
-  (the pill and button classes the old filter bar and the Backends panel use). The plan lists which before any markup
-  is written; no bare `<button>` or `<select>`.
+  (the pill and button classes the old filter bar and the Backends panel use); no bare `<button>` or `<select>`.
 - **Empty states.** The filter bar is always drawn, even when the result is empty: a filter that vanishes with its own
   result set is a trap (the #159 principle). An empty result names the active filters and offers reset.
   As built (#877): an empty answer keeps the Rhythm block below the message (`renderStatsPage`): the fold toggle and the heatmap, which is the navigator back from an empty day and is drawn from the payload's `heatmap` (main builds it for any range, empty or not). The hour grid has no rows and draws nothing. Focus restore after an empty day lands on that day's cell, still only for the heatmap's own request. When the backend, project and model filters have no message in the whole 365-day window, there is no heatmap to navigate with: the block says "No activity in the 365 days up to the end of the range." and the way back is the filter bar's reset.
@@ -252,7 +251,9 @@ Rhythm (collapsible): year heatmap  |  weekday x hour grid
   Changing a filter field re-queries; the bar is not redrawn from the answer except for the echoed, sanitised filter.
 - **Backend colours (V3).** The series colour for a backend comes from the registry (`colour` on the descriptor);
   for a model or project split, from a neutral palette. Axes and a tooltip per bar are required; the measure's unit
-  is on the axis (tokens and cost are never stacked in one bar, which fixes the "Last 30 days" defect).
+  is on the axis (tokens and cost are never stacked in one bar, which fixes the "Last 30 days" defect). Built as hand-drawn SVG in
+  `src/renderer/views/stats-chart.js` (O9) with a unit-tested scale; a bar click sets the range to that bucket (O5), and a partial
+  last bucket is drawn lighter and labelled "so far" (O8).
 - **No per-model cards (V5).** The model cards and the standalone "Tokens by model", "Tokens by backend", "Cost" and
   "Last 30 days" blocks go; the Models table and the main chart replace them.
 
@@ -274,14 +275,14 @@ figures appear in that table only, never in a total, so nothing is counted twice
 ### The left sidebar (V7)
 
 `#stats-content` in `src/renderer/index.html` held "Click the Stats tab to view activity heatmap." and was dead
-while the page was open (its placeholder now reads "Reading projects…" until the first answer). It becomes the **project list for the current filter**: project name (display name, worktrees
+while the page was open (its placeholder now reads "Reading projects…" until the first answer). It is the **project list for the current filter**: project name (display name, worktrees
 folded into their owner, label per `worktreeLabelOf`), a small trend line (at most 30 points) and the token total
 for the current range, backend and model filter. The list is **not** narrowed by the project filter itself (it would
 show one row); the active project is highlighted and a second click clears it. It comes from its own query (`sidebarSeries`), but with the
 same token expression, the same parent-row join and the same owner fold as the Projects table, so the two agree per
 owner for every project inside the sidebar's top 50. It is refreshed by the same query; it builds nothing when the Stats tab is
-not shown (the owner's "no work nobody can see" rule). The sidebar's own morphdom and `preserveSidebarState` rules
-apply (renderer.md); the plan decides whether it is a morphed list or a small replace-by-diff, with the click as the test.
+not shown (the owner's "no work nobody can see" rule). `#stats-content` sits outside `#sidebar-content`, so the session list's
+morphdom and `preserveSidebarState` rules do not apply; the list is replaced as a whole (below).
 
 As built (T6): `renderStatsSidebar` in `src/renderer/views/stats-view.js` replaces the list as a whole on each answer (at most 50
 rows, in `#stats-content`, which the session list's morphdom and `preserveSidebarState` do not touch; the focused row is found
@@ -291,7 +292,7 @@ switch builds nothing. Rows are buttons flagged `selectable` by main (the "(no p
 ### Rhythm (V6)
 
 The heatmap and the weekday-by-hour grid become one collapsible block, collapsed state remembered with the filter. The
-hour grid follows the range; the heatmap is a navigator and is affected by O3. Local time, hour -1 excluded, as today.
+hour grid follows the range; the heatmap is a navigator and is affected by O1. Local time, hour -1 excluded, as today.
 
 As built (T7): `buildRhythm` in `src/renderer/views/stats-view.js` draws a header button (`aria-expanded`) and, only while open, the
 heatmap and the hour grid; folded, neither DOM is built, and opening builds from the payload the page already holds, with no
@@ -438,7 +439,7 @@ accumulation: it draws what the payload holds.
   sidebar project click, the sticky bar while scrolling, the page in panes mode, and an export of each format opened
   in a spreadsheet. The demo instance (`npm run demo:start`) holds synthetic activity for this.
 
-## Suggested phasing
+## Phasing (as it ran)
 
 1. Measure (queries on real copies, cache accounting per backend, Hermes) and the shared predicate with its tests.
 2. The new module, the payload, filter persistence, key figures and the main chart; the old handlers and blocks go.
@@ -447,8 +448,8 @@ accumulation: it draws what the payload holds.
 
 ## As built: T4a (the main-process half, #877)
 
-`src/app/stats.js` answers the new page beside the old handlers (`stats-get`, `stats-facets`); the renderer is not swapped yet.
-What is easy to miss:
+`src/app/stats.js` answers the new page (`stats-get`, `stats-facets`). The renderer was swapped in the next commit (T4b+c) and the
+old `get-stats-from-db` and `refresh-stats` handlers were removed there. What is easy to miss:
 
 - **One call, one echo.** `stats-get` sanitises the filter, remembers it under the internal key `statsFilter` only when it changed,
   resolves the range on the local clock that arrives through ctx and folds before the SQL: the project to its owner plus worktree
@@ -470,27 +471,47 @@ What is easy to miss:
   1 s when `known-worktree.refresh` has not run before (it reads each path's `.git` once); the sidebar build normally runs it first.
   Budget (O4): 250 ms.
 
+## Known gaps (deliberately not done)
+
+1. **Roll-up (T9).** There is no index on `session_meta.spawnedBy`; the walk probes an in-query MATERIALIZED edge set instead
+   (measured above). The lift of a spawn by a subagent goes ONE level (to that subagent's top-level parent); a subagent of a subagent
+   is not walked further. A spawner that is missing from `session_cache` contributes nothing. The plan test for the roll-up runs
+   without the production indexes, so it proves the shape of the plan, not the timing on a real database.
+2. **Rhythm fold (T7).** A fold toggled, then the page left and re-entered while the request that carried the old fold is still in
+   flight, can lose the fold once. Reset after a FAILED first load also drops it, because no echoed filter exists yet to carry it.
+3. **Sessions table sort.** Sorting by an "incl." column reorders only the top N the SQL chose by the view's measure (see the
+   roll-up notes).
+4. **Sidebar top 50.** Ranked on the raw `projectPath` before the worktree fold; a project split over many worktrees can fall out
+   although its folded total would rank.
+5. **Cache accounting.** Antigravity is `none` as a finding about names; its protobuf numeric fields are not decoded, so "reports
+   no usage" is not a proof. Codex's `cache_write_input_tokens` is not read by the parser.
+6. **Stale model filter.** `sanitiseFilter` only trims and caps the model, so a remembered model with no rows in the data gives an empty page (bar and Reset stay) instead of falling back to "all" like a project or backend.
+7. **Project filter depth.** It matches subagents one level deep only; a nested subagent (none on a real copy, 2026-11-18) would not follow its top-level session.
+8. **V11** (usage windows with burn rate) is not built; it is its own issue.
+
 ## Open points (owner)
+
+All answered; each entry says what was decided and, where it is not obvious, where it is built.
 
 - [x] **O1.** Time range of the year heatmap. V1 says one range applies to every block; a heatmap of 7 days is useless as a
   navigator. Option A: the heatmap always shows the 365 days ending at the range end, filtered by backend, project and
   model but not by range, and a click sets the range (recommended). Option B: it follows the range like the rest.
-  **Decided (owner, 2026-11-13): Option A.**
+  **Decided (owner, 2026-11-13): Option A.** Built in T7 (`buildRhythm`, heatmap to `payload.heatmap.to`).
 - [x] **O2.** What "tokens" means across backends. Stored `input + output` includes the cached part for Codex and excludes
   it for Claude and Pi, so a token total over "all" mixes two meanings. Option A: keep the stored sum so history reads
   as before and show the split on the tile with the normalised input (recommended for this change). Option B: define
   tokens as uncached input + output + cache everywhere through the descriptor answer, which changes every existing number.
-  **Decided (owner, 2026-11-13): Option A.**
+  **Decided (owner, 2026-11-13): Option A.** Built in T3/T4: the tile shows the stored sum and the normalised split.
 - [x] **O3.** Default filter on first start (no remembered value): 30 days, all backends, all projects (proposal; today the
-  page is a year and all-time mix). **Decided (owner, 2026-11-13): as proposed.**
+  page is a year and all-time mix). **Decided (owner, 2026-11-13): as proposed.** Built in `src/app/stats.js` (default filter, `docs/settings-reference.md` `statsFilter`).
 - [x] **O4.** The page's responsiveness budget on the owner's real corpus (for example "an unfiltered all-time open under
   X ms"). The measurement step reports the figures; the owner picks the limit that decides between the options in
-  "Cost of the queries". **Decided (owner, 2026-11-18): 250 ms** for an unfiltered all-time payload on the owner's corpus. T1 measured 180 to 220 ms, so no index, cache or worker is built now. T2 measures again with the production queries; if the budget is broken, a result cache comes first.
+  "Cost of the queries". **Decided (owner, 2026-11-18): 250 ms** for an unfiltered all-time payload on the owner's corpus. T1 measured 180 to 220 ms, so no index, cache or worker is built now. The end-to-end probe with the production queries measured 190 to 215 ms (T4a above), inside the budget; if it is broken later, a result cache comes first.
 - [x] **O5.** Whether a chart bar click should also set the range to that bucket. Not in the issue; cheap once the
-  range object exists. **Decided (owner, 2026-11-18): yes**, a bar click sets the range to that bucket.
+  range object exists. **Decided (owner, 2026-11-18): yes**, a bar click sets the range to that bucket. Built in T4 (`stats-chart.js` through `applyFilter`).
 - [x] **O6.** Whether the export's project column carries the full local path or only the display name. A path makes the file
   unambiguous and machine-specific; a name is shareable. **Decided (owner, 2026-11-13): the display name only**, so an
-  exported file carries no local path.
+  exported file carries no local path. Built in T8 (`src/app/stats-export.js`).
 - [x] **O7.** Does the project filter match the owner project plus its worktrees (this spec's assumption), or can a
   single worktree be filtered on its own? The latter needs a second control; the former matches how settings and the
   sidebar already treat a worktree. **Decided (owner, 2026-11-13): owner project plus its worktrees.**
@@ -511,10 +532,10 @@ What is easy to miss:
     output that does not take CSS variables, and a second look for the existing heatmap and sparklines, which a
     library would not draw anyway.
   - Effort is a side point: A is more work now and less to carry later.
-  **Decided (owner, 2026-11-18): Option A**, hand-drawn SVG in one shared renderer module with a unit-tested scale.
+  **Decided (owner, 2026-11-18): Option A**, hand-drawn SVG in one shared renderer module with a unit-tested scale. Built: `src/renderer/views/stats-chart.js`, `test/stats-chart.test.js`.
 - [x] **O10.** Whether Stats views open in several windows or panes share one filter. The filter is one remembered
   value, so every open view reads the same one. **Decided (owner, 2026-11-18): one shared filter**; revisited only if
-  the click test shows two views getting in each other's way.
+  the click test shows two views getting in each other's way. Built: one remembered `statsFilter` key read by every view.
 - [x] **O11.** What a click on a Sessions row does: open the session the way the sidebar does, which resumes its CLI, or
   open it read-only. **Decided (owner, 2026-11-18): the sidebar's way.** One known behaviour for the same click; the
-  session opens in the folder it ran in (`openPath`), and in panes mode the Stats tab stays beside it.
+  session opens in the folder it ran in (`openPath`), and in panes mode the Stats tab stays beside it. Built in T5.

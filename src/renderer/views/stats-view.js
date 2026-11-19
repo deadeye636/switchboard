@@ -293,9 +293,11 @@ function statsTabSpec(id, payload) {
       { key: 'project', label: 'Project', get: (r) => r.projectName, text: (r) => r.projectName },
       { key: 'backend', label: 'Backend', get: (r) => r.backend && r.backend.label, text: (r) => (r.backend && r.backend.label) || '—' },
       // `started` is a local day key decided in main (like `lastDate`): the renderer only shows it.
-      { key: 'started', label: 'Started', get: (r) => r.started, text: (r) => r.started || '—' },
-      { key: 'lastDate', label: 'Last active', get: (r) => r.lastDate, text: (r) => r.lastDate || '—' },
-      { key: 'lastModel', label: 'Last model', get: (r) => r.lastModel, text: (r) => r.lastModel || '—' },
+      // A date or a model id never breaks at its hyphen: eleven columns leave little room, and "2026-10-" over "29" reads as
+      // two values. The title and project columns wrap instead.
+      { key: 'started', label: 'Started', nowrap: true, get: (r) => r.started, text: (r) => r.started || '—' },
+      { key: 'lastDate', label: 'Last active', nowrap: true, get: (r) => r.lastDate, text: (r) => r.lastDate || '—' },
+      { key: 'lastModel', label: 'Last model', nowrap: true, get: (r) => r.lastModel, text: (r) => r.lastModel || '—' },
       statsNumCol('messages', 'Messages', (r) => r.messages, fmtCount), statsTokenCol('tokens', 'Tokens'), statsCostCol,
       // The #809 roll-up: the session plus every session it started. Shown here only, never added to a total.
       statsNumCol('inclTokens', 'Tokens incl. started', (r) => r.inclTokens, fmtTokens),
@@ -668,7 +670,7 @@ function renderStatsBreakdownBody() {
     }
     for (const c of spec.columns) {
       const td = document.createElement('td');
-      td.className = c.num ? 'is-num' : '';
+      td.className = c.num ? 'is-num' : (c.nowrap ? 'is-nowrap' : '');
       if (c.icon && r.icon && typeof renderBackendIcon === 'function') td.appendChild(renderBackendIcon(r.icon, 14, {}));
       const text = document.createElement('span');
       text.textContent = c.text(r);

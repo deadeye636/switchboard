@@ -38,7 +38,7 @@ const PROJECT_EXPR = 'CASE WHEN p.sessionId IS NULL THEN sc.projectPath ELSE p.p
  * The Stats page filters by BACKEND — "Codex", not "my Codex template". But a session launched from a
  * template records the TEMPLATE's id as its provenance (§5.7), because that is what the user chose. So
  * "Codex" has to mean "everything that ran the Codex binary": the backend, plus every template on it.
- * The caller (main.js) expands the id; the query just takes the list.
+ * The caller (src/app/stats.js) expands the id; the query just takes the list.
  */
 function idList(backend) {
   if (!backend) return null;

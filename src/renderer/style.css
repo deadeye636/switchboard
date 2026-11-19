@@ -4801,7 +4801,6 @@ html body .terminal-container.conversation-container:not(.visible) {
 /* Daily bar chart */
 .daily-chart-container {
   margin-bottom: 28px;
-  max-width: 900px;
 }
 
 .daily-chart-title {
@@ -4813,9 +4812,9 @@ html body .terminal-container.conversation-container:not(.visible) {
   margin-bottom: 12px;
 }
 
-/* ===== Stats: the page filter + the charts added in #159 ===== */
+/* ===== Stats: the page filter bar and its blocks (#159, rebuilt in #877) ===== */
 
-/* The page's one backend filter. It sits above everything and scopes the whole view. */
+/* The page's one filter bar (range, backend, project, model). It sits above everything and scopes the whole view. */
 .stats-filter-bar {
   margin-bottom: 22px;
   padding-bottom: 16px;
@@ -4908,6 +4907,7 @@ html body .terminal-container.conversation-container:not(.visible) {
 .stats-table th.stats-th { cursor: pointer; user-select: none; }
 .stats-table th.stats-th:hover { color: #e0e0f0; }
 .stats-table th.is-num, .stats-table td.is-num { text-align: right; white-space: nowrap; }
+.stats-table td.is-nowrap { white-space: nowrap; }
 .stats-table td { vertical-align: middle; }
 .stats-table td .backend-icon, .stats-table td svg { vertical-align: middle; margin-right: 6px; }
 .stats-table tr.stats-row { cursor: pointer; }
@@ -4993,44 +4993,6 @@ html body .terminal-container.conversation-container:not(.visible) {
 
 .hour-grid-hour-label { justify-content: center; }
 .hour-grid-day-label { justify-content: flex-end; padding-right: 6px; }
-
-/* Tokens by model: a plain ranked bar list — a share is easier to read than a pie. */
-.model-bars { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
-
-.model-bar-row {
-  display: grid;
-  grid-template-columns: 180px 1fr 110px;
-  align-items: center;
-  gap: 10px;
-}
-
-.model-bar-name {
-  font-size: 11px;
-  color: #b8b8c8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.model-bar-track {
-  height: 14px;
-  background: rgba(255,255,255,0.04);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.model-bar-fill {
-  height: 100%;
-  background: rgba(128,136,255,0.55);
-  border-radius: 3px;
-}
-
-.model-bar-value {
-  font-size: 11px;
-  color: #7a7a90;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
 
 .stats-notice {
   font-size: 12px;

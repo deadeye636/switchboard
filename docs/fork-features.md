@@ -1097,14 +1097,16 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Attention inbox** made configurable — "Running" mode ("timed"), "Working" removed.
 - **Token/usage stats** — per-(session, date, hour, model) token/tool/message/cost metrics into the DB,
   bucketed on the **local** clock so every backend's day means the same thing.
-- **Stats: one backend filter, and the charts to go with it** — a single *All / Claude / Codex / …*
-  control at the top of the page scopes every figure below it (heatmap, 30-day bars, summary tiles,
-  per-backend cards). It is resolved in SQL, not in the renderer: only aggregates cross IPC, so there is
-  nothing there to filter. New charts: **tokens per backend over time** (stacked — where the work goes),
-  **token share per model**, **cost over time**, and a **weekday × hour grid** of when you actually work.
-  Cost is never dressed up as a bill: an estimate is coloured and labelled as one, and a backend that
-  reports no money gets no chart instead of a row of free days. The rate-limit panel is deliberately
-  unfiltered — those are Claude's subscription limits, which no other CLI has.
+- **Stats: one filter bar, key figures and drill-down** (#877, [spec 48](specs/48-stats-page.md)) — a sticky
+  bar (time range, backend, project incl. its worktrees, model) scopes every figure and is remembered. It is
+  resolved in SQL, not in the renderer: only aggregates cross IPC. Key figures with the change against the
+  previous period, one hand-drawn chart (measure and split switch, a bar click sets the range), sortable
+  tables for projects, models, backends and sessions whose rows set the filter or open the session, a project
+  list with trend lines in the left sidebar, a collapsible Rhythm block (year heatmap, weekday × hour grid),
+  CSV and JSON export, and #809 roll-up columns (what a session started, in the Sessions table only). Cache
+  hit rate is a per-backend descriptor answer and shows "—" where a backend cannot report. Cost is never
+  dressed up as a bill: an estimate is labelled as one, and a backend that reports no money shows "—". Rate
+  limits are a compact strip that is deliberately unfiltered — they belong to a subscription.
 - **The cache invalidates itself when a parser changes** — a cached row records the parser version that
   wrote it, and the scan re-reads a session whose parser has moved on, even though the file has not. Its
   absence is why the charts sat stale for every existing user until they found the manual *Rebuild

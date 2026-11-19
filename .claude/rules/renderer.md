@@ -455,6 +455,13 @@ noticing.
   `typeof toast === 'function'` is quietly false and anything reported through it reaches nobody. Say it
   with `showControlMessage`, which both windows load.
 
+## The Stats sidebar list is not the session list (#877)
+
+`#stats-content` (the Stats tab's project list, `renderStatsSidebar` in `views/stats-view.js`) lives outside
+`#sidebar-content`, so the session list's morphdom and `preserveSidebarState` rules above do not apply to it. The list
+is replaced as a whole on each answer and returns at once when `#stats-content` is not shown. Do not route it through
+the session sidebar's render path (spec 48).
+
 ## Panes mode hosts the app's own view elements (#310, #342, #311)
 
 In `sessionDisplayMode: panes`, a tab whose kind is not `terminal` does not build a view. `VIEW_KINDS` in
