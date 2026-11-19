@@ -68,6 +68,12 @@ function localDayKey(date) {
   const p = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
 }
+/** A stored timestamp as the LOCAL day it falls on (a day key), or null when there is none or it does not parse. */
+function localDayOf(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : localDayKey(d);
+}
 
 // --- the filter ---------------------------------------------------------------------------------------------------------
 
@@ -529,9 +535,22 @@ function foldBackends(rows, know) {
     .sort((a, b) => b.tokens - a.tokens);
 }
 
-function foldSessions(rows, know) {
+/**
+ * The Sessions table's lines. `rollup` is the SQL's rows for the sessions each line STARTED (`sessionsRollup`: descendants only,
+ * by cost group), so "incl. started sessions" is the line's own figures plus those. It goes through the same `costFold` as the
+ * own cost (settled or estimated per group, null when nobody reported money) and is never added to anything else.
+ */
+function foldSessions(rows, know, rollup = []) {
+  const started = new Map();
+  for (const g of rollup) {
+    let list = started.get(g.sessionId);
+    if (!list) { list = []; started.set(g.sessionId, list); }
+    list.push(g);
+  }
   return rows.map((r) => {
     const o = ownerOfPath(r.projectPath, know);
+    const own = { backendId: r.backendId, costStatus: r.costStatus, estimatedCostUsd: r.estimatedCostUsd, actualCostUsd: r.actualCostUsd };
+    const groups = started.get(r.sessionId) || [];
     return {
       sessionId: r.sessionId, title: r.aiTitle || null,
       projectPath: o.path, projectName: o.name,
@@ -540,9 +559,12 @@ function foldSessions(rows, know) {
       // A group whose parent row is gone has no project path: there is no folder to resume it in, so it is not openable.
       openable: !!r.projectPath,
       backend: backendFacts(bucketOf(r.backendId, know.idx), know.idx),
-      created: r.created || null, lastDate: r.lastDate || null, lastModel: r.lastModel || null,
+      // The local day the session started on: decided here, so the page and the export show the same day.
+      started: localDayOf(r.created), lastDate: r.lastDate || null, lastModel: r.lastModel || null,
       messages: num(r.messages), tokens: num(r.tokens),
-      cost: costFold([{ backendId: r.backendId, costStatus: r.costStatus, estimatedCostUsd: r.estimatedCostUsd, actualCostUsd: r.actualCostUsd }], know.idx),
+      cost: costFold([own], know.idx),
+      inclTokens: num(r.tokens) + groups.reduce((s, g) => s + num(g.tokens), 0),
+      inclCost: costFold([own, ...groups.map(partsOf)], know.idx),
     };
   });
 }
@@ -589,7 +611,7 @@ function buildPayload(clean, view, today, know, full = false) {
     projects: foldProjects(raw.projects, know, full ? Infinity : PROJECTS_CAP),
     models: foldModels(raw.models, know.idx),
     backends: foldBackends(raw.backends, know),
-    sessions: foldSessions(raw.sessions, know),
+    sessions: foldSessions(raw.sessions, know, raw.rollup || []),
     heatmap: { from: heatmapFrom, to: range.to, days: raw.heatmap.map(r => ({ date: r.date, messages: num(r.messages) })) },
     grid: raw.grid.map(r => ({ weekday: r.weekday, hour: r.hour, messages: num(r.messages), tokens: num(r.tokens) })),
     sidebar: foldSidebar(raw.sidebar, range.days, know),
@@ -709,6 +731,6 @@ function registerIpc(ipc) {
 
 module.exports = {
   init, registerIpc, getStats, getFacets, getExportData, setRhythmCollapsed,
-  FILTER_KEY, defaultFilter, sanitiseFilter, sanitiseRange, sanitiseView, resolveRange, localDayKey,
+  FILTER_KEY, defaultFilter, sanitiseFilter, sanitiseRange, sanitiseView, resolveRange, localDayKey, localDayOf,
   backendIds, bucketOf, costFold, foldKeyFigures, foldSeries, foldProjects, foldBackends, enumerateBuckets,
 };

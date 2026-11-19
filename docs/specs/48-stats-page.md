@@ -268,7 +268,7 @@ Rhythm (collapsible): year heatmap  |  weekday x hour grid
 A row that sets a filter shows it in the bar at once, so the way back is always visible. The Sessions table offers the
 #809 roll-up as a second pair of columns, "own" and "incl. started sessions": the read-side roll-up through
 `spawnedBy` the owner decided for #809 (E16 of its comment); it uses a recursive walk of `session_meta.spawnedBy` with a
-depth cap and a cycle guard, only within the filter's range, and shows "—" where a backend reports no cost. Rolled-up
+depth cap and a cycle guard, filtered by the RANGE ONLY for a started session (backend, project and model do not narrow it: the figure is the full price of the delegated work, owner decision 20), lifts a spawn record whose caller is a subagent to that subagent's top-level parent (decision 21), and shows "—" where a backend reports no cost. Rolled-up
 figures appear in that table only, never in a total, so nothing is counted twice.
 
 ### The left sidebar (V7)
@@ -369,13 +369,46 @@ kind of `dialog-dirs.js`; default names are `switchboard-stats-<table>-<from>_<t
 - **The Sessions cap** is carried in the file NAME for CSV (`switchboard-stats-sessions-top500-...` when the list is full; RFC 4180 has
   no room for a note in the data) and as `limits.sessions: { cap, truncated }` in the JSON. "Cut" means more than the cap existed: main asks
   the SQL for cap + 1 lines (`sessionsTable` clamps at 501) and slices, so exactly 500 sessions is not marked as cut.
-- **Dates and numbers:** `started` and `last_active` are both LOCAL day keys (`started` is the stored timestamp through `localDayKey`).
+- **Dates and numbers:** `started` and `last_active` are both LOCAL day keys (`started` is the stored timestamp through `localDayOf` in
+  `src/app/stats.js`, computed once in main for the page and the export alike: the payload row carries `started`, not the raw timestamp).
   Numbers are written in plain decimal notation, never `1e-7`.
 - **JSON** adds that `limits` field to the shape above; `tables.*` rows use camelCase and `cost: { usd, estimated } | null`.
 - **UI:** `[Export v]` at the right end of the breakdown head (`.settings-action-btn`, menu in the `new-session-popover` and
   `popover-option` classes): "CSV: <tab> table" and "JSON: everything". Escape and an outside click close it, and its document
   listeners exist only while it is open. The outcome is a `showControlToast`: the file name on success, the translated error on
   failure, nothing on cancel.
+
+As built (T9, the #809 roll-up in the Sessions table): two extra columns, "Tokens incl. started" and "Cost incl. started", next to the
+own ones; the CSV carries `tokens_incl_started`, `cost_incl_started_usd` and `cost_incl_started_estimated` (empty without a figure, O6
+rules unchanged), the JSON `tokensInclStarted` and `costInclStarted` (`{ usd, estimated }` or `null`).
+- **Which measures:** tokens and cost. Messages are not rolled up: nothing in the table asks for them.
+- **SQL:** `sessionsRollup` in `src/db/stats-queries.js`, run by `stats-store.js` right after the sessions block for exactly the
+  ids of the lines the table shows (top 50, or the export's 500; duplicates dropped), never the corpus; it is not part of `payloadPlan`.
+  A recursive CTE over `session_meta.spawnedBy` (the child holds the caller's id), depth cap `ROLLUP_MAX_DEPTH` = 8 generations, cycle
+  guard by a path string (A spawns B spawns A stops at the second A; a session that spawned itself adds nothing). The edges are a
+  MATERIALIZED CTE (`edge`) so the walk can probe them by caller; the metrics are reached from the walked sessions with a CROSS JOIN
+  (looked up by `sessionId`, never a scan of the range). `rollupGate` runs first: one EXISTS on `spawnedBy` for those ids and their
+  subagents, and when it is false the roll-up is not run. No migration.
+- **Filter scope of a started session (owner decision 20):** the RANGE only. Backend, project and model filters narrow the lines of the
+  table, not what a line started: "incl." is the full price of the delegated work even when it ran on another backend or in another
+  project. A session outside the range never counts.
+- **Spawn by a subagent (owner decision 21):** a spawn record whose caller is a subagent id is lifted to that subagent's top-level parent
+  (`parentSessionId`), so the started session counts under the parent's line, once.
+- **Cost:** the roll-up rows come per (session, cost backend, cost status) group, and `foldSessions` folds own + groups through the one
+  `costFold` the own column uses, so settled versus estimated is decided per group by the backend (`costSettled`); `null` ("—") when no
+  part carries a figure. Tokens are summed exactly like the own column (input + output).
+- **No double count:** a started session contributes its rows by its TOP-LEVEL id plus the subagent rows (`parentSessionId`) that hang
+  off it, once (the same grouping `SESSION_KEY` gives the own column); a spawn node that is itself a subagent row contributes nothing
+  (its rows already ride with its parent), and a root's own subagents are never walked (they are own figures, not started sessions).
+  `spawnedBy` gives a session one parent, so a session is reached once per root. The relation `spawnedBy` (an agent started another
+  session) and `parentSessionId` (a subagent inside a session) are different and never mixed.
+- **Never in a total:** no other query reads `session_meta` (a test walks `payloadPlan`), key figures, series, projects, models and
+  backends are unchanged, and the own columns keep their figures.
+- **Measured** (copy of a dev database, 363 sessions in the table, 200 synthetic spawn rows in the copy): 8 ms for 50 roots, 30 ms for 501
+  roots; the own sessions block alone is 17-22 ms. Synthetic large set (20 000 sessions x 10 metrics days, 501 roots): no spawn rows 14 ms
+  (was 260 ms before the CROSS JOIN, which scanned the range), 1 000 spawn rows 94 ms (was 473), a 4 999-link chain 131 ms (was 190).
+- **Sorting by an incl. column** reorders only the lines already ranked by the own figures (the top N the SQL chose by the view's measure);
+  it does not pick a different top N. Accepted.
 
 ## V11 — usage windows with burn rate (later)
 

@@ -283,6 +283,79 @@ ORDER BY g.${order} IS NULL, g.${order} DESC, g.key`,
   };
 }
 
+// How many generations of "a session started a session" the roll-up follows; a chain deeper than this is cut, not an error.
+const ROLLUP_MAX_DEPTH = 8;
+// Separates ids in the walk's path string (a unit separator: no session id holds one), for the cycle guard.
+const PATH_SEP = "char(31)";
+
+/**
+ * The #809 roll-up for the Sessions table (spec 48, E16): for each given top-level session id, the figures of every session it
+ * STARTED, transitively, through `session_meta.spawnedBy` (the child holds the caller's id). Rows are DESCENDANTS only, per
+ * (session, cost group) so the caller folds cost exactly like the own column (`costFold`); "incl." is own + these, summed by the
+ * caller, and appears in that table only.
+ *
+ *   - Only the given ids are walked (the table's top N), never the corpus. A recursive CTE with a depth cap
+ *     (ROLLUP_MAX_DEPTH) and a path-string cycle guard (A spawns B spawns A stops at the second A).
+ *   - A spawn record whose CALLER is a subagent id is lifted to that subagent's top-level parent (`edge`), so the started session
+ *     counts under the parent's line (owner decision 21).
+ *   - A started session is filtered by the RANGE ONLY (owner decision 20): backend, project and model do not narrow it, so "incl."
+ *     is the full price of the delegated work even when it ran on another backend or in another project.
+ *   - No double count: a started session's rows are taken by its top-level id and its subagents (`parentSessionId`), once; a node
+ *     that is itself a subagent row contributes nothing (its rows already ride with its parent) and takes no subagents of its own
+ *     (`top`), and `spawnedBy` gives a node one parent so a session is reached once per root. A root's own subagents are never walked.
+ *   - Cost: the walk starts from `member` (CROSS JOIN: the metrics rows are looked up by sessionId), never a scan of the range.
+ */
+function sessionsRollup(filter, sessionIds) {
+  const ids = [...new Set((sessionIds || []).filter(Boolean).map(String))].slice(0, 501);
+  if (!ids.length) return { sql: 'SELECT 1 AS sessionId WHERE 0', params: [] };
+  const pred = buildPredicate(filter, { without: ['backend', 'projects', 'model'] });
+  return {
+    sql: `WITH RECURSIVE roots(id) AS (VALUES ${ids.map(() => '(?)').join(', ')}),
+edge(child, caller) AS MATERIALIZED (
+  SELECT c.sessionId, COALESCE(pc.parentSessionId, c.spawnedBy)
+  FROM session_meta c LEFT JOIN session_cache pc ON pc.sessionId = c.spawnedBy
+  WHERE c.spawnedBy IS NOT NULL
+),
+tree(root, id, depth, path) AS (
+  SELECT id, id, 0, ${PATH_SEP} || id || ${PATH_SEP} FROM roots
+  UNION ALL
+  SELECT t.root, e.child, t.depth + 1, t.path || e.child || ${PATH_SEP}
+  FROM tree t JOIN edge e ON e.caller = t.id
+  WHERE t.depth < ${ROLLUP_MAX_DEPTH} AND instr(t.path, ${PATH_SEP} || e.child || ${PATH_SEP}) = 0
+),
+top(root, id) AS (
+  SELECT t.root, t.id FROM tree t JOIN session_cache s0 ON s0.sessionId = t.id AND s0.parentSessionId IS NULL WHERE t.depth > 0
+),
+member(root, sid) AS (
+  SELECT root, id FROM top
+  UNION ALL
+  SELECT t.root, c.sessionId FROM top t JOIN session_cache c ON c.parentSessionId = t.id
+)
+SELECT mem.root AS sessionId, ${TOKENS} AS tokens, ${COST_PARTS}
+FROM member mem
+CROSS JOIN session_metrics m ON m.sessionId = mem.sid
+JOIN session_cache sc ON sc.sessionId = m.sessionId
+${PARENT_JOIN}${pred.where.length ? '\nWHERE ' + pred.where.join(' AND ') : ''}
+GROUP BY mem.root, ${COST_BACKEND}, ${COST_STATUS}`,
+    params: [...ids, ...pred.params],
+  };
+}
+
+/**
+ * The cheap gate before the roll-up: does any spawn record name one of these ids, or one of their subagents, as its caller? One
+ * EXISTS on `spawnedBy`; when it is false the roll-up cannot return a row and is not run.
+ */
+function rollupGate(sessionIds) {
+  const ids = [...new Set((sessionIds || []).filter(Boolean).map(String))].slice(0, 501);
+  if (!ids.length) return null;
+  const list = `(${ids.map(() => '?').join(', ')})`;
+  return {
+    sql: `SELECT EXISTS(SELECT 1 FROM session_meta WHERE spawnedBy IN ${list}
+      OR spawnedBy IN (SELECT sessionId FROM session_cache WHERE parentSessionId IN ${list})) AS any`,
+    params: [...ids, ...ids],
+  };
+}
+
 /** Messages per day over the filter's window (the caller passes the 365-day window as from/to). */
 function rhythmDays(filter) {
   return selectFrom('m.date AS date, SUM(m.messageCount) AS messages', filter, { tail: 'GROUP BY m.date' });
@@ -369,6 +442,6 @@ module.exports = {
   idList,
   // #877: the page's queries. They take a filter object (see buildPredicate).
   buildPredicate, bucketKindFor, payloadPlan,
-  keyFigures, periodCounts, series, projectsTable, modelsTable, backendsTable, sessionsTable,
+  keyFigures, periodCounts, series, projectsTable, modelsTable, backendsTable, sessionsTable, sessionsRollup, rollupGate, ROLLUP_MAX_DEPTH,
   rhythmDays, rhythmGrid, sidebarSeries, facetModels, facetBackends,
 };

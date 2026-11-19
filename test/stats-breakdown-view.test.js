@@ -45,8 +45,8 @@ const payload = () => ({
     { id: 'off', label: 'Switched-off CLI', selectable: false, colour: null, icon: null, sessions: 1, messages: 1, tokens: 5, input: 1, output: 4, cacheRate: 0.5, cost: null },
   ],
   sessions: [
-    { sessionId: 's-a', title: 'Alpha work', projectPath: '/p/one', openPath: '/p/one/.wt/a', openable: true, projectName: 'One', backend: { id: 'b1', label: 'Backend One' }, created: '2026-11-01T10:00:00Z', lastDate: '2026-11-02', lastModel: 'm-1', messages: 4, tokens: 70, cost: null },
-    { sessionId: 's-b', title: null, projectPath: '/p/two', openPath: '/p/two/.wt/b', openable: true, projectName: 'Two', backend: { id: 'b1', label: 'Backend One' }, created: null, lastDate: null, lastModel: null, messages: 9, tokens: 20, cost: { usd: 0.5, estimated: false } },
+    { sessionId: 's-a', title: 'Alpha work', projectPath: '/p/one', openPath: '/p/one/.wt/a', openable: true, projectName: 'One', backend: { id: 'b1', label: 'Backend One' }, started: '2026-11-01', inclTokens: 95, inclCost: { usd: 1.5, estimated: true }, lastDate: '2026-11-02', lastModel: 'm-1', messages: 4, tokens: 70, cost: null },
+    { sessionId: 's-b', title: null, projectPath: '/p/two', openPath: '/p/two/.wt/b', openable: true, projectName: 'Two', backend: { id: 'b1', label: 'Backend One' }, started: null, inclTokens: 20, inclCost: null, lastDate: null, lastModel: null, messages: 9, tokens: 20, cost: { usd: 0.5, estimated: false } },
   ],
   heatmap: { from: '2025-11-19', to: '2026-11-18', days: [] },
   grid: [],
@@ -80,7 +80,7 @@ test('statsSortRows: numbers numerically, strings by locale, missing values last
   assert.deepEqual(vals([{ v: 'x10' }, { v: 'x9' }], 'asc'), ['x9', 'x10']);
 });
 
-test('the tabs sit between the chart and Rhythm, reuse the pill and table classes; Sessions has nine columns', async () => {
+test('the tabs sit between the chart and Rhythm, reuse the pill and table classes; Sessions has eleven columns (two roll-up columns)', async () => {
   const { window: w } = await page();
   const doc = w.document;
   assert.deepEqual(pills(w).map(b => b.textContent), ['Projects', 'Models', 'Backends', 'Sessions']);
@@ -89,7 +89,7 @@ test('the tabs sit between the chart and Rhythm, reuse the pill and table classe
   assert.ok(order.indexOf('stats-chart-section') < order.indexOf('stats-breakdown') && order.indexOf('stats-breakdown') < order.indexOf('stats-rhythm'));
   assert.equal(doc.querySelector('.stats-table').className, 'pa-table stats-table');
   pills(w)[3].click();
-  assert.equal(doc.querySelectorAll('.stats-table thead th').length, 9);
+  assert.equal(doc.querySelectorAll('.stats-table thead th').length, 11);
 });
 
 test('cost: "~" on an estimate, a dash where none is reported', async () => {
@@ -150,6 +150,22 @@ test('a header click sorts locally, nulls stay last, and nothing is sent to main
   doc.querySelector('th[data-sort="cost"]').click();
   assert.equal(firstCol(w)[0], 'One', 'ascending still leaves the unpriced rows last');
   assert.equal(sent.length, before);
+});
+
+test('Sessions: Started shows main\'s day key as it is; the incl. started columns show tokens and cost, "—" where none', async () => {
+  const { window: w } = await page();
+  const doc = w.document;
+  pills(w)[3].click();
+  const heads = [...doc.querySelectorAll('.stats-table thead th')].map(th => th.textContent);
+  assert.ok(heads.some(h => h.includes('Started')) && heads.some(h => h.includes('Tokens incl. started')) && heads.some(h => h.includes('Cost incl. started')));
+  const rows = [...doc.querySelectorAll('.stats-table tbody tr')];
+  const cells = (tr) => [...tr.children].map(td => td.textContent);
+  const a = rows.find(tr => tr.firstElementChild.textContent === 'Alpha work');
+  const b = rows.find(tr => tr.firstElementChild.textContent === '(untitled)');
+  assert.ok(cells(a).includes('2026-11-01'));
+  assert.equal(cells(a).at(-1).includes('1.5'), true, 'incl. cost of the line that started sessions');
+  assert.equal(cells(b).at(-1), '—');
+  assert.ok(a.querySelector('.is-estimated'), 'an estimated incl. cost is marked like an estimated own cost');
 });
 
 test('Sessions: a different measure asks main through sessionsBy, any other column sorts locally', async () => {

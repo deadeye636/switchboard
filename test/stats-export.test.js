@@ -23,8 +23,8 @@ function payload(over = {}) {
     backends: [{ id: 'alpha', label: 'Alpha', colour: 'c', icon: 'i', selectable: true, sessions: 1, messages: 2, tokens: 3, input: 1, output: 2, cacheRead: 0, cacheWrite: 0, cost: null, cacheRate: 0.5 }],
     sessions: [
       { sessionId: 's1', title: '+1 "quoted"\nline', projectPath: LOCAL, projectName: 'proj-a', openPath: LOCAL + '/wt', openable: true,
-        backend: { id: 'alpha', label: 'Alpha' }, created: new Date(2026, 9, 2, 23, 30).toISOString(), lastDate: '2026-10-03', lastModel: '@m', messages: 3, tokens: 4, cost: null },
-      { sessionId: 's2', title: '-x', projectPath: LOCAL, projectName: 'proj-a', openPath: LOCAL, backend: null, created: null, lastDate: null, lastModel: null, messages: 0, tokens: 0, cost: { usd: 0.25, estimated: true } },
+        backend: { id: 'alpha', label: 'Alpha' }, started: '2026-10-02', lastDate: '2026-10-03', lastModel: '@m', messages: 3, tokens: 4, cost: null, inclTokens: 14, inclCost: { usd: 0.75, estimated: true } },
+      { sessionId: 's2', title: '-x', projectPath: LOCAL, projectName: 'proj-a', openPath: LOCAL, backend: null, started: null, lastDate: null, lastModel: null, messages: 0, tokens: 0, cost: { usd: 0.25, estimated: true }, inclTokens: 0, inclCost: null },
     ],
     ...over,
   };
@@ -106,12 +106,27 @@ test('exactly the cap is not marked as cut, in the file name or in the JSON', as
   } finally { s.cleanup(); }
 });
 
-test('started is a local day key, like last_active', () => {
-  const local = new Date(2026, 9, 2, 23, 30);   // late evening: the UTC date differs in a zone east of Greenwich
-  const [row] = exporter.rowsOf('sessions', { sessions: [{ sessionId: 's', created: local.toISOString(), lastDate: '2026-10-03', cost: null }] });
+test('started is main\'s local day key, taken as it is (one implementation, in stats.js)', () => {
+  const [row] = exporter.rowsOf('sessions', { sessions: [{ sessionId: 's', started: '2026-10-02', lastDate: '2026-10-03', cost: null }] });
   assert.equal(row.started, '2026-10-02');
-  assert.equal(exporter.rowsOf('sessions', { sessions: [{ sessionId: 's', created: 'garbage' }] })[0].started, null);
-  assert.equal(exporter.rowsOf('sessions', { sessions: [{ sessionId: 's', created: null }] })[0].started, null);
+  assert.equal(exporter.rowsOf('sessions', { sessions: [{ sessionId: 's', started: null }] })[0].started, null);
+  assert.equal(exporter.rowsOf('sessions', { sessions: [{ sessionId: 's' }] })[0].started, null);
+});
+
+test('the #809 roll-up columns: tokens, cost and whether it is an estimate, empty without a figure', async () => {
+  const s = setup({ pickedName: 'r.csv' });
+  try {
+    await exporter.exportStats({ format: 'csv', table: 'sessions' }, null);
+    const lines = fs.readFileSync(path.join(s.dir, 'r.csv'), 'utf8').slice(1).split('\r\n');
+    assert.ok(lines[0].endsWith(',cost_usd,cost_estimated,tokens_incl_started,cost_incl_started_usd,cost_incl_started_estimated'));
+    assert.ok(lines[1].endsWith(',3,4,,,14,0.75,true'), lines[1]);
+    assert.ok(lines[2].endsWith(',0,0,0.25,true,0,,'), lines[2]);
+  } finally { s.cleanup(); }
+  const doc = JSON.parse(exporter.buildJson({ filter: { range: {} }, payload: payload(), sessionsCap: 500, sessionsTruncated: false }, 'now'));
+  assert.equal(doc.tables.sessions[0].tokensInclStarted, 14);
+  assert.deepEqual(doc.tables.sessions[0].costInclStarted, { usd: 0.75, estimated: true });
+  assert.equal(doc.tables.sessions[1].costInclStarted, null);
+  assert.equal('inclCost' in doc.tables.sessions[0], false);
 });
 
 test('csv numbers are plain decimals, JSON keeps the number as it is', () => {

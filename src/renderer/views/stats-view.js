@@ -292,10 +292,14 @@ function statsTabSpec(id, payload) {
       { key: 'title', label: 'Title', get: (r) => r.title, text: (r) => r.title || '(untitled)', title: (r) => r.title || r.sessionId },
       { key: 'project', label: 'Project', get: (r) => r.projectName, text: (r) => r.projectName },
       { key: 'backend', label: 'Backend', get: (r) => r.backend && r.backend.label, text: (r) => (r.backend && r.backend.label) || '—' },
-      { key: 'created', label: 'Started', get: (r) => r.created, text: (r) => (r.created ? String(r.created).slice(0, 10) : '—') },
+      // `started` is a local day key decided in main (like `lastDate`): the renderer only shows it.
+      { key: 'started', label: 'Started', get: (r) => r.started, text: (r) => r.started || '—' },
       { key: 'lastDate', label: 'Last active', get: (r) => r.lastDate, text: (r) => r.lastDate || '—' },
       { key: 'lastModel', label: 'Last model', get: (r) => r.lastModel, text: (r) => r.lastModel || '—' },
       statsNumCol('messages', 'Messages', (r) => r.messages, fmtCount), statsTokenCol('tokens', 'Tokens'), statsCostCol,
+      // The #809 roll-up: the session plus every session it started. Shown here only, never added to a total.
+      statsNumCol('inclTokens', 'Tokens incl. started', (r) => r.inclTokens, fmtTokens),
+      { key: 'inclCost', label: 'Cost incl. started', num: true, get: (r) => (r.inclCost ? r.inclCost.usd : null), cost: true, costField: 'inclCost', text: (r) => statsCostText(r.inclCost) },
     ],
   };
 }
@@ -668,7 +672,8 @@ function renderStatsBreakdownBody() {
       if (c.icon && r.icon && typeof renderBackendIcon === 'function') td.appendChild(renderBackendIcon(r.icon, 14, {}));
       const text = document.createElement('span');
       text.textContent = c.text(r);
-      if (c.cost && r.cost) text.className = 'backend-cost' + (r.cost.estimated ? ' is-estimated' : '');
+      const costValue = c.cost ? r[c.costField || 'cost'] : null;
+      if (costValue) text.className = 'backend-cost' + (costValue.estimated ? ' is-estimated' : '');
       if (c.title) text.title = c.title(r) || '';
       td.appendChild(text);
       tr.appendChild(td);

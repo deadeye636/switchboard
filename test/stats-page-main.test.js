@@ -312,6 +312,57 @@ test('sessions table: a worktree session is listed under its owner project and o
   assert.equal('sources' in row, false, 'only what a row shows crosses IPC');
 });
 
+test('sessions table: Started is a LOCAL day key decided in main (an evening session is not the day before or after)', () => {
+  const evening = new Date(2026, 10, 10, 23, 30);
+  const morning = new Date(2026, 10, 11, 0, 20);
+  makeCtx({
+    raw: () => ({
+      ...emptyRaw(),
+      sessions: [
+        { sessionId: 'e', backendId: 'alpha', created: evening.toISOString(), projectPath: ROOT },
+        { sessionId: 'm', backendId: 'alpha', created: morning.toISOString(), projectPath: ROOT },
+        { sessionId: 'n', backendId: 'alpha', created: null, projectPath: ROOT },
+        { sessionId: 'g', backendId: 'alpha', created: 'garbage', projectPath: ROOT },
+      ],
+    }),
+  });
+  const rows = stats.getStats({ range: '7d' }).payload.sessions;
+  assert.deepEqual(rows.map(r => r.started), ['2026-11-10', '2026-11-11', null, null]);
+  assert.equal('created' in rows[0], false, 'one field, so the page and the export cannot show two days');
+  assert.equal(stats.localDayOf(evening.toISOString()), stats.localDayKey(evening));
+});
+
+test('sessions table: "incl. started" is own + the started sessions, folded like the own cost; totals stay as they were (#809)', () => {
+  const part = (sessionId, tokens, est, act, backendId = 'alpha', costStatus = null) => ({ sessionId, tokens, costBackendId: backendId, costStatus, estimatedCostUsd: est, actualCostUsd: act });
+  const row = (sessionId, tokens, est, act, backendId = 'alpha', costStatus = null) => ({ sessionId, backendId, costStatus, estimatedCostUsd: est, actualCostUsd: act, messages: 1, tokens, projectPath: ROOT });
+  const keyFigures = [{ backendId: 'alpha', costStatus: null, cur: 1, messages: 3, toolCalls: 0, inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, estimatedCostUsd: 1, actualCostUsd: null }];
+  const base = { ...emptyRaw(), keyFigures, periodCounts: [{ cur: 1, sessions: 3, costSessions: 1, activeDays: 1 }] };
+  makeCtx({
+    raw: () => ({
+      ...base,
+      sessions: [row('root', 100, 1, null), row('free', 50, null, null), row('lone', 7, null, null), row('settled', 10, null, 2, 'delta', 'actual')],
+      rollup: [
+        part('root', 40, 0.5, null), part('root', 5, null, 3, 'delta', 'actual'),
+        part('free', 20, null, null),
+        part('settled', 4, null, 1, 'delta', 'actual'),
+      ],
+    }),
+  });
+  const res = stats.getStats({ range: '7d' }).payload;
+  const by = Object.fromEntries(res.sessions.map(r => [r.sessionId, r]));
+  assert.equal(by.root.tokens, 100);
+  assert.equal(by.root.inclTokens, 145);
+  assert.deepEqual(by.root.cost, { usd: 1, estimated: true });
+  assert.deepEqual(by.root.inclCost, { usd: 4.5, estimated: true }, 'an estimated part makes the sum an estimate');
+  assert.equal(by.free.inclTokens, 70);
+  assert.equal(by.free.inclCost, null, 'nobody reported money: "—", never $0');
+  assert.equal(by.lone.inclTokens, 7, 'a session that started nothing: incl. is own');
+  assert.equal(by.lone.inclCost, null);
+  assert.deepEqual(by.settled.inclCost, { usd: 3, estimated: false }, 'settled parts stay settled when every part is');
+  assert.equal(res.keyFigures.cur.tokens, 100, 'the key figures never see the roll-up');
+  assert.equal(res.keyFigures.cur.sessions, 3);
+});
+
 test('selectable: main marks which rows can set a filter', () => {
   const g = (id) => ({ backendId: id, costStatus: null, sessions: 1, messages: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0, estimatedCostUsd: null, actualCostUsd: null });
   const many = [];

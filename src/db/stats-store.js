@@ -36,6 +36,11 @@ function runSpec(spec) {
 function getStatsPayload(request) {
   const out = {};
   for (const [name, spec] of Object.entries(statsQueries.payloadPlan(request))) out[name] = runSpec(spec);
+  // The #809 roll-up for the table's lines only; it needs their ids, so it runs after them (not part of the plan).
+  // Skipped when no spawn record names one of those sessions (or their subagents) as its caller: then it cannot return a row.
+  const ids = out.sessions.map(r => r.sessionId);
+  const gate = statsQueries.rollupGate(ids);
+  out.rollup = gate && runSpec(gate)[0].any ? runSpec(statsQueries.sessionsRollup(request.filter, ids)) : [];
   return out;
 }
 

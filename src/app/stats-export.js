@@ -22,7 +22,6 @@ const path = require('path');
 const dialogDirs = require('./dialog-dirs');
 const safeWrite = require('./safe-write');
 const { readableError } = require('./readable-error');
-const { localDayKey } = require('./stats');
 
 const SCHEMA = 'switchboard.stats/1';
 const TABLES = ['projects', 'models', 'backends', 'sessions'];
@@ -43,13 +42,6 @@ function fail(error) { return { ok: false, canceled: false, error }; }
 
 const costOf = (c) => (c && Number.isFinite(c.usd) ? { usd: c.usd, estimated: !!c.estimated } : null);
 
-/** A stored timestamp as the LOCAL day it falls on, like `last_active` (a local day key); null when there is none or it does not parse. */
-function localDayOf(value) {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : localDayKey(d);
-}
-
 function rowsOf(table, payload) {
   if (table === 'projects') {
     return (payload.projects || []).map(r => ({ project: r.name, sessions: r.sessions, messages: r.messages, tokens: r.tokens, cost: costOf(r.cost) }));
@@ -69,8 +61,11 @@ function rowsOf(table, payload) {
   }
   return (payload.sessions || []).map(r => ({
     sessionId: r.sessionId, title: r.title, project: r.projectName, backend: r.backend ? r.backend.label : null,
-    started: localDayOf(r.created), lastActive: r.lastDate || null, lastModel: r.lastModel,
+    // `started` is main's local day key (`stats.js` `localDayOf`), the field the page shows: one implementation, no drift.
+    started: r.started || null, lastActive: r.lastDate || null, lastModel: r.lastModel,
     messages: r.messages, tokens: r.tokens, cost: costOf(r.cost),
+    // The #809 roll-up (the session plus every session it started): extra fields, never part of a total.
+    tokensInclStarted: r.inclTokens == null ? null : r.inclTokens, costInclStarted: costOf(r.inclCost),
   }));
 }
 
@@ -95,6 +90,9 @@ const COLUMNS = {
     plain('session_id', 'sessionId'), plain('title', 'title'), plain('project', 'project'), plain('backend', 'backend'),
     plain('started', 'started'), plain('last_active', 'lastActive'), plain('last_model', 'lastModel'),
     plain('messages', 'messages'), plain('tokens', 'tokens'), ...costCols,
+    plain('tokens_incl_started', 'tokensInclStarted'),
+    { h: 'cost_incl_started_usd', get: r => (r.costInclStarted ? r.costInclStarted.usd : null) },
+    { h: 'cost_incl_started_estimated', get: r => (r.costInclStarted ? r.costInclStarted.estimated : null) },
   ],
 };
 
