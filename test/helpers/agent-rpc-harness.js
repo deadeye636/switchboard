@@ -67,7 +67,13 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appl
     clipboard: { writeText: async (text) => { if (clipboardFails) throw new Error('refused'); clipped.push(text); } },
     log: { info: (line) => logged.push(line), warn: (line) => warned.push(line), debug() {} },
     approvalMemory,
-    onMaintenanceEdge,
+    // Only THIS harness's session (#884). `maintenanceEdge` reads the callback when it fires, and the ctx above is
+    // replaced by every harness, so a session of an earlier test that is still dying — a Windows tree kill measured
+    // up to 20 s under the suite's load, past `stopped`'s fallback — reported its `exit` into the next test's list.
+    // Bind signals were never affected: they are found by tag through `activeSessions`.
+    onMaintenanceEdge: typeof onMaintenanceEdge === 'function'
+      ? (r) => { if (r && r.handle && r.handle.tag === tag) onMaintenanceEdge(r); }
+      : onMaintenanceEdge,
     notifyProjectsChanged,
     maintenanceTurnsOf,
   });
