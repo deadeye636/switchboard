@@ -177,6 +177,12 @@ for (const [shape, make] of Object.entries(SHAPES)) {
     assert.equal(mcp, false, 'no channel for the own server');
     assert.equal(session._review, true);
     assert.equal(session._spawnedBy, 'caller-1');
+    assert.equal(session._spawnKind, 'review', 'a launch without a kind is a review');
+    // A TASK the runner starts (spec 41, #804) gets no group either, and is NOT silenced: its asks are the user's.
+    const task = await launch(backend, { spawnedBy: 'caller-1', spawnKind: 'task', reviewTools: false }, stored);
+    assert.equal(task.ctx.registered.length, 0, 'depth 1 holds for a task');
+    assert.equal(task.session._review, false);
+    assert.equal(task.session._spawnKind, 'task');
     // Without `spawnedBy` the same stored values open both groups: the stored defaults are what was refused.
     const caller = await launch(backend, {}, stored);
     assert.deepEqual(caller.ctx.registered[0].groups, ['discovery', 'review']);
@@ -198,7 +204,7 @@ for (const [shape, make] of Object.entries(SHAPES)) {
 test('a resumed review row keeps its link and gets no own-server group; a fork of it and an unlinked resume do', async () => {
   const backend = SHAPES['claude-native']();
   const stored = { global: { backendDefaults: { [backend.id]: { reviewTools: true } } } };
-  const links = { 'review-row': { spawnedBy: 'caller-1', spawnKind: 'review' } };
+  const links = { 'review-row': { spawnedBy: 'caller-1', spawnKind: 'review' }, 'task-row': { spawnedBy: 'caller-1', spawnKind: 'task' } };
   const open = async (id, opts) => {
     const ctx = setup(backend, stored);
     ctx.getSpawnedBy = (sid) => links[sid] || null;
@@ -210,6 +216,10 @@ test('a resumed review row keeps its link and gets no own-server group; a fork o
   assert.equal(resumed.ctx.registered.length, 0, 'no group of the app\'s own server');
   assert.equal(resumed.session._review, false, 'the user opened it: it is told about like any session');
   assert.equal(resumed.session._spawnedBy, 'caller-1');
+  assert.equal(resumed.session._spawnKind, 'review');
+  const resumedTask = await open('task-row', {});
+  assert.equal(resumedTask.ctx.registered.length, 0, 'a resumed task row gets no group either');
+  assert.equal(resumedTask.session._spawnKind, 'task', 'the stored kind is read back with the link');
 
   const fork = await open('fork-of-review', { forkFrom: 'review-row' });
   assert.deepEqual(fork.ctx.registered[0].groups, ['review'], 'a fork is an ordinary session');

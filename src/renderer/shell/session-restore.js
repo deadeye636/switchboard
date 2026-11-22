@@ -65,8 +65,9 @@ function runningSessionsWithoutTab() {
     if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(sessionId)) continue;
     const session = sessionMap.get(sessionId);
     // A review another session's agent started (spec 39) runs for its runner, and the runner does not outlive the
-    // quit: resuming it would start a CLI nobody reads. One the user opened has a tab and is collected above.
-    if (session && session.spawnKind === 'review') continue;
+    // quit: resuming it would start a CLI nobody reads. One the user opened has a tab and is collected above. A task
+    // (spec 41) is the same, and a plain resume would also drop the permission mode its launch sent.
+    if (session && session.spawnKind) continue;
     if (session) out.push(session);
   }
   return out;

@@ -811,6 +811,25 @@ taskWorktrees.init({
   db: { getAppWorktrees, recordAppWorktree, forgetAppWorktree },
   log,
   getAppQuitting: () => appQuitting,
+  // A removed checkout takes back the trust a task's start granted it (spec 41 O16), from every CLI that holds an answer.
+  // Only an answer that is the path's OWN: a CLI that keys a checkout by its repository root (Claude on Windows), or
+  // inherits a trusted folder above it, answers `true` for the path too, and that answer is the caller's, not the task's.
+  // A CLI that cannot say where an answer comes from (no `describeMany`) clears the path's exact entry only.
+  revokeTrust: (p) => {
+    for (const b of backends.oneAskerPerCli(backends.list())) {
+      const trust = b && b.projectTrust;
+      if (!trust || typeof trust.get !== 'function' || typeof trust.set !== 'function') continue;
+      if (typeof trust.describeMany === 'function') {
+        let d = null;
+        try { d = trust.describeMany([p]).get(p) || null; } catch { d = null; }
+        if (d && d.trusted === true && d.scope === 'own') trust.set(p, null);
+        continue;
+      }
+      let held = null;
+      try { held = trust.get(p); } catch { held = null; }
+      if (held === true) trust.set(p, null);
+    }
+  },
   // A new checkout resolves to its project for settings at once, not after the next sweep (T3). `forget` first: a
   // task id reused for another repository in the same run would otherwise keep the first repository's fact.
   noteWorktree: (p) => {
@@ -2425,6 +2444,9 @@ spawn.init({
   createDiscoveryReader: (scope) => require('./app/discovery-reader').createDiscoveryReader({ ...scope, getCachedSessions: getAllCached, getSessionMeta: getAllMeta, activeSessions, backends, handoffs, isForeignNetworkFile: (p) => isForeignNetworkFile(p), log }),
   // Spec 39: the review runner behind the review tools, one per registration ({ projectPath, callerTag }).
   createReviewRunner: (scope) => require('./app/review-runner').createReviewRunner({ ...scope, maxMs: Number(process.env.SWITCHBOARD_REVIEW_MAX_MS) || undefined, ctx: { listTargets: () => require('./backends/review-targets').reviewTargets(backends.list(), backends.launchableIds()), openTerminal: (...args) => spawn.openTerminal(...args), agentRpc, activeSessions, stopSession, timeline, linkSession: (childId, parentId, kind) => setSpawnedBy(childId, parentId, kind), storedModel: (backendId, projectPath) => { const b = backends.get(backendId); return b ? (spawn.spawnOptionsFor(b, projectPath, {}).model || '') : ''; }, notifyProjectsChanged: () => notifyRendererProjectsChanged(), getAppQuitting: () => appQuitting, log } }),
+  // Spec 41 (#804): the task runner behind the tasks tools, one per registration ({ projectPath, callerTag }). The review's
+  // effects plus the worktree service and the targets' own trust (O16: inherited from the caller's project).
+  createTaskRunner: (scope) => require('./app/task-runner').createTaskRunner({ ...scope, maxMs: Number(process.env.SWITCHBOARD_TASK_MAX_MS) || undefined, ctx: { listTargets: () => require('./backends/review-targets').taskTargets(backends.list(), backends.launchableIds()), openTerminal: (...args) => spawn.openTerminal(...args), agentRpc, activeSessions, stopSession, timeline, linkSession: (childId, parentId, kind) => setSpawnedBy(childId, parentId, kind), storedModel: (backendId, projectPath) => { const b = backends.get(backendId); return b ? (spawn.spawnOptionsFor(b, projectPath, {}).model || '') : ''; }, notifyProjectsChanged: () => notifyRendererProjectsChanged(), getAppQuitting: () => appQuitting, log, checkouts: taskWorktrees, projectTrust: (backendId) => { const b = backends.get(backendId); return b && b.projectTrust ? b.projectTrust : null; }, trustRequired: (backendId) => { const b = backends.get(backendId); return !!(b && b.trustBeforeStart === true); } } }),
   // #223 live re-binding: where a backend may put its per-spawn binding file (userData — never the
   // user's own CLI config), the URL its hook posts to, and the way to forget a dead terminal's claim.
   bindingDir: path.join(app.getPath('userData'), 'clear-bindings'),

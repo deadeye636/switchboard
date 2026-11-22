@@ -63,14 +63,15 @@ function setup({ quitting = false } = {}) {
   const dataDir = path.join(box, 'data');
   const db = fakeDb();
   const warnings = [];
-  service.init({ vcs, dataDir, db, log: { info() {}, warn: (m) => warnings.push(m) }, getAppQuitting: () => quitting });
-  return { box, dataDir, db, warnings };
+  const revoked = [];
+  service.init({ vcs, dataDir, db, log: { info() {}, warn: (m) => warnings.push(m) }, getAppQuitting: () => quitting, revokeTrust: (p) => revoked.push(p) });
+  return { box, dataDir, db, warnings, revoked };
 }
 
 const branches = (repo) => gitIn(repo, 'branch', '--list', '--format=%(refname:short)').split(/\r?\n/).filter(Boolean);
 
 test('create makes a worktree and a branch outside the project; remove takes the checkout and keeps the branch', { skip: !HAVE_GIT }, async () => {
-  const { box, dataDir, db } = setup();
+  const { box, dataDir, db, revoked } = setup();
   const repo = makeRepo(box);
   const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
 

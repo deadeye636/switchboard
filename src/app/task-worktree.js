@@ -306,6 +306,13 @@ async function status(worktreePath) {
   });
 }
 
+// The trust a task's start granted this checkout (spec 41 O16) goes with it: a later folder at the same path is not
+// trusted because a removed task's was. `ctx.revokeTrust` knows which backends hold an answer; a failure is logged.
+function revokeTrust(worktreePath) {
+  if (typeof ctx.revokeTrust !== 'function') return;
+  try { ctx.revokeTrust(worktreePath); } catch (err) { warn(`taking back the trust of ${worktreePath} failed: ${err && (err.code || err.message)}`); }
+}
+
 /**
  * Remove an app-owned worktree. The branch stays: the work on it is the task's result (E5).
  *
@@ -326,6 +333,7 @@ async function remove({ worktreePath, force = false } = {}) {
     if (!state.entry) {
       if (fs.existsSync(row.worktreePath)) return refuse('not-a-worktree');
       ctx.db.forgetAppWorktree(row.worktreePath);
+      revokeTrust(row.worktreePath);
       return { ok: true, removed: false, branch: row.branch };
     }
     if (state.entry.locked) return refuse('locked');
@@ -338,6 +346,7 @@ async function remove({ worktreePath, force = false } = {}) {
     if (removed.code !== 0) { logFailure('worktree remove', removed); return refuse('git-failed'); }
     if (quitting()) return refuse('quitting');
     ctx.db.forgetAppWorktree(row.worktreePath);
+    revokeTrust(row.worktreePath);
     if (ctx.log) ctx.log.info(`[task-worktree] removed ${row.worktreePath}; branch ${row.branch} kept`);
     return { ok: true, removed: true, branch: row.branch };
   });

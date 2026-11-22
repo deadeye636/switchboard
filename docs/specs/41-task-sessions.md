@@ -1,7 +1,8 @@
 # 41 — Task sessions on another backend: what was measured before the design
 
 Issues #804 (start a task session), #805 (worktree isolation), #806 to #810 (the rest of the former #507). Status:
-**draft**. Built so far: the worktree service (#805 T2, "Built" below). The working plan is
+**draft**. Built so far: the worktree service (#805 T2), the task target declaration (#804 T4) and the task runner with its
+approval policy (#804 T5 + T6), each under "Built" below. The working plan is
 `docs/plans/507-mcp-orchestration/PLAN.md` (local); its step T1 produced the measurements. The design sections are
 written as each build phase starts.
 
@@ -13,7 +14,7 @@ decision was answered as recommended. Each issue's first comment lists its own.
 | ID | Decision |
 |---|---|
 | E2 | A new `tasks` group (`startTask`, `taskResult`) beside `review`, with its own toggle; the runner is shared with the review. |
-| E3 | An approval a task raises is shown in its row; unanswered past a bound, it is refused and the task ends `needs-input`. A per-backend allow-list may follow. |
+| E3 | An approval a task raises is shown in its row; unanswered past a bound, it is refused and the task ends. A per-backend allow-list may follow. Corrected by E18 (2026-11-22): `needs-input` is what the task reports while the question is open, and it ends `failed` past the bound. |
 | E4 | Only pipe-driven backends can be a task target for now (claude-native, pi-native). |
 | E5 | The app manages the worktree outside the project tree. Nothing is merged automatically; the caller is told the branch. |
 | E6 | A writing task gets a worktree, a read-only one works in the caller's folder; a folder that is not a git repository refuses a writing task. |
@@ -198,6 +199,74 @@ an answer reader, never a template, and only while it can launch. The capability
 
 Trust (O16, above) is not part of the profile: both targets declare `trustBeforeStart`, and the runner grants the
 worktree the caller project's trust before the spawn.
+
+## Decided by the owner (2026-11-22): the task runner
+
+Taken on the main session's recommendation after an adversarial check of the code; recorded on #804. Numbered after
+E1-E16 above.
+
+| ID | Decision |
+|---|---|
+| E17 | T5 (the approval policy) and T6 (the shared runner and the task runner) are one step: the policy lives in the task runner's observer. |
+| E18 | `needs-input` is what a task reports while a question is open. Past the bound the question is refused and the task ends `failed` with a fixed sentence. |
+| E19 | The bound is a constant, 10 minutes, per open question. |
+| E20 | The app never answers a task's question from what was allowed before (the session's mode, its keys, the project's rules), and an answer on a task's card is not remembered. |
+| E21 | The user answers by opening the task's row: the conversation's attach hands the open questions to the view, so the card is there. |
+| E22 | A task's overall cap is 30 minutes, above the bound. |
+| E23 | The bound applies to every kind of question: a tool approval, a question to the user, a plan approval. |
+
+## Built: the task runner and its approval policy (#804 T5 + T6)
+
+`src/app/child-runner.js` is the machinery a session uses to start another one and follow it: the id table, the
+per-caller and app-wide caps, the timers, the end of a turn, the stop path, the caller ending. Both kinds are a POLICY over
+it. `src/app/review-runner.js` is the review's (spec 39), unchanged in behaviour: every existing review test passes as it
+was. `src/app/task-runner.js` is the task's:
+
+- **Worktree first.** A start creates the worktree (`task-worktree.js`, named by the task id) and starts the session in
+  it. A refused start removes it again; a task that ends keeps it (E8), with its branch, until the user removes it (T8).
+  A folder that is not a repository refuses with the worktree service's sentence.
+- **Trust inherited (O16).** For a target that declares `trustBeforeStart`, the caller's project must already be trusted
+  by it, or the start is refused before anything is made. The worktree is then granted that trust through the target's
+  `projectTrust.set`. `task-worktree.js` `remove` takes it back through `ctx.revokeTrust`, which main answers by asking
+  every CLI that holds an answer for the path (`oneAskerPerCli`) and clearing a `true`.
+- **The kind of child.** The launch carries `spawnKind: 'task'`. `src/app/terminal/spawn.js` sets `_review` (no busy
+  edge, no attention) only for `spawnKind` `review`, the default for a launch without a kind, and keeps `_spawnKind`;
+  a resume reads the kind back with the stored link. `src/app/live-sessions.js` reports it, so a task row is not drawn
+  as a review. The renderer's session restore skips every started child, a task included: a plain resume of one would
+  also drop the permission mode its launch sent (T4 verifier, point 1).
+- **Questions go to the user (E3, E18-E23).** The task's observer answers no question (`onAsk` returns `null`), so the
+  core draws the card and reports `waiting`, which raises attention like any session's. It says
+  `answersFromMemory: false`, so `agent-rpc.js` asks no approval memory for that session (`autoAnswer`; a mode switch
+  therefore settles none of its questions either) and remembers no answer given on its card. It arms a bound per question
+  and hears `onAskSettled(id)` when the question leaves the open set (answered, withdrawn by the runtime, closed with the
+  run). While
+  one is open, `result` answers `needs-input`; the record itself stays `running`, so the cap, a session exit and the
+  caller ending still apply. Past the bound the runner refuses the question through `answerAsk` and ends the task
+  `failed`: a refused question does not end the turn by itself (read in the code: claude-native answers `deny`,
+  pi-native `cancelled`). A question the user answered first (`answerAsk` answers `notOpen`) is left alone; a refusal that
+  could not be written ends the task too, because the question has left the open set. A quit at the bound writes nothing.
+  The trust grant writes nothing when the CLI already answers yes for the checkout (a CLI that keys a worktree by its
+  repository root, a trusted folder above), and the removal clears only an answer that is the path's own (`describeMany`
+  scope `own`; a CLI without `describeMany` has its exact entry cleared). A refused start after the spawn waits for the
+  session's exit, up to 10 seconds, before it removes the worktree, and logs a removal that failed.
+- **What a result carries.** The branch, the worktree path and the base commit in every answer, and the text the task
+  wrote also when it ends `failed` or `stopped`, because it may have changed files.
+- **The prompt.** A preamble names the branch, says nothing reaches the project until the caller merges, and asks the
+  task to commit on that branch and end with a short summary.
+- **Caps.** 30 minutes (`SWITCHBOARD_TASK_MAX_MS` shortens it for a measurement), one running task per caller, three in
+  the app, counted apart from reviews.
+
+Not yet: the `tasks` tool group and its toggle (T7) — nothing calls `createTaskRunner` until then, it is only wired in
+`src/main.js` — and the sidebar row (T8): until then a task's row is not nested under its caller and carries no pill.
+The `backendDefaults` a task launch merges under its profile (`restricted`, `worktree`, `addDirs`) are as for a review;
+which of them a task should drop is still open (T4 verifier, point 2).
+
+Known limit: "never answered from what was allowed before" holds for the APP's answers. A CLI that allows a call from
+its own settings never asks (claude-native: the user's `permissions.allow` rules), and that is not visible to the app.
+
+Tests: `test/task-runner.test.js` (fakes), `test/agent-rpc-stream.test.js` (the observer without approval memory, on a
+real pipe), `test/spawn-review.test.js` (the kind on a launch and on a resume), `test/task-worktree.test.js` (the trust
+taken back on removal); the review tests run unchanged against the shared runner.
 
 ## Probes not run
 

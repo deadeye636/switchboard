@@ -220,9 +220,10 @@ unchanged; the backend's `rpc` half turns lines into the app's own ops and back,
 backend and reads no format. Its busy/idle goes through `hooks.deliverBindSignal`, the same delivery a
 terminal's binding extension gets — a second copy of that path is how the two would start to disagree
 about when a session is finished. A core caller can follow a session without a view through
-`observe(sessionId, observer)` — the review runner does (spec 39): busy edges with the turn's outcome, finished
-entries with their assistant text, the text still streaming (coalesced like the view's), every ask before the
-approval memory, the exit),
+`observe(sessionId, observer)` — the review and task runners do (spec 39, spec 41): busy edges with the turn's outcome,
+finished entries with their assistant text, the text still streaming (coalesced like the view's), every ask before the
+approval memory, the exit. An observer that says `answersFromMemory: false` (the task runner) keeps the approval memory
+from answering its session's asks or remembering an answer, and `onAskSettled(id)` tells it a question left the open set),
 `idle-maintenance.js` (the schedule that keeps a pipe-driven session's cache warm or compacts it while idle — #827, spec 45; keyed on the tag `agent-rpc.js` reports edges under, so a re-key does not move it; the session's override is also stored by session id through `ctx.loadOverride`/`saveOverride`, so a resume takes it back (spec 45, O2). Off by default, every idle period bounded by a limit and a ceiling, and `stop()` runs before the database closes. Electron-free, db-free, names no backend: the actions and the gate are `agent-rpc.js`'s, the bound is the descriptor's `idleMaintenance()`),
 `agent-shell.js` (a `!` line run BY THE APP for a runtime-driven session whose protocol has no shell command —
 #786, claude-native; the project's terminal shell as a login shell with no stdin, output kept up to a cap, the
@@ -259,7 +260,17 @@ per registration like the discovery reader. It opens the review session through 
 read-only profile as session options, follows it with `agentRpc.observe` (no view), sends one turn, keeps the last
 assistant text, refuses every ask, and stops the session through `terminal/stop-session.js`. The caller polls
 `result(id)`; 10 minutes, 32 768 code points, one review per caller and three in the app. Every effect arrives through
-`ctx`; it imports no backend folder and names no backend),
+`ctx`; it imports no backend folder and names no backend. Since #804 it is the review's POLICY over `child-runner.js`),
+`child-runner.js` (the machinery a session uses to start another and follow it — #804, spec 41: the id table, the per-caller
+and app-wide caps, the timers, the end of a turn, the stop path, the caller ending, once for reviews and tasks. A policy
+supplies the sentences, the caps, the preamble, the launch options, the observer's own members, an optional `prepare` /
+`discard` around the spawn and the result's projection),
+`task-runner.js` (a WRITING task on another backend — #804, spec 41 T5 + T6: the task's policy over `child-runner.js`. A
+worktree from `task-worktree.js` before the spawn, the caller project's trust granted to it (O16), `spawnKind: 'task'`
+so the session is not silenced; its observer answers no question (the card and the attention are the core's), says
+`answersFromMemory: false`, arms a 10-minute bound per open question and ends the task `failed` past it; `result`
+projects `needs-input` while one is open. 30 minutes, one per caller, three in the app. Wired in `src/main.js` as
+`createTaskRunner`; the `tasks` tool group that calls it is T7),
 `path-completion.js` (what an `@` in a session's text input completes to — #643; the project's files, by
 `readdir` for a named directory and by a bounded, cached, ASYNCHRONOUS walk for a bare name — a synchronous one
 measured 498 ms on a home directory, on the main process. It asks `isAtOrInside` about the directory BEFORE it

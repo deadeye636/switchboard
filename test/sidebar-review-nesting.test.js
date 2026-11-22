@@ -151,7 +151,8 @@ test('a review row is offered its own subagent tree, and only when subagents nes
 });
 
 test('the push: the runner asks for a projects reload once linked, and a live row carries the link', () => {
-  const runner = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'review-runner.js'), 'utf8'));
+  // The start path is the shared child runner's since #804 (review-runner.js is the review's policy over it).
+  const runner = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'child-runner.js'), 'utf8'));
   assert.ok(runner.indexOf('ctx.notifyProjectsChanged()') > runner.indexOf('ctx.linkSession('), 'after the link is written');
   const app = stripComments(fs.readFileSync(path.join(REN, 'app.js'), 'utf8'));
   const synth = app.slice(app.indexOf('function syntheticSessionRow'), app.indexOf('function dropSessionFromCachedLists'));

@@ -173,6 +173,10 @@ function stateFor(sessionId) {
  * the backend's `rpc.assistantTextOf(entry)`: the text of an assistant entry, `null` for anything else. `onAsk` is asked
  * BEFORE the approval memory and the card: an answer is written to the runtime and nothing is drawn or reported (an
  * answer that cannot be written falls through to the card). A session without an observer runs exactly as before.
+ * Two more members for an observer whose asks go to the user (the task runner, spec 41): `answersFromMemory: false`
+ * keeps the approval memory from answering them or remembering an answer (a mode switch then settles none either), and
+ * `onAskSettled(id)` says a question left the open set (answered, withdrawn, closed with the run, or, for an observer that
+ * keeps the memory, settled by a mode switch).
  * The members are called synchronously in the middle of an op: `onBusy` before the rest of that edge's bookkeeping
  * (the report, the held queue). An observer that calls back into this module defers that work (`setImmediate`).
  * -> true when the session was found.
@@ -182,6 +186,17 @@ function observe(sessionId, observer) {
   if (!state) return false;
   state.observer = observer && typeof observer === 'object' ? observer : null;
   return true;
+}
+
+// Whether what was allowed before (the mode, the session's keys, the project's rules) may answer this session's asks, and
+// whether an answer may be remembered. An observer that says `answersFromMemory: false` (the task runner) turns both off.
+function usesApprovalMemory(state) {
+  return !(state.observer && state.observer.answersFromMemory === false);
+}
+
+// A question left `state.asks`: answered, withdrawn by the runtime, closed with the run, or settled by a mode switch.
+function noteAskSettled(state, id) {
+  notifyObserver(state, 'onAskSettled', id);
 }
 
 // One member of a session's observer. A throw is the observer's problem and never breaks the stream it watches.
@@ -753,6 +768,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       if (keepLasting && request && request.lasting) continue;
       sendOp(state, { op: 'answered', id });
       state.asks.delete(id);
+      noteAskSettled(state, id);
     }
   }
 
@@ -761,6 +777,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // What those three hold is kept by `app/approval-memory.js`; what they mean is the backend's.
   function autoAnswer(request) {
     if (!request || request.kind !== 'approval' || typeof rpc.approvalAutoAnswer !== 'function') return false;
+    // A task session's asks are the user's every time (spec 41 E20): nothing allowed earlier answers them.
+    if (!usesApprovalMemory(state)) return false;
     const memo = ctx.approvalMemory && state.backendId ? ctx.approvalMemory : null;
     const found = findSession(tag);
     const memory = {
@@ -1058,6 +1076,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // question still open is closed, and the session leaves "waiting" the way `answerAsk` lets it go.
         if (!state.asks.has(op.id)) return;
         state.asks.delete(op.id);
+        noteAskSettled(state, op.id);
         flushPartial();
         sendOp(state, op);
         if (!state.asks.size) report(state.busy ? 'busy' : 'idle');
@@ -1998,6 +2017,8 @@ async function completeSessionPaths(sessionId, prefix) {
 function rememberApproval(state, sessionId, asked, answer) {
   const rpc = state.rpc;
   if (typeof rpc.approvalRecord !== 'function' || !ctx.approvalMemory || !state.backendId) return;
+  // An answer on a task's card is for that ask alone (spec 41 E20): it allows nothing later, here or in the project.
+  if (!usesApprovalMemory(state)) return;
   let record = null;
   try { record = rpc.approvalRecord(asked, answer || {}); } catch (err) {
     ctx.log.warn(`[agent-rpc] the backend could not read an approval answer: ${err.message}`);
@@ -2013,11 +2034,12 @@ function answerAsk(sessionId, requestId, answer) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
   const id = String(requestId || '');
-  if (!state.asks.has(id)) return { ok: false, error: 'That question is no longer open.' };
+  if (!state.asks.has(id)) return { ok: false, notOpen: true, error: 'That question is no longer open.' };
   // The question itself goes to the backend with the answer: a runtime may want part of its own request
   // back (an approval that echoes the input it was asked about).
   const asked = state.asks.get(id);
   state.asks.delete(id);
+  noteAskSettled(state, id);
   const ok = state.write(state.rpc.answerCommand(id, answer || { cancelled: true }, asked));
   if (ok) sendOp(state, { op: 'answered', id });
   if (ok) rememberApproval(state, sessionId, asked, answer);
@@ -2050,6 +2072,7 @@ function settleOpenApprovals(state) {
   for (const [id, request] of [...state.asks]) {
     if (!request || request.kind !== 'approval' || !state.autoAnswer(request)) continue;
     state.asks.delete(id);
+    noteAskSettled(state, id);
     sendOp(state, { op: 'answered', id });
     answered = true;
   }

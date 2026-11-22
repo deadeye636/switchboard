@@ -546,7 +546,7 @@ click test showed.
 - Both runtime-driven backends: `rpc.assistantTextOf`, the `outcome` on `busy: false`, and `reviewProfile()`
   (claude-native `permissionMode: 'plan'` and `promptSuggestionsOff: true`; pi-native `approvalGate: true`). Every other
   backend answers `null`. `src/backends/review-targets.js` decides what is offered.
-- `src/app/review-runner.js`: the runner, one per registration. `src/app/terminal/stop-session.js`: the stop it shares
+- `src/app/review-runner.js`: the runner, one per registration. Since #804 it is the review's policy over the shared `src/app/child-runner.js`, which the task runner (spec 41) uses too. `src/app/terminal/stop-session.js`: the stop it shares
   with the user's Stop.
 - `src/servers/review-tools.js`: the tool group; the bridge and the HTTP registration pass it through.
 - `src/app/terminal/spawn.js`: the `reviewTools` gate (Claude, claude-native, Codex, agy, Pi and pi-native; any backend that declares the toggle), depth 1 from `spawnedBy` or the stored

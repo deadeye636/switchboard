@@ -325,8 +325,15 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
   // stored link back (owner decision), so a resumed review gets no group of the app's own server either (depth 1).
   // A fork is a new session and reads nothing.
   let spawnParent = (sessionOptions && sessionOptions.spawnedBy) || null;
+  // What the child was started for (#804, spec 41): 'review' or 'task'. A launch without a kind is a review, the only
+  // kind there was before tasks; a resume reads the stored kind back with the link.
+  let spawnKind = spawnParent ? ((sessionOptions && sessionOptions.spawnKind) || 'review') : null;
   if (!spawnParent && !isNew && !(sessionOptions && sessionOptions.forkFrom) && typeof ctx.getSpawnedBy === 'function') {
-    try { const link = ctx.getSpawnedBy(sessionId); spawnParent = (link && link.spawnedBy) || null; } catch { spawnParent = null; }
+    try {
+      const link = ctx.getSpawnedBy(sessionId);
+      spawnParent = (link && link.spawnedBy) || null;
+      spawnKind = spawnParent ? (link.spawnKind || 'review') : null;
+    } catch { spawnParent = null; spawnKind = null; }
   }
 
   // Starting a session here is an explicit act, so the project goes on the list — in BOTH modes (#167).
@@ -1606,8 +1613,10 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
     // Spec 39: a session a review started, and the caller it answers to (the stored link; no attention for `_review`).
     // `_review` (no attention) only for the runner's own launch: a resume is the user opening the row, in whichever
     // view, and the user is told about it like any session. The link (`_spawnedBy`) holds for both.
-    _review: !!(sessionOptions && sessionOptions.spawnedBy),
+    // A TASK the runner starts is not silenced (spec 41 E3): its asks are the user's to answer, so they raise attention.
+    _review: !!(sessionOptions && sessionOptions.spawnedBy) && spawnKind === 'review',
     _spawnedBy: spawnParent,
+    _spawnKind: spawnKind,
     // #568: driven over a pipe rather than a PTY. Recorded so nothing downstream has to ask the descriptor.
     transport: (launchBackend && launchBackend.transport) || null,
     // #864: the CLI starts a helper that every client of its home shares, so the quit's escalation ends this

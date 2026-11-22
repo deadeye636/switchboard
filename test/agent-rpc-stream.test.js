@@ -886,6 +886,34 @@ test('a core observer is asked before a remembered approval, and its refusal is 
   assert.ok(!ops(h).some((o) => o.op === 'ask'), 'no card');
 });
 
+// Spec 41 E20 (#804): a task's observer leaves the ask to the card (null) and says `answersFromMemory: false`. Then a rule
+// that would allow the call does not answer it, the user's answer on the card is not remembered, a mode switch settles
+// nothing, and the observer hears when the question leaves the open set.
+test('an observer without approval memory: the card always asks, nothing is remembered, and the settle is heard', async (t) => {
+  const memory = fakeMemory();
+  memory.rules.push('bash');
+  const h = streamHarness(t, { rpc: approvalRpc(), approvalMemory: memory, backendId: 'b' });
+  t.after(() => stopped(h));
+  const asked = [];
+  const settled = [];
+  assert.equal(agentRpc.observe('launch-id', {
+    answersFromMemory: false,
+    onAsk: (r) => { asked.push(r.id); return null; },
+    onAskSettled: (id) => settled.push(id),
+  }), true);
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });
+  await until(() => ops(h).some((o) => o.op === 'ask'));
+  assert.deepEqual(asked, ['a1']);
+  assert.ok(h.signals.some((s) => s.kind === 'waiting'), 'the open question is reported, so it raises attention');
+  const res = await agentRpc.cycleMode('launch-id');
+  assert.equal(res.mode.id, 'all');
+  assert.equal(h.proc._agent.asks.size, 1, 'a mode that would allow it settles nothing either');
+  assert.equal((await agentRpc.answerAsk('launch-id', 'a1', { value: 'project' })).ok, true);
+  assert.deepEqual(settled, ['a1'], 'the observer heard the answer');
+  assert.deepEqual(memory.rules, ['bash'], 'no rule was written from a task\'s card');
+  assert.deepEqual([...memory.sessionKeys('b', 'launch-id')], [], 'and no session key');
+});
+
 // #865: the model of the running session is picked from the runtime's own list and switched by its own request;
 // the fill is asked again, and a backend that declares nothing offers nothing.
 function modelRpc(asked, running = {}) {
