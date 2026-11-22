@@ -429,6 +429,9 @@ module.exports = {
   },
   configFields,
   buildLaunch,
+  // No first prompt on the command line (#888): only the `chat` subcommand takes one (`-q`), and this backend
+  // launches bare `hermes`. The renderer keeps a first prompt for the user to insert.
+  initialPromptArgs: null,
   probe,
   findExecutable,
   /**

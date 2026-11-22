@@ -33,9 +33,37 @@ function seedFn() {
 
 test('the paste is submitted with a carriage return, not a line feed', () => {
   const body = seedFn();
-  assert.match(body, /\\x1b\[200~\$\{seedText\}\\x1b\[201~\\r/,
-    'bracketed paste, then CR. A \\n here is the difference between asking an agent and typing at it.');
+  assert.match(body, /sendSessionInput\(liveId, `\$\{body\}\\r`\)/,
+    'the message, then CR. A \\n here is the difference between asking an agent and typing at it.');
   assert.ok(!/\\x1b\[201~\\n/.test(body), 'a line feed does not submit anything');
+});
+
+// #888: bracketed only when the CLI turned it on, like the context-menu paste, with an end-of-paste marker inside
+// the text removed; without the mode a multi-line message is offered to the user, never typed line by line.
+test('the paste is bracketed only in bracketed-paste mode, and a multi-line message is not typed without it', () => {
+  const body = seedFn();
+  assert.match(body, /term\.modes && term\.modes\.bracketedPasteMode/);
+  assert.match(body, /replace\(\/\\x1b\\\[201~\/g, ''\)/, 'the text cannot end its own paste');
+  assert.match(body, /!bracketed && \/\[\\r\\n\]\/\.test\(seedText\)\)\s*\{\s*offerSeedToUser/);
+});
+
+// #888: a terminal session started for this message may be showing a start-up dialog, so it is offered, not typed.
+test('a terminal session resumed for the handoff request gets it offered, and the wait starts at the Insert', () => {
+  const start = HANDOFF.indexOf('async function askRunningAgentForHandoff(');
+  const fn = HANDOFF.slice(start, HANDOFF.indexOf('\n}\n', start));
+  assert.match(fn, /if \(waitForBoot && !\(entry && entry\.conversation\)\) \{\s*offerSeedToUser\(/);
+  assert.match(fn, /const inserted = await waitForSeedInsert\(session\.sessionId\);\s*if \(!inserted\) return null;/);
+  assert.ok(fn.indexOf('waitForSeedInsert') < fn.indexOf('waitForAgentAnswer'), 'the answer is waited for after the Insert');
+});
+
+// #888: a fresh terminal launch puts the message on the CLI's command line, or offers it; it never types it.
+test('a fresh terminal launch asks main to put the message on the command line, and offers it when main declines', () => {
+  const start = APP.indexOf('async function launchNewSession(');
+  const fn = APP.slice(start, APP.indexOf('\n}\n', start));
+  assert.match(fn, /initialPrompt: seed/);
+  assert.match(fn, /result\.initialPrompt === 'applied'/);
+  assert.match(fn, /offerSeedToUser\(sessionId, seed\)/);
+  assert.match(fn, /if \(entry\.conversation\) \{[\s\S]*?seedSessionWhenReady\(/, 'only a pipe session is still seeded');
 });
 
 test('the bracketed-paste markers are still there — a multi-line packet must survive as one input', () => {

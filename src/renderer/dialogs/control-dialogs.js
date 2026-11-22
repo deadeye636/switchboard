@@ -315,7 +315,11 @@
     });
   }
 
-  function showControlToast({ message, actionLabel, onAction, timeoutMs = 8000 } = {}) {
+  // `actionLabel` + `onAction` is one button; `actions: [{ label, onAction }]` is several (#888: Insert and Copy for a
+  // first message the app will not type). Each button closes the toast before it acts, as the single one always did,
+  // unless the action says `keepOpen`. A `timeoutMs` of 0 keeps the toast until one of its buttons closes it: for text
+  // that exists nowhere else, which a timeout would throw away while the user is not looking.
+  function showControlToast({ message, actionLabel, onAction, actions, timeoutMs = 8000 } = {}) {
     const toast = document.createElement('div');
     toast.className = 'control-toast';
 
@@ -324,14 +328,18 @@
     toast.appendChild(text);
 
     let timeoutId = null;
-    if (actionLabel && onAction) {
+    const buttons = Array.isArray(actions) ? actions.filter((a) => a && a.label && typeof a.onAction === 'function') : [];
+    if (actionLabel && onAction) buttons.unshift({ label: actionLabel, onAction });
+    for (const action of buttons) {
       const button = document.createElement('button');
       button.type = 'button';
-      button.textContent = actionLabel;
+      button.textContent = action.label;
       button.addEventListener('click', async () => {
-        if (timeoutId) clearTimeout(timeoutId);
-        toast.remove();
-        await onAction();
+        if (!action.keepOpen) {
+          if (timeoutId) clearTimeout(timeoutId);
+          toast.remove();
+        }
+        await action.onAction();
       });
       toast.appendChild(button);
     }
@@ -343,7 +351,7 @@
       document.body.appendChild(stack);
     }
     stack.appendChild(toast);
-    timeoutId = setTimeout(() => toast.remove(), timeoutMs);
+    if (timeoutMs > 0) timeoutId = setTimeout(() => toast.remove(), timeoutMs);
     return toast;
   }
 

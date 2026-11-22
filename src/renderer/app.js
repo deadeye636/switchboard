@@ -1544,13 +1544,21 @@ async function launchNewSession(project, sessionOptions, seedText) {
 
   const entry = createTerminalEntry(session);
 
+  // A first prompt for a TERMINAL session goes on the CLI's command line where its backend takes one (#888), so the
+  // CLI shows its own start-up screens (an update offer, a trust question, a sign-in) before it sends it. Typed into
+  // the screen instead, it answered whichever of those came first. Main decides and answers `initialPrompt`.
+  const seed = seedText && String(seedText).trim() ? String(seedText) : '';
+  const launchOptions = (seed && !entry.conversation)
+    ? { ...(sessionOptions || {}), initialPrompt: seed }
+    : (sessionOptions || null);
+
   // Open terminal in main process with session options
-  let result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions || null);
+  let result = await window.api.openTerminal(sessionId, projectPath, true, launchOptions);
   // A backend that starts only in a trusted project refused this one (#655). A new session is always somebody
   // at the keyboard — a click, a fork, a handoff — so the question is put to them, and a yes starts it again.
   if (!result.ok && result.untrusted && typeof grantTrustForLaunch === 'function'
       && await grantTrustForLaunch(result.untrusted)) {
-    result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions || null);
+    result = await window.api.openTerminal(sessionId, projectPath, true, launchOptions);
   }
   if (!result.ok) {
     writeEntryError(entry, result.error);
@@ -1569,20 +1577,26 @@ async function launchNewSession(project, sessionOptions, seedText) {
   showSession(sessionId);
   pollActiveSessions();
 
-  // For the guided handoff flow: seed the fresh session with the handoff packet as its first message
-  // once the CLI has booted. The session id we launched under is the one we seed — a backend that names
-  // its own session (Codex/Hermes/Pi) is re-keyed later, but the PTY is addressed by the id we hold.
-  if (seedText && String(seedText).trim()) {
-    const backend = (typeof getBackend === 'function' && sessionOptions && sessionOptions.backendId)
-      ? getBackend(sessionOptions.backendId)
-      : null;
-    seedSessionWhenReady(sessionId, String(seedText), {
-      graceMs: (backend && backend.seedGraceMs) || 0,
-      // Only a FRESH launch may wait for the backend's own report, because the report is what re-keys the
-      // session — the two paths that seed a session already running would wait for an id change that has
-      // long happened and fall through to the timeout instead.
-      announcesReady: !!(backend && backend.announcesSessionReady),
-    });
+  // The first message (the guided handoff flow and its siblings). Three ways, by what the session is (#888):
+  //   - driven over a pipe: sent as a turn once the runtime reads, as before;
+  //   - on the command line already (`initialPrompt: 'applied'`): the CLI sends it itself, nothing to do here;
+  //   - anything else: NOT typed. The user gets it to insert once the session is up, because nothing can tell
+  //     this app whether a quiet screen is the composer or a dialog the keystrokes would answer.
+  if (seed) {
+    if (entry.conversation) {
+      const backend = (typeof getBackend === 'function' && sessionOptions && sessionOptions.backendId)
+        ? getBackend(sessionOptions.backendId)
+        : null;
+      seedSessionWhenReady(sessionId, seed, {
+        graceMs: (backend && backend.seedGraceMs) || 0,
+        announcesReady: !!(backend && backend.announcesSessionReady),
+      });
+    } else if (result.initialPrompt === 'applied') {
+      window.api.noteTimelineEvent(sessionId, 'started', 'Handoff seeded',
+        'Started the session with the handoff packet as its first message.');
+    } else {
+      offerSeedToUser(sessionId, seed);
+    }
   }
 
   return sessionId;
@@ -1612,6 +1626,9 @@ async function launchNewSession(project, sessionOptions, seedText) {
 // so "the terminal went quiet" arrives long before the process can hear anything. Without the floor the
 // packet is pasted into a process with no input loop and is simply gone — on exactly the backend whose
 // handoff support this feature was extended for.
+// A terminal session STARTED for its message never reaches this function (#888): `launchNewSession` puts the message on
+// the command line or offers it, and the handoff that resumes a stopped session offers it too. What is typed here is a
+// pipe session, or a terminal session that was already running and is past its start-up.
 function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, announcesReady = false, timelineLabel, timelineNote } = {}) {
   const SETTLE_MS = 700;
   const POLL_MS = 250;
@@ -1661,6 +1678,18 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, announcesReady
 
     if (pipe || ready || timedOut) {
       seeded = true;
+      // Bracketed only when the CLI turned bracketed paste on, with any end-of-paste marker inside the text removed,
+      // the rules the context-menu paste follows (#888). Without the mode a line break would be an Enter, so a
+      // multi-line message is offered instead of typed in pieces.
+      const term = entry.terminal || null;
+      const bracketed = !pipe && !!(term && term.modes && term.modes.bracketedPasteMode);
+      if (!pipe && !bracketed && /[\r\n]/.test(seedText)) {
+        offerSeedToUser(liveId, seedText, { label: timelineLabel });
+        return;
+      }
+      const body = pipe || bracketed
+        ? `\x1b[200~${String(seedText).replace(/\x1b\[201~/g, '')}\x1b[201~`
+        : String(seedText);
       // Bracketed paste keeps the multi-line text intact, then SUBMIT.
       //
       // The submit is a CARRIAGE RETURN (\r), not a newline (\n). Enter is 0x0D on a terminal; 0x0A only
@@ -1671,7 +1700,7 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, announcesReady
       // session's stdin: this chunk ENDS in the submit, so it leaves the prompt line clean, and a
       // staged prompt must not be held behind text that was sent before anyone could look at it.
       const seededAt = Date.now();
-      sendSessionInput(liveId, `\x1b[200~${seedText}\x1b[201~\r`);
+      sendSessionInput(liveId, `${body}\r`);
       // The write is not the end of it (#648): a CLI can refuse the submit, and then the text sits unsent in
       // its own composer. A pipe session answers for itself — main hands a refused turn back to its view.
       if (!pipe) watchSeedSubmit({ currentEntry, launchId: sessionId, seedText, seededAt });
@@ -1699,20 +1728,13 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, announcesReady
 // submit landed. Nothing here reads what the CLI printed — its words for "not ready" stay in its own
 // folder, and no backend id is asked.
 //
-// No turn within SEED_CONFIRM_MS: the text is most likely in the composer with the Enter refused, so the
-// SUBMIT alone is sent again, a couple of times — never the text, which would paste it twice. An Enter into
-// an empty composer is ignored by every CLI this app drives. Only while the prompt line is clean: once the
-// user has typed there, an Enter would send THEIR half-written line, and that is not ours to press. Nor
-// while the session is asking for attention: then the CLI is likely showing a dialog of its own (a trust
-// prompt, a permission question), and an Enter would pick its default unseen.
-//
-// Still nothing: the user is told, with the text to copy, rather than left to find it. The cost of the
+// No turn within SEED_CONFIRM_MS: the user is told, with the text to copy, rather than left to find it. It used to
+// send the bare Enter again first, twice — and an Enter into a dialog the CLI opened in the meantime picks its default
+// unseen, which nothing here can rule out (#888). So the app presses nothing it cannot see. The cost of the
 // heuristic is stated here rather than discovered — a backend whose busy report is slow, or missed for a
 // very short turn, can draw this notice about a message that did go out. That is the cheaper mistake: it
 // costs a glance, while the one it replaces cost the message.
 const SEED_CONFIRM_MS = 15000;
-const SEED_RETRY_MS = 5000;
-const SEED_RETRIES = 2;
 
 function seedTurnStarted(ids, since) {
   for (const id of ids) {
@@ -1725,7 +1747,6 @@ function seedTurnStarted(ids, since) {
 }
 
 function watchSeedSubmit({ currentEntry, launchId, seedText, seededAt }) {
-  let retries = 0;
   function check() {
     const entry = currentEntry();
     if (!entry || entry.closed) return;   // closed before it could be asked
@@ -1733,14 +1754,6 @@ function watchSeedSubmit({ currentEntry, launchId, seedText, seededAt }) {
     // The process ended: there is no composer left to submit into, and its own exit says what happened.
     if (!activePtyIds.has(liveId) && !activePtyIds.has(launchId)) return;
     if (seedTurnStarted([launchId, liveId], seededAt)) return;
-    const lineInUse = (typeof stagedPromptDirtyLines !== 'undefined' && stagedPromptDirtyLines.has(liveId))
-      || attentionSessions.has(liveId) || attentionSessions.has(launchId);
-    if (retries < SEED_RETRIES && !lineInUse) {
-      retries += 1;
-      sendSessionInput(liveId, '\r');
-      setTimeout(check, SEED_RETRY_MS);
-      return;
-    }
     // Named the way every other toast names a session (shell/prompt-staging.js).
     const session = sessionMap.get(liveId) || entry.session || null;
     const name = (typeof stagedPromptSessionLabel === 'function' && stagedPromptSessionLabel(session)) || 'this session';
@@ -1752,6 +1765,82 @@ function watchSeedSubmit({ currentEntry, launchId, seedText, seededAt }) {
     });
   }
   setTimeout(check, SEED_CONFIRM_MS);
+}
+
+// A first message the app will not type (#888): the session may be showing a start-up dialog, and keystrokes would
+// answer it. The user gets the text with two ways to use it once they see the session's composer: Insert puts it
+// there through the context-menu paste (bracketed only when the CLI asks for it, never submitted), Copy hands it over.
+// The id is followed like the seed does: a backend that names its own session re-keys the entry while this waits.
+//
+// The toast stays until the user closes it: the text may exist nowhere else (an edited packet, a generated prompt), and
+// a start-up dialog can take longer than any timeout. Copy leaves it open. `seedOffers` remembers, by the launch id,
+// that a message was offered and when it was inserted, so a caller that waits for the answer (the handoff reading the
+// previous session) counts from the Insert instead of from the launch.
+const seedOffers = new Map();
+
+function seedOfferState(sessionId) {
+  return seedOffers.get(sessionId) || null;
+}
+
+function offerSeedToUser(sessionId, seedText, { label } = {}) {
+  seedOffers.set(sessionId, { insertedAt: 0 });
+  const launchedEntry = openSessions.get(sessionId) || null;
+  const currentEntry = () => {
+    const byId = openSessions.get(sessionId);
+    if (byId) return byId;
+    for (const e of openSessions.values()) if (e === launchedEntry) return e;
+    return null;
+  };
+  const session = sessionMap.get(sessionId) || (launchedEntry && launchedEntry.session) || null;
+  const name = (typeof stagedPromptSessionLabel === 'function' && stagedPromptSessionLabel(session)) || 'this session';
+  // A session that ends takes its offer with it: the toast goes, and a caller waiting for the Insert is told (#888).
+  let watch = null;
+  const close = () => {
+    if (watch) clearInterval(watch);
+    watch = null;
+    if (toast && toast.isConnected) toast.remove();
+  };
+  const toast = showControlToast({
+    message: `${label || 'The first message'} for “${name}” is ready. Once the session shows its input, insert it there `
+      + 'and send it yourself; it is not typed for you, because the CLI may be asking something first.',
+    actions: [
+      {
+        // Kept open until the text really went in: an Insert into a session that has gone must not lose the text.
+        label: 'Insert',
+        keepOpen: true,
+        onAction: () => {
+          const entry = currentEntry();
+          if (!entry || entry.closed || !entry.terminal) return;
+          const liveId = (entry.session && entry.session.sessionId) || sessionId;
+          pasteIntoTerminal(entry.terminal, liveId, seedText);
+          entry.terminal.focus();
+          const offer = seedOffers.get(sessionId);
+          if (offer) offer.insertedAt = Date.now();
+          close();
+          // Kept long enough for the caller waiting on it to read the Insert, then forgotten.
+          setTimeout(() => { if (seedOffers.get(sessionId) === offer) seedOffers.delete(sessionId); }, 60 * 60 * 1000);
+        },
+      },
+      {
+        label: 'Copy',
+        keepOpen: true,
+        onAction: async () => { try { await navigator.clipboard.writeText(seedText); } catch { /* nothing to copy into */ } },
+      },
+      { label: 'Dismiss', onAction: () => { close(); seedOffers.delete(sessionId); } },
+    ],
+    timeoutMs: 0,
+  });
+  // Only a session this window holds is watched; one mounted elsewhere is not "gone" because it is not here. When it
+  // ends, the offer ends for whoever waits on it, but the toast stays: Copy still holds text that may exist nowhere else.
+  if (launchedEntry) {
+    watch = setInterval(() => {
+      const entry = currentEntry();
+      if (entry && !entry.closed) return;
+      clearInterval(watch);
+      watch = null;
+      seedOffers.delete(sessionId);
+    }, 2000);
+  }
 }
 
 // Legacy alias

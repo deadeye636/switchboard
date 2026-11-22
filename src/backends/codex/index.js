@@ -392,6 +392,12 @@ description:
   },
   configFields,
   buildLaunch,
+  // The first prompt on the command line (#888), appended by the core after everything else on a fresh launch, so the
+  // CLI shows its own start-up screens first and sends the prompt after them.
+  // Codex: `codex [OPTIONS] [PROMPT]`, "Optional user prompt to start the session" (interactive). Behind `--`, so a text
+  // that starts with `-` (frontmatter, a list) or is one word naming a subcommand (`review`, `login`) stays a prompt:
+  // measured on 0.171.0, `codex -- --version` starts the session with `--version` as its prompt.
+  initialPromptArgs: (text) => ['--', String(text)],
   probe,
   findExecutable,
 

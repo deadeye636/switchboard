@@ -239,6 +239,39 @@ concatenated — the same divergence in the shape #623 first left behind. What "
 a handoff directory, so they fall back to `.handoffs` with the escaping values rather than being spelled
 back out as `.`.
 
+## How the first message reaches a new session (#888)
+
+A new session started with a message (the guided handoff, a picked packet, a read of the previous session) used to get
+that message TYPED: `seedSessionWhenReady` waited until the terminal had been quiet for 700 ms, pasted the text and
+pressed Enter, and sent up to two more Enters 15 and 20 s later if no turn started. A quiet screen is not always the
+composer. Codex's update offer went quiet, took the paste and the Enter, and updated Codex on the machine; agy's and
+Claude's trust questions default to "trust" on Enter.
+
+Now, by what the session is:
+
+- **Driven over a pipe** (Claude (GUI), Pi (GUI)): sent as a turn, as before. There is no screen to answer.
+- **A terminal whose CLI takes a first prompt on its command line**: the backend declares `initialPromptArgs(text)`,
+  the spawn appends it last on a fresh launch (`src/app/terminal/spawn.js`), and the CLI sends it after its own start-up
+  screens. Measured in the demo instance (codex-cli 0.171.0, agy 1.5.14, Pi 1.5.2, each on its smallest model): Codex
+  `codex -- <prompt>` and Pi `pi -- <message>` ran it at once; agy `-i <prompt>` first showed its trust question,
+  waited there, and ran the prompt after it was answered. `--` keeps a text that starts with `-` or names a
+  subcommand a prompt (`codex -- --version` starts a session). The core declines it on a resume or a fork, through
+  cmd.exe (it expands `%VAR%` inside quotes), through Windows PowerShell 5.1 for a text with `"` (5.1 drops them), through
+  fish or nushell for a text with `'` or `\` (their quoting differs), over 16 000 characters, and when the quoted command
+  line would pass 30 000 characters. Pi declines a text starting with `@` (a file to attach), agy one starting with `-`
+  (it reads it as a flag).
+- **Any other terminal** (Claude, Hermes, or a declined case): nothing is typed. A toast offers **Insert** (the
+  context-menu paste: bracketed only when the CLI asked for it, never submitted), **Copy** (the toast stays) and
+  **Dismiss**; it has no timeout, because the text may exist nowhere else. Measured with Claude: its trust question
+  stayed untouched, and Insert put the message into the composer once the session was up. The handoff that has a
+  fresh agent read the previous session waits for its answer from the Insert on, not from the launch.
+
+A running session that is asked something (the handoff request, the plan request) is still typed into, with two
+changes: bracketed paste only when the CLI turned it on, a multi-line message without it is offered instead, and an
+`ESC[201~` inside the text is removed. A stopped terminal session resumed only to be asked (`waitForBoot`) counts as a
+fresh start: it gets the offer, the wait for its answer starts at the Insert, and the offer goes when the session does. The read-back after a typed message presses nothing any more; with no turn after 15 s it
+tells the user, with the text to copy.
+
 ## What this does not do
 
 - **No CLI is configured.** Plans need a setup step because the CLI writes the plan and Claude's

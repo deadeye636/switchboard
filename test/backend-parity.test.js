@@ -1017,3 +1017,20 @@ test('every backend answers where its CLI publishes what changed', () => {
     assert.equal(typeof src.label, 'string', `${b.id}: changelogSource.label names the source in the report`);
   }
 });
+
+// #888: whether a backend's CLI takes a first prompt on its command line is answered by every backend — a function, or
+// null with a comment naming why. A function answers an array of strings (appended last by the core) or null (the
+// renderer then keeps the text for the user).
+test('every backend answers initialPromptArgs, and an answer is strings or a decline', () => {
+  for (const b of READY) {
+    assert.ok('initialPromptArgs' in b, `${b.id} must answer initialPromptArgs, declining with null`);
+    const hook = b.initialPromptArgs;
+    if (hook === null) continue;
+    assert.equal(typeof hook, 'function', `${b.id}: initialPromptArgs is a function or null`);
+    assert.equal(!!b.transport, false, `${b.id}: a pipe backend sends a first prompt as a turn, not on a command line`);
+    const out = hook('a first prompt\nover two lines');
+    assert.ok(out === null || (Array.isArray(out) && out.length && out.every((a) => typeof a === 'string')),
+      `${b.id}: answers strings or null`);
+    if (out) assert.equal(out.at(-1), 'a first prompt\nover two lines', `${b.id}: the text is passed whole, as the last argument`);
+  }
+});

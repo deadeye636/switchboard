@@ -394,6 +394,8 @@ module.exports = {
   capabilities,
   configFields,
   buildLaunch,
+  // Driven over a pipe: a first prompt is sent as a turn, never put on the command line (#888).
+  initialPromptArgs: null,
   probe,
   findExecutable,
   PARSER_SCHEMA_VERSION: claude.PARSER_SCHEMA_VERSION,

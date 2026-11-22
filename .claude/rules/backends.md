@@ -724,6 +724,14 @@ four since #808; see the `reviewProfile` paragraph below). The Claude family
 declares no `diffTool`: its diffs stay on `--ide`. A group opens only for a toggle the backend DECLARES in its
 `configFields` — a stored value it never offers opens nothing (spec 37, O9).
 
+**A first prompt on the command line is ONE hook, `initialPromptArgs(text)` (#888):** an array of strings appended last
+on a fresh terminal launch, or `null`, answered by every backend (`test/backend-parity.test.js`). The core asks it in
+`src/app/terminal/spawn.js` after the spawn mode is decided and declines on a resume, a fork, a pipe, cmd.exe and past
+16 000 characters, and on what PowerShell 5.1, fish or nushell would alter and a quoted line past 30 000 characters; the
+renderer then offers the text instead of typing it (spec 25, "How the first message reaches a new session").
+Codex `-- <prompt>`, Pi `-- <message>` and agy `-i` (declining a text that starts with `-`) answer, each measured; Claude
+and Hermes decline until measured. A template inherits it, and `scripts/managed-flags.js` asks it, so a flag it uses is audited.
+
 **A prune is a flag and ONE hook, not a quartet (spec 36).** `providesMcpPrune` + `buildMcpPrune({ injectedNames, options, env, cwd, log })` → `{ args, env } | null`, composed by `src/app/mcp-prune.js`. There is no release half (launch arguments and environment only), so it is not a `HOOK_PAIRS` row; `test/backend-parity.test.js` pins the flag-and-hook shape separately. Every backend answers the flag, declining included, and the `mcpPrune` capability row says the same; a template forwards both in `profileToDescriptor`.
 
 **A review target is ONE hook, `reviewProfile()` (spec 39):** `{ options } | null`, answered by every backend (`null` to

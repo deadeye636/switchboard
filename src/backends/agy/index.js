@@ -374,6 +374,12 @@ module.exports = {
   },
   configFields,
   buildLaunch,
+  // The first prompt on the command line (#888), appended by the core after everything else on a fresh launch, so the
+  // CLI shows its own start-up screens first and sends the prompt after them.
+  // agy: `-i` / `--prompt-interactive`, "Run an initial prompt interactively and continue the session". A text that
+  // starts with `-` is declined: measured on 1.5.14, `-i --version` reads the value as a flag (it printed the version),
+  // and `--prompt-interactive=--version` is refused by agy itself. The renderer then offers it to the user.
+  initialPromptArgs: (text) => (/^\s*-/.test(String(text)) ? null : ['-i', String(text)]),
   probe,
   findExecutable,
   listModels,

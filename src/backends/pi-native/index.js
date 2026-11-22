@@ -289,6 +289,8 @@ module.exports = {
   capabilities,
   configFields,
   buildLaunch,
+  // Driven over a pipe: a first prompt is sent as a turn, never put on the command line (#888).
+  initialPromptArgs: null,
   probe: pi.probe,
   findExecutable: pi.findExecutable,
   listModels: pi.listModels,

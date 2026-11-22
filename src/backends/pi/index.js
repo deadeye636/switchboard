@@ -668,6 +668,11 @@ module.exports = {
   },
   configFields,
   buildLaunch,
+  // The first prompt on the command line (#888), appended by the core after everything else on a fresh launch, so the
+  // CLI shows its own start-up screens first and sends the prompt after them.
+  // Pi: `pi [options] [--] [@files...] [messages...]`; after `--` the text is a message, never a flag. A text that
+  // starts with `@` would be read as a file to attach, so it is declined (the user gets it to insert instead).
+  initialPromptArgs: (text) => (/^\s*@/.test(String(text)) ? null : ['--', String(text)]),
   probe,
   findExecutable,
   listModels,

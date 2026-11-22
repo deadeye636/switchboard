@@ -109,7 +109,15 @@ async function handoffFromNewSession(session, project, transcriptPath) {
   const newId = await launchNewSession(project, options, prompt);
   if (!newId) return null;
 
-  showControlToast({ message: 'A fresh agent is reading the previous session — the packet will be offered for review.' });
+  // A backend that cannot take the prompt on its command line gets it offered instead of typed (#888): then nothing
+  // has been asked until the user inserts it, and the wait for an answer starts there, not at the launch.
+  const offered = typeof seedOfferState === 'function' && seedOfferState(newId);
+  if (offered) {
+    const inserted = await waitForSeedInsert(newId);
+    if (!inserted) return null;
+  } else {
+    showControlToast({ message: 'A fresh agent is reading the previous session — the packet will be offered for review.' });
+  }
 
   // Wait for THAT session to answer. It is brand new, so anything it says is the packet.
   const reader = { sessionId: newId, projectPath: session.projectPath, backendId };
@@ -466,12 +474,24 @@ async function askRunningAgentForHandoff(session, { waitForBoot = false } = {}) 
   //
   // The shared primitive also waits for the CLI to fall QUIET instead of for a fixed delay, so we never
   // type into an agent that is still printing.
-  seedSessionWhenReady(session.sessionId, requestPrompt, {
-    graceMs: waitForBoot ? ((backend && backend.seedGraceMs) || 1500) : 0,
-    timelineLabel: 'Handoff requested',
-    timelineNote: 'Asked the agent to summarise the session into a handoff packet.',
-  });
-  showControlToast({ message: 'Asked the agent for a handoff — the packet is offered for review when it answers.' });
+  //
+  // A TERMINAL session resumed just for this question can be showing a start-up dialog, which keystrokes would answer
+  // (#888). Its request is offered to the user instead, and the wait for the answer starts at the Insert; nothing has
+  // been asked before that, so nothing says so. A session driven over a pipe, or one that was already running, is
+  // asked directly as before.
+  const entry = typeof openSessions !== 'undefined' ? openSessions.get(session.sessionId) : null;
+  if (waitForBoot && !(entry && entry.conversation)) {
+    offerSeedToUser(session.sessionId, requestPrompt, { label: 'The handoff request' });
+    const inserted = await waitForSeedInsert(session.sessionId);
+    if (!inserted) return null;
+  } else {
+    seedSessionWhenReady(session.sessionId, requestPrompt, {
+      graceMs: waitForBoot ? ((backend && backend.seedGraceMs) || 1500) : 0,
+      timelineLabel: 'Handoff requested',
+      timelineNote: 'Asked the agent to summarise the session into a handoff packet.',
+    });
+    showControlToast({ message: 'Asked the agent for a handoff — the packet is offered for review when it answers.' });
+  }
 
   const packet = await waitForAgentAnswer(session, { before });
   if (!packet) {
@@ -491,6 +511,19 @@ async function askRunningAgentForHandoff(session, { waitForBoot = false } = {}) 
 
 // Poll the transcript until the agent's last assistant turn CHANGES. That is the only honest signal that
 // it answered: the terminal going quiet says nothing (a spinner is output, so is an echoed keystroke).
+// Until the user inserts an offered first message (#888), or gives up: the offer is dismissed without an Insert, or an
+// hour passes. True once inserted.
+async function waitForSeedInsert(sessionId, { deadlineMs = 60 * 60 * 1000, pollMs = 1000 } = {}) {
+  const until = Date.now() + deadlineMs;
+  while (Date.now() < until) {
+    const offer = typeof seedOfferState === 'function' ? seedOfferState(sessionId) : null;
+    if (!offer) return false;
+    if (offer.insertedAt) return true;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return false;
+}
+
 async function waitForAgentAnswer(session, { before = '', deadlineMs = 5 * 60 * 1000, pollMs = 1500 } = {}) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < deadlineMs) {

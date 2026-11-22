@@ -1270,6 +1270,9 @@ description:
   },
   configFields,
   buildLaunch,
+  // No first prompt on the command line yet (#888): `claude [prompt]` exists, but this backend spawns through a
+  // shell and the form is not measured. The renderer keeps a first prompt for the user to insert.
+  initialPromptArgs: null,
   discoverSessions,
   parseSession,
   parseSessionIncremental,

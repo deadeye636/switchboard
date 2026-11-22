@@ -229,6 +229,8 @@ function profileToDescriptor(p) {
     ...(base && base.startupHint ? { startupHint: base.startupHint } : {}),
     ...(base && base.seedGraceMs !== undefined ? { seedGraceMs: base.seedGraceMs } : {}),
     ...(base && base.announcesSessionReady ? { announcesSessionReady: true } : {}),
+    // The first prompt on the command line (#888) is the binary's grammar, so a template running it takes it too.
+    ...(base && 'initialPromptArgs' in base ? { initialPromptArgs: base.initialPromptArgs } : {}),
     ...(base && base.deleteBlockedReason ? { deleteBlockedReason: base.deleteBlockedReason } : {}),
     ...(base && typeof base.normalizeTranscriptEntries === 'function'
       ? { normalizeTranscriptEntries: base.normalizeTranscriptEntries } : {}),

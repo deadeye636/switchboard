@@ -9,7 +9,8 @@
 //
 // So the managed set is derived here from what the backend WOULD send: `buildLaunch` at every launch shape
 // and with every declared option at a value that reaches the argv, plus `buildLiveBinding` for the backends
-// that hand the CLI a per-spawn file (Claude's `--settings`, Pi's `--extension`). A flag the app starts
+// that hand the CLI a per-spawn file (Claude's `--settings`, Pi's `--extension`), plus `initialPromptArgs` for the
+// backends that take a first prompt on the command line (#888, agy's `-i`). A flag the app starts
 // sending is in scope for the audit the moment it is written, with nothing to remember.
 //
 // The second half is `definitionFlags`: a flag counts as advertised only where the help DEFINES it, not
@@ -193,9 +194,19 @@ function sessionResourceFlags(backend) {
   }
 }
 
+/**
+ * The first prompt on the command line (#888): the core appends what the backend's `initialPromptArgs` answers to a
+ * fresh launch, outside `buildLaunch`, so a flag it uses (`-i`) is only seen by asking the hook.
+ */
+function initialPromptFlags(backend) {
+  if (typeof backend.initialPromptArgs !== 'function') return [];
+  try { return flagsIn(backend.initialPromptArgs('flag audit prompt')); } catch { return []; }
+}
+
 /** Every flag this backend can put on its CLI's command line, derived — not written down. */
 function managedFlags(backend, opts) {
-  const flags = new Set([...bindingFlags(backend), ...promptTemplateFlags(backend), ...sessionResourceFlags(backend)]);
+  const flags = new Set([...bindingFlags(backend), ...promptTemplateFlags(backend), ...sessionResourceFlags(backend),
+    ...initialPromptFlags(backend)]);
   for (const variant of launchVariants(backend, opts)) {
     let launch;
     try { launch = backend.buildLaunch(variant); } catch { continue; }

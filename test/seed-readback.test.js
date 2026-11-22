@@ -2,7 +2,7 @@
 // A seed's readback (#648). `seedSessionWhenReady` used to write the seed and forget it, so a submit the CLI
 // refused was lost by construction and the user found the text sitting unsent in the CLI's own composer.
 // `watchSeedSubmit` asks the one thing every backend reports — did the session start working — and when it
-// did not, presses Enter again (never the text) while the line is ours, then tells the user.
+// did not, tells the user with the text to copy. It presses nothing since #888: a bare Enter could answer a dialog.
 //
 // The functions are run as they are written in app.js, cut out of it and evaluated in a `vm` against stubs of
 // the globals they read, with a timer queue the test advances by hand.
@@ -73,45 +73,32 @@ test('a turn from before the seed does not count', () => {
   const h = setup();
   h.ctx.turnStartedAt.set('launch', h.seededAt - 1000);
   h.tick();
-  assert.deepEqual(h.writes, [['launch', '\r']], 'an old edge says nothing about this submit');
+  assert.equal(h.toasts.length, 1, 'an old edge says nothing about this submit: the user is told');
+  assert.deepEqual(h.writes, []);
 });
 
-test('no turn: the submit alone is pressed again, then the user is told with the text to copy', () => {
+// #888: the readback presses nothing. It used to send the bare Enter again, twice, and an Enter into a dialog the CLI
+// opened meanwhile picks its default unseen.
+test('no turn: nothing is pressed, the user is told once with the text to copy', () => {
   const h = setup();
-  const retries = vm.runInContext('SEED_RETRIES', h.ctx);
-  for (let i = 0; i < retries; i++) h.tick();
-  assert.deepEqual(h.writes, Array.from({ length: retries }, () => ['launch', '\r']), 'Enter only, never the text again');
-  assert.deepEqual(h.toasts, []);
+  assert.equal(vm.runInContext('typeof SEED_RETRIES', h.ctx), 'undefined', 'no retry count left to press Enter with');
   h.tick();
+  assert.deepEqual(h.writes, [], 'no Enter, and never the text again');
   assert.equal(h.toasts.length, 1);
   assert.match(h.toasts[0].message, /The first message for “Fresh one” was not submitted/);
   assert.equal(h.toasts[0].actionLabel, 'Copy message');
   assert.equal(h.timers.length, 0, 'and the watch ends');
 });
 
-test('a retry that lands ends the watch', () => {
-  const h = setup();
-  h.tick();                                              // first check: nothing, Enter pressed
-  h.ctx.turnStartedAt.set('launch', Date.now());         // the Enter took
-  h.tick();
-  assert.deepEqual(h.writes, [['launch', '\r']]);
-  assert.deepEqual(h.toasts, []);
-});
-
-test('once the user has typed into the line, Enter is theirs: the user is told instead', () => {
-  const h = setup();
-  h.ctx.stagedPromptDirtyLines.add('launch');
-  h.tick();
-  assert.deepEqual(h.writes, [], 'an Enter now would send the user\'s half-written line');
-  assert.equal(h.toasts.length, 1);
-});
-
-test('a session asking for attention may be showing a dialog: no Enter is pressed into it', () => {
-  const h = setup();
-  h.ctx.attentionSessions.add('launch');
-  h.tick();
-  assert.deepEqual(h.writes, []);
-  assert.equal(h.toasts.length, 1);
+test('a typed line or a session asking for attention changes nothing: nothing is pressed, the user is told', () => {
+  for (const mark of ['dirty', 'attention']) {
+    const h = setup();
+    if (mark === 'dirty') h.ctx.stagedPromptDirtyLines.add('launch');
+    else h.ctx.attentionSessions.add('launch');
+    h.tick();
+    assert.deepEqual(h.writes, [], mark);
+    assert.equal(h.toasts.length, 1, mark);
+  }
 });
 
 test('a session that ended or was closed is left alone', () => {
@@ -124,16 +111,14 @@ test('a session that ended or was closed is left alone', () => {
   assert.deepEqual([closed.writes, closed.toasts], [[], []]);
 });
 
-test('the session re-keyed while the watch waited: the edge under its new id counts, and Enter goes there', () => {
+test('the session re-keyed while the watch waited: the edge under its new id counts', () => {
   const h = setup();
   h.entry.session.sessionId = 'named-by-cli';
   h.ctx.activePtyIds.clear();
   h.ctx.activePtyIds.add('named-by-cli');
+  h.ctx.turnStartedAt.set('named-by-cli', Date.now() + 1);
   h.tick();
-  assert.deepEqual(h.writes, [['named-by-cli', '\r']]);
-  h.ctx.turnStartedAt.set('named-by-cli', Date.now());
-  h.tick();
-  assert.deepEqual(h.toasts, []);
+  assert.deepEqual([h.writes, h.toasts], [[], []]);
 });
 
 // The wiring: the seed hands a terminal session to the readback, and the busy edge is what it reads.

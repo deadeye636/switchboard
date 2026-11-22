@@ -32,6 +32,12 @@ const { settingsOwnerPath } = require('../../shared/worktree-path');
 const backendModes = require('../../shared/backend-modes');
 const { normalizeLauncher } = require('../../shared/custom-launchers');
 const { stripTerminalQueries } = require('../../shared/terminal-queries');
+// The longest first prompt put on a command line (#888). A Windows command line holds 32 767 UTF-16 units, and the
+// launch beside the prompt (MCP overrides, extension paths, flags) needs its share; longer text is kept for the user.
+const INITIAL_PROMPT_MAX_CHARS = 16000;
+// The longest command line a launch with a first prompt may write (#888), below the 32 767 Windows takes, with room for
+// what a shell wrapper adds around it (`bash -l -i -c "…"`, node-pty's own escaping).
+const COMMAND_LINE_MAX_CHARS = 30000;
 const { classifyAttentionSignal } = require('../../shared/attention-source');
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
@@ -499,6 +505,10 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
   // Did the PTY start the CLI's own executable (argv mode), so that `pty.pid` is the CLI's launcher? Set where
   // the spawn mode is decided; it is what lets a backend's `sharedDescendants` be honoured (see below).
   let spawnedInArgvMode = false;
+  // The first prompt on the command line (#888): 'applied' when the backend's `initialPromptArgs` put it there,
+  // 'declined' when one was asked for and could not go there (the renderer then keeps it for the user), null when
+  // none was asked for. Answered to the renderer, never stored.
+  let initialPromptResult = null;
   // Was this meant to be a resume of an id the backend has never heard of (#290)? Set in the backend
   // branch, consumed twice out here: the session records that it is NOT a resume after all, and the
   // user is told in one line why their history is missing. Hoisted for the same reason startupHint is —
@@ -968,6 +978,12 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
       // through, so the renderer's `resumeOverride` mark is stripped even when nothing is asked.
       const resumeOnly = !isNew && !resumeUnknown && !sessionOptions?.forkFrom;
       let launchOptions = withoutResumeMark(sessionOptions);
+      // A first prompt is not a launch option (#888): it reaches the argv only through the backend's own hook below,
+      // and it must not reach `buildLaunch` or anything that reads the options as settings.
+      if (launchOptions && Object.prototype.hasOwnProperty.call(launchOptions, 'initialPrompt')) {
+        launchOptions = { ...launchOptions };
+        delete launchOptions.initialPrompt;
+      }
       // The user's own variables for this backend and the template's bundle: the layers the launch adds over
       // the process environment. Read once, here, and used by the hook and by `envLayers` below, so a settings
       // save during the hook's wait cannot give the two different answers.
@@ -1298,6 +1314,52 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
       const isClaudeBinary = launch.command === 'claude' && !backend.transport;
       oscTitleState = isClaudeBinary;
 
+      // The first prompt on the command line (#888). A CLI that takes one shows its own start-up screens (an update
+      // offer, a trust question, a sign-in) and sends the prompt only after them, so nothing typed can answer one of
+      // them. Only for a fresh terminal session, never a resume or a fork (the prompt belongs to a NEW conversation),
+      // never over a pipe (the pipe sends it as a turn), never through cmd.exe (it expands `%VAR%` inside quotes and
+      // its quoting collides with node-pty's), and never past the length a Windows command line can carry beside the
+      // rest of the launch. Declined, the renderer keeps the text for the user instead of typing it.
+      //
+      // Through a shell the prompt has to survive that shell's quoting, and two do not keep every text as written
+      // (#888 verifier, measured with `quoteArgvForShell`): Windows PowerShell 5.1 drops every double quote from an
+      // argument (pwsh 7 keeps them), and fish and nushell read the POSIX single quotes differently (a backslash
+      // inside them, a single quote that nushell cannot escape at all). A text that would arrive altered is declined.
+      const wantedPrompt = typeof sessionOptions?.initialPrompt === 'string' ? sessionOptions.initialPrompt : '';
+      let promptArgCount = 0;
+      if (wantedPrompt.trim()) {
+        const shellBase = useArgvSpawn ? '' : path.basename(String(shell || '')).toLowerCase();
+        const cmdShell = /^cmd(\.exe)?$/.test(shellBase);
+        const alteredByShell = (/^powershell(\.exe)?$/.test(shellBase) && wantedPrompt.includes('"'))
+          || (/^(fish|nu)(\.exe)?$/.test(shellBase) && /['\\]/.test(wantedPrompt));
+        let promptArgs = null;
+        if (isNew && !sessionOptions?.forkFrom && !backend.transport && !cmdShell && !alteredByShell
+            && wantedPrompt.length <= INITIAL_PROMPT_MAX_CHARS && !wantedPrompt.includes(String.fromCharCode(0))
+            && typeof backend.initialPromptArgs === 'function') {
+          try { promptArgs = backend.initialPromptArgs(wantedPrompt); } catch { promptArgs = null; }
+        }
+        // The command line as it will be written, quoting included: a text full of quotes can double in length, and a
+        // line past what Windows takes would fail the whole spawn instead of declining the prompt.
+        if (Array.isArray(promptArgs) && promptArgs.length) {
+          const all = [...launch.args, ...promptArgs].map(String);
+          // node-pty quotes each argument and escapes a quote or a backslash with one more character; through a shell
+          // that happens to the whole command string the shell is handed, after the shell's own quoting.
+          const escaped = (s) => s.length + (s.match(/["\\]/g) || []).length + 3;
+          const lineLength = useArgvSpawn
+            ? all.reduce((n, a) => n + escaped(a), launch.command.length)
+            : escaped((preLaunchCmd ? preLaunchCmd + ' ' : '') + launch.command + ' ' + quoteArgvForShell(shell, all));
+          if (lineLength > COMMAND_LINE_MAX_CHARS) promptArgs = null;
+        }
+        if (Array.isArray(promptArgs) && promptArgs.length && promptArgs.every((a) => typeof a === 'string')) {
+          promptArgCount = promptArgs.length;
+          launch.args = [...launch.args, ...promptArgs];
+          initialPromptResult = 'applied';
+        } else {
+          initialPromptResult = 'declined';
+        }
+        ctx.log.info(`[spawn] session=${sessionId} first prompt ${initialPromptResult} (${wantedPrompt.length} chars)`);
+      }
+
       let claudeCmd = null;
       if (!useArgvSpawn) {
         claudeCmd = launch.command + ' ' + quoteArgvForShell(shell, launch.args);
@@ -1458,7 +1520,9 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
       } else if (useArgvSpawn) {
         // ARGV mode: spawn the binary directly, no shell in between, so nothing re-interprets the
         // arguments. Codex asks for this because Windows shell quoting mangles its argv.
-        ctx.log.info(`[spawn] backend=${backend.id} mode=argv cmd=${argvExe} args=${JSON.stringify(launch.args)}`);
+        // A first prompt is a whole handoff packet (#888): the line names that it is there, never what it says.
+        const loggedArgs = promptArgCount ? [...launch.args.slice(0, -promptArgCount), `<first prompt, ${wantedPrompt.length} chars>`] : launch.args;
+        ctx.log.info(`[spawn] backend=${backend.id} mode=argv cmd=${argvExe} args=${JSON.stringify(loggedArgs)}`);
         ptyProcess = pty.spawn(argvExe, launch.args, ptyOpts);
       } else {
         ptyProcess = pty.spawn(shell, ptyShellArgs(shell, claudeCmd, shellExtraArgs), ptyOpts);
@@ -1997,7 +2061,7 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
     }
   }
 
-  return { ok: true, reattached: false, mcpActive: !!mcpServer, pathShell: pathShellOf(session) };
+  return { ok: true, reattached: false, mcpActive: !!mcpServer, pathShell: pathShellOf(session), initialPrompt: initialPromptResult };
 }
 
 // The user's own variables for a backend and a template's bundle: the layers a launch adds over the process
