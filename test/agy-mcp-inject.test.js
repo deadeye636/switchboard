@@ -173,3 +173,22 @@ test('a build sweeps a dead sibling in the same project (orphan reclaimed on nex
   assert.equal(fs.existsSync(fresh.cleanup.bundle), true);
   assert.equal(bundles(cwd).length, 1);
 });
+
+// #808: agy names a server `<bundle>_<server>` and, measured on agy 1.5.14, registered a server whose bundle was named
+// from a whole terminal tag (57 characters) with no tools at all; a 29-character name worked. A real tag is a UUID.
+test('the bundle name stays short for a UUID tag, so agy keeps the server\'s tools', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-agy-name-'));
+  try {
+    const tag = '4d926e96-3e14-4dc6-8b17-86ce2651d22a';
+    const a = agy.buildMcpInjection({ tag, cwd, servers: [ROW], log: {} });
+    const b = agy.buildMcpInjection({ tag, cwd, servers: [ROW], log: {} });
+    const nameA = path.basename(a.cleanup.bundle);
+    assert.ok(nameA.length <= 29, `${nameA} is ${nameA.length} characters`);
+    assert.ok(nameA.startsWith('switchboard-4d926e96-'));
+    assert.notEqual(nameA, path.basename(b.cleanup.bundle), 'two spawns of one tag still get two bundles');
+    agy.releaseMcpInjection(a.cleanup);
+    agy.releaseMcpInjection(b.cleanup);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});

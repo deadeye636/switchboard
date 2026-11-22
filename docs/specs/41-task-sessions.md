@@ -231,6 +231,10 @@ What follows:
   180 s. Both are far above what `startReview` and `reviewResult` take (they answer at once), so handle and poll holds and
   Switchboard still writes no timeout into an injected entry. That is what let #808 declare `reviewTools` on both.
 - All three cancel a timed-out call cleanly; none retried it on its own.
+- **agy and a long bundle name (#808 click test, agy 1.5.14):** with the plugin bundle named from the whole terminal tag
+  (57 characters) agy registered the server but exposed none of its tools, so discovery and review were out of reach
+  in a real session. Fixed by a short bundle name (`src/backends/agy/mcp-inject.js`, spec 34 G1); confirmed in the
+  demo instance afterwards: agy listed all six tools and `listSessions` answered.
 - **Pi (P6):** an extension's `pi.registerMcpServer(name, { url, headers, exposure: 'direct' })` connected over http
   with an `Authorization` header (no 401), listed and called the tool on Windows. Pi's client times a call out at its
   `timeout` default, 60 s (docs/mcp.md of Pi: "per-request timeout in seconds (default 60)"). That is what #808

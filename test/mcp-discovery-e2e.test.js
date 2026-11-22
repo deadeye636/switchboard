@@ -175,7 +175,8 @@ function codexClient(injection) {
 /** The agy CLI's side: the url and header out of the newest plugin bundle's mcp_config.json. */
 function agyClient(projectPath, tag) {
   const root = path.join(projectPath, '.agents', 'plugins');
-  const name = fs.readdirSync(root).find((n) => n.startsWith(`switchboard-${tag}-`));
+  // The bundle name carries the first 8 characters of the tag only (#808: agy drops the tools of a long-named server).
+  const name = fs.readdirSync(root).find((n) => n.startsWith(`switchboard-${String(tag).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 8)}-`));
   assert.ok(name, 'the bundle of this session exists');
   const conf = JSON.parse(fs.readFileSync(path.join(root, name, 'mcp_config.json'), 'utf8'));
   const entry = conf.mcpServers.switchboard;

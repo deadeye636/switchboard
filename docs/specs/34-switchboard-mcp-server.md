@@ -249,6 +249,9 @@ the HTTP transport, both tested against a stand-in client, and the owner decides
 
 - **G1 — orphaned bundles are reclaimed on the next build in the project, not by a start-up sweep.** agy's
   `buildMcpInjection` writes a per-session bundle under `<project>/.agents/plugins/switchboard-<unique>/` and
+  (the name is `switchboard-<first 8 characters of the tag>-<8 hex>`, at most 29 characters: measured on agy 1.5.14
+  (#808), a bundle named from the whole tag, 57 characters, had its server registered with no tools, while a
+  29-character name kept them; agy names the server `<bundle>_<server>`)
   removes it on clean exit (`releaseMcpInjection`). A force-killed run (e.g. `npm run stop:dev`) never reaches
   release, so its bundle — a 0600 token file and its dir — would linger. Rather than a cross-backend start-up
   hook that would have to enumerate every project (a new contract for a low-impact leak: the token points at

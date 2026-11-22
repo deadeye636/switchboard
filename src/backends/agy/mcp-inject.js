@@ -31,9 +31,16 @@ function normEntry(p) {
   return String(p || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
 }
 
-/** A directory name that is safe on every platform and unique per spawn. */
+/**
+ * A directory name that is safe on every platform and unique per spawn.
+ *
+ * SHORT on purpose (#808): agy names a bundle's server `<bundle>_<server>`, and measured on agy 1.5.14 a bundle named
+ * from a whole terminal tag (`switchboard-<uuid>-<hex>`, 57 characters) had its server registered with NO tools, so
+ * the agent could call none of them, while a 29-character name worked. So the tag contributes 8 characters; the
+ * random suffix keeps the name unique, and the sweep goes by the owner file, not by the name.
+ */
 function bundleName(tag) {
-  const safe = String(tag || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+  const safe = String(tag || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 8);
   return `${PREFIX}${safe ? safe + '-' : ''}${crypto.randomBytes(4).toString('hex')}`;
 }
 
