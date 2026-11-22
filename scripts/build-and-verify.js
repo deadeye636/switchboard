@@ -138,6 +138,32 @@ function missingWindowsNative(args, root = ROOT) {
   return WINDOWS_NATIVE.filter((rel) => !fs.existsSync(path.join(root, rel)));
 }
 
+// node-pty loads `conpty.dll` from a `conpty/` folder beside the `conpty.node` it loaded (#114), and it prefers a local
+// `build/Release` over its prebuilds. A packaged tree with a local `conpty.node` and no DLL beside it is an installer
+// whose terminals cannot start, because terminals use the DLL by default (#889: one shipped as `[build] OK`). The
+// `dist/win*-unpacked` trees THIS run wrote are checked: electron-builder empties and refills the tree of each
+// architecture it builds, so a tree older than the run is another architecture's leftover and not this build's result.
+const PACKAGED_PTY_RELEASE = path.join('resources', 'app.asar.unpacked', 'node_modules', 'node-pty', 'build', 'Release');
+
+function packagesMissingConptyDll(args, startedAt = 0, dist = DIST) {
+  if (!args.includes('--win')) return [];
+  let names;
+  try { names = fs.readdirSync(dist); } catch { return []; }
+  const missing = [];
+  for (const name of names) {
+    if (!/^win.*-unpacked$/i.test(name)) continue;
+    let stat;
+    try { stat = fs.statSync(path.join(dist, name)); } catch { continue; }
+    if (stat.mtimeMs < startedAt) continue;
+    const release = path.join(dist, name, PACKAGED_PTY_RELEASE);
+    if (!fs.existsSync(path.join(release, 'conpty.node'))) continue;   // no local build: the prebuilds carry the DLL
+    if (!fs.existsSync(path.join(release, 'conpty', 'conpty.dll'))) {
+      missing.push(['dist', name, PACKAGED_PTY_RELEASE, 'conpty', 'conpty.dll'].join('/').split(path.sep).join('/'));
+    }
+  }
+  return missing;
+}
+
 function buildInfo() {
   try {
     return JSON.parse(fs.readFileSync(path.join(ROOT, 'build-info.json'), 'utf8'));
@@ -174,6 +200,26 @@ function main() {
     }
   }
 
+  // The packaged terminals' DLL (#889), checked before the run may call itself OK.
+  if (!problem && builderRan) {
+    const lost = packagesMissingConptyDll(builderArgs, startedAt);
+    if (lost.length) {
+      problem = `the packaged node-pty has no conpty.dll beside its conpty.node, so terminals in this build cannot start: `
+        + `${lost.join(', ')} — see docs/build-windows.md (#114, #889)`;
+    }
+  }
+  // The builder's native rebuild can leave the DEV tree without the DLL too, and the next dev run then cannot start a
+  // terminal (#889). Put it back after every Windows build, whatever the outcome; it does nothing when it is there.
+  if (builderRan && builderArgs.includes('--win')) {
+    const restore = runNode(path.join(__dirname, 'ensure-conpty-dll.js'), [], 'restoring conpty.dll in node_modules');
+    if (restore) console.error(`[build] ${restore}`);
+    const devRelease = path.join(ROOT, 'node_modules', 'node-pty', 'build', 'Release');
+    if (fs.existsSync(path.join(devRelease, 'conpty.node')) && !fs.existsSync(path.join(devRelease, 'conpty', 'conpty.dll'))) {
+      console.error('[build] node_modules/node-pty/build/Release/conpty/conpty.dll is still missing: a dev run cannot start '
+        + 'a terminal until `node scripts/ensure-conpty-dll.js` finds a DLL to copy (#889).');
+    }
+  }
+
   const moved = builderRan ? sweepOlderThan(startedAt) : [];
   const fresh = newestArtifact(startedAt);
 
@@ -196,7 +242,7 @@ function main() {
   else console.log(`[build] OK — built from ${commit}, but no installer file was found in dist/. Check the builder's targets.`);
 }
 
-module.exports = { sweepOlderThan, newestArtifact, missingWindowsNative, ARTIFACT_EXT };
+module.exports = { sweepOlderThan, newestArtifact, missingWindowsNative, packagesMissingConptyDll, ARTIFACT_EXT };
 
 if (require.main === module) {
   try {

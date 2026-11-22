@@ -141,6 +141,11 @@ chaining them with `&&` — a chain cannot report on the step that killed it (#4
    `scripts/ensure-conpty-dll.js` copies node-pty's bundled `conpty.dll` next to the local node-pty
    build: the rebuild during packing wipes `build/Release`, so the postinstall run alone is not
    enough (#114).
+4. The wrapper then checks every `dist/win*-unpacked` tree this run wrote (an older one is another architecture's leftover): a packaged `node-pty` with a local
+   `build/Release/conpty.node` and no `conpty/conpty.dll` beside it fails the build, because terminals use the DLL
+   by default and could not start (#889: one such installer once passed as `[build] OK`). After every Windows
+   build, failed or not, it also runs `scripts/ensure-conpty-dll.js` once more, because the builder's native
+   rebuild can leave the dev tree without the DLL, and the next dev run then fails with "Cannot find conpty.dll".
 
 ## Troubleshooting
 

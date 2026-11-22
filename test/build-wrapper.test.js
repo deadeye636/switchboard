@@ -205,3 +205,35 @@ test('a Windows build names the native module that is not built; other targets d
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// #889: a packaged node-pty that loads from build/Release needs conpty/conpty.dll beside conpty.node, or the installed
+// app cannot start a terminal. The wrapper names every unpacked Windows tree where it is missing; other targets do not ask.
+test('a Windows build names a packaged node-pty without conpty.dll; a tree with it, or with prebuilds only, passes', () => {
+  const { packagesMissingConptyDll } = require('../scripts/build-and-verify');
+  const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-build-conpty-'));
+  const release = (tree) => path.join(dist, tree, 'resources', 'app.asar.unpacked', 'node_modules', 'node-pty', 'build', 'Release');
+  try {
+    fs.mkdirSync(release('win-unpacked'), { recursive: true });
+    fs.writeFileSync(path.join(release('win-unpacked'), 'conpty.node'), '');
+    fs.mkdirSync(path.join(dist, 'win-arm64-unpacked', 'resources'), { recursive: true });   // prebuilds only: nothing to say
+    fs.mkdirSync(path.join(dist, 'mac-arm64'), { recursive: true });
+    assert.deepEqual(packagesMissingConptyDll(['--mac'], 0, dist), []);
+    assert.deepEqual(packagesMissingConptyDll(['--win'], 0, dist),
+      ['dist/win-unpacked/resources/app.asar.unpacked/node_modules/node-pty/build/Release/conpty/conpty.dll']);
+    // A tree older than the run is another architecture's leftover, not this build's result.
+    assert.deepEqual(packagesMissingConptyDll(['--win'], Date.now() + 60000, dist), []);
+    fs.mkdirSync(path.join(release('win-unpacked'), 'conpty'));
+    fs.writeFileSync(path.join(release('win-unpacked'), 'conpty', 'conpty.dll'), '');
+    assert.deepEqual(packagesMissingConptyDll(['--win'], 0, dist), []);
+  } finally {
+    fs.rmSync(dist, { recursive: true, force: true });
+  }
+});
+
+test('the wrapper checks the packaged DLL before it says OK, and restores the dev tree after a Windows build', () => {
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'scripts', 'build-and-verify.js'), 'utf8'));
+  assert.match(src, /if \(!problem && builderRan\) \{\s*const lost = packagesMissingConptyDll\(builderArgs, startedAt\);/);
+  assert.match(src, /runNode\(path\.join\(__dirname, 'ensure-conpty-dll\.js'\)/);
+  assert.ok(src.indexOf('packagesMissingConptyDll(builderArgs, startedAt)') < src.indexOf("console.log('');"), 'checked before the OK line');
+  assert.match(src, /conpty\.dll is still missing/, 'a failed restore is said');
+});
