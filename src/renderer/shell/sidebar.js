@@ -955,9 +955,14 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
   }
 }
 
+// Caller id -> the task rows it started, across every list of the payload (spec 41 E24), rebuilt on each render before any
+// row is built; `buildSessionItem` reads it for the caller's "N tasks" chip and the reveal reads it on a click.
+let sidebarTaskChildIndex = new Map();
+
 function renderProjects(projects, resort, keepProjectOrder = false) {
   // A breadcrumb for a renderer stall report (shell/stall-report.js, #707).
   window.noteRendererWork?.('sidebar-render');
+  sidebarTaskChildIndex = typeof taskChildIndexOf === 'function' ? taskChildIndexOf(projects) : new Map();
   // #277: gather the on-screen repo cwds during this render so main polls exactly what's visible.
   if (window.vcsView) window.vcsView.beginCollect();
   const newSidebar = document.createElement('div');

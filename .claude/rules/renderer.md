@@ -297,7 +297,11 @@ clauses there carry "the user opened it", which is the whole answer for a fold t
 reopens a user's collapse on every render otherwise. The worktrees fold copies `display` and toggles
 `expanded` explicitly for that reason.
 
-**The review rows under their caller follow the same rule (spec 39).** A closed review fold hides only rows with
+**The review rows under their caller follow the same rule (spec 39), and so does a task row that is in its caller's list
+(spec 41).** A writing task's row is in its worktree's block instead, never in the caller's list; the caller reaches it
+through `taskChildIndexOf` (`sidebar-state.js`) and its "N tasks" pill, whose reveal (`revealStartedTask` in
+`sidebar-events.js`) is one more reader of the sidebar's rows in the #516 sense: a row in a closed "N older" fold is not
+built, so the reveal opens that fold through its own toggle and looks again. A closed review fold hides only rows with
 nothing running, and a running review makes its caller's item running, so the caller never lands in "N older" with a
 running child. The caller's item also carries its reviews' ids, so an OPEN review behind a folded caller keeps its row
 (#516). `nestReviews` in `shell/sidebar-state.js` decides, `appendReviewChildren` in `shell/sidebar-subagents.js` draws.

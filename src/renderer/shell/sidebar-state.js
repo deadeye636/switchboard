@@ -167,8 +167,8 @@
     return orphans.filter(s => !s.modified || new Date(s.modified).getTime() >= cutoff);
   }
 
-  // Which review rows nest under the session that asked for them (spec 39). A review is a row the core stamped with
-  // `spawnKind: 'review'` and `spawnedBy: <caller id>`. It nests only when BOTH it and its caller are single rows in
+  // Which review and task rows nest under the session that asked for them (spec 39, spec 41). A child is a row the core
+  // stamped with `spawnKind: 'review'` or `'task'` and `spawnedBy: <caller id>`. It nests only when BOTH it and its caller are single rows in
   // this list (an item with a `topLevelId`): a caller that is filtered away, folded into a slug group or not in this
   // project at all leaves the review an ordinary top-level row, so a link that went stale never hides a session.
   //
@@ -177,6 +177,7 @@
   // running, so the caller is never folded behind "N older" with a running child inside it (#598). The caller's item
   // also carries its reviews' ids in `sessionIds`, so a folded caller whose review is OPEN still has its rows built:
   // session navigation and the grid read the sidebar's rows (#516).
+  const CHILD_KINDS = new Set(['review', 'task']);
   function nestReviews(items = [], sessionsById = new Map(), isRunning = () => false) {
     const byTopLevel = new Map();
     for (const item of items) if (item && item.topLevelId) byTopLevel.set(item.topLevelId, item);
@@ -184,11 +185,11 @@
     const nested = new Set();
     for (const item of items) {
       const s = item && item.topLevelId ? sessionsById.get(item.topLevelId) : null;
-      if (!s || s.spawnKind !== 'review' || !s.spawnedBy || s.spawnedBy === s.sessionId) continue;
+      if (!s || !CHILD_KINDS.has(s.spawnKind) || !s.spawnedBy || s.spawnedBy === s.sessionId) continue;
       const caller = byTopLevel.get(s.spawnedBy);
       const callerRow = caller ? sessionsById.get(caller.topLevelId) : null;
-      // Depth 1: a caller that is itself a review row does not take children.
-      if (!caller || !callerRow || callerRow.spawnKind === 'review') continue;
+      // Depth 1: a caller that is itself a started child does not take children.
+      if (!caller || !callerRow || CHILD_KINDS.has(callerRow.spawnKind)) continue;
       if (!index.has(s.spawnedBy)) index.set(s.spawnedBy, []);
       index.get(s.spawnedBy).push(s);
       nested.add(item);
@@ -200,5 +201,23 @@
     return { items: items.filter((item) => !nested.has(item)), index };
   }
 
-  return { shouldRenderProjectGroup, projectHasNothingToRender, projectStartCollapsed, preserveSidebarState, orphanSubagents, nestReviews };
+  // The tasks each caller started, across every list of the payload (spec 41 E24). A writing task runs in a worktree of
+  // its own, so its row lives in that worktree's block and never meets its caller in one list, which is what
+  // `nestReviews` needs. The caller row shows a chip from this index instead, and the task row stays where its folder is.
+  // `projects` is the sidebar payload (worktrees are entries of their own). Answers caller id -> task rows, newest first.
+  function taskChildIndexOf(projects = []) {
+    const index = new Map();
+    for (const p of projects || []) {
+      for (const s of (p && p.sessions) || []) {
+        if (!s || s.spawnKind !== 'task' || !s.spawnedBy || s.spawnedBy === s.sessionId) continue;
+        if (!index.has(s.spawnedBy)) index.set(s.spawnedBy, []);
+        index.get(s.spawnedBy).push(s);
+      }
+    }
+    const time = (s) => new Date(s.modified || 0).getTime() || 0;
+    for (const kids of index.values()) kids.sort((a, b) => time(b) - time(a));
+    return index;
+  }
+
+  return { shouldRenderProjectGroup, projectHasNothingToRender, projectStartCollapsed, preserveSidebarState, orphanSubagents, nestReviews, taskChildIndexOf };
 });

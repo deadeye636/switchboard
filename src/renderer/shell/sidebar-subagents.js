@@ -278,7 +278,10 @@ function appendReviewChildren(parentEl, callerId, reviewIndex, subagentIndex) {
   const caret = document.createElement('div');
   caret.className = 'sidebar-children-caret review-children-caret' + (collapsed ? '' : ' expanded');
   caret.id = 'rev-caret-' + safeId;
-  caret.innerHTML = `<span class="caret-arrow">&#9654;</span> ${children.length} review${children.length !== 1 ? 's' : ''}`;
+  // Worded by kind: a child is a review or a task (spec 41); a mixed fold says "started sessions".
+  const kinds = new Set(children.map((c) => c && c.spawnKind));
+  const word = kinds.size === 1 && kinds.has('task') ? 'task' : (kinds.size === 1 ? 'review' : 'started session');
+  caret.innerHTML = `<span class="caret-arrow">&#9654;</span> ${children.length} ${word}${children.length !== 1 ? 's' : ''}`;
   caret.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 
   const container = document.createElement('div');

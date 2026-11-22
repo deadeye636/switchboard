@@ -169,3 +169,77 @@ test('both session lists hand the review index on, and the row marks a review wi
   assert.match(rowSrc, /session\.spawnKind === 'review'/);
   assert.match(rowSrc, /'session-detail-pill session-review-chip'/);
 });
+
+// Spec 41 T8: a task row nests under its caller exactly like a review, beside the reviews, and a started child of either
+// kind takes no children of its own (depth 1).
+test('a task nests under its caller beside its reviews, and a child of either kind takes no children', () => {
+  const caller = row('caller');
+  const review = row('r', { spawnedBy: 'caller', spawnKind: 'review', modified: '2026-10-29T09:00:00Z' });
+  const task = row('t', { spawnedBy: 'caller', spawnKind: 'task', modified: '2026-10-29T11:00:00Z' });
+  const grandchild = row('g', { spawnedBy: 't', spawnKind: 'review' });
+  const out = nestReviews([caller, review, task, grandchild].map((s) => item(s)), byId([caller, review, task, grandchild]));
+  assert.deepEqual(out.index.get('caller').map((s) => s.sessionId), ['t', 'r']);
+  assert.equal(out.index.has('t'), false, 'a task row is not a caller');
+  assert.deepEqual(out.items.map((i) => i.topLevelId), ['caller', 'g'], 'the stale grandchild stays an ordinary row');
+  const running = nestReviews([caller, task].map((s) => item(s)), byId([caller, task]), (id) => id === 't');
+  assert.equal(running.items[0].running, true, 'a running task keeps its caller out of "N older"');
+});
+
+test('the task row has its own pill and its two worktree actions, styled like the row\'s others', () => {
+  const rowSrc = stripComments(fs.readFileSync(path.join(REN, 'shell', 'sidebar-session-row.js'), 'utf8'));
+  assert.match(rowSrc, /session\.spawnKind === 'task'/);
+  assert.match(rowSrc, /taskChip\.textContent = 'Task'/);
+  assert.match(rowSrc, /'session-task-changes-btn'/);
+  assert.match(rowSrc, /'session-task-remove-wt-btn'/);
+  const css = fs.readFileSync(path.join(REN, 'style.css'), 'utf8');
+  assert.match(css, /\.session-task-changes-btn,\s*\n\.session-task-remove-wt-btn,\s*\n\.session-archive-btn \{/, 'reflex 8: the shared button rule');
+  const events = stripComments(fs.readFileSync(path.join(REN, 'shell', 'sidebar-events.js'), 'utf8'));
+  assert.match(events, /window\.api\.taskRemoveWorktree\(session\.sessionId, \{\}\)/, 'the renderer names a session, never a path');
+  assert.match(events, /taskRemoveWorktree\(session\.sessionId, \{ force: true \}\)/);
+  const restore = stripComments(fs.readFileSync(path.join(REN, 'shell', 'session-restore.js'), 'utf8'));
+  assert.match(restore, /if \(session && session\.spawnKind\) continue;/, 'a task row is not restored on the next launch');
+});
+
+// Spec 41 E24: a writing task's row lives in its worktree's block, so the caller reaches it through an index built across
+// every list of the payload: a chip on the caller, a click that reveals the row. Nothing moves and nothing is drawn twice.
+test('the task index spans the payload\'s lists: caller in the project, tasks in their worktrees, newest first', () => {
+  const { taskChildIndexOf } = require('../src/renderer/shell/sidebar-state');
+  const projects = [
+    { projectPath: '/p', sessions: [row('caller'), row('r', { spawnedBy: 'caller', spawnKind: 'review' })] },
+    { projectPath: '/data/wt/aaaa1111', sessions: [row('t1', { spawnedBy: 'caller', spawnKind: 'task', modified: '2026-10-29T09:00:00Z' })] },
+    { projectPath: '/data/wt/bbbb2222', sessions: [row('t2', { spawnedBy: 'caller', spawnKind: 'task', modified: '2026-10-29T12:00:00Z' })] },
+    { projectPath: '/q', sessions: [row('self', { spawnedBy: 'self', spawnKind: 'task' })] },
+  ];
+  const index = taskChildIndexOf(projects);
+  assert.deepEqual([...index.keys()], ['caller'], 'a review is not a task, and a row naming itself is no child');
+  assert.deepEqual(index.get('caller').map((s) => s.sessionId), ['t2', 't1']);
+  assert.equal(taskChildIndexOf(undefined).size, 0);
+});
+
+test('the caller row carries the tasks chip, the task row names its caller, and a click reveals instead of opening', () => {
+  const rowSrc = stripComments(fs.readFileSync(path.join(REN, 'shell', 'sidebar-session-row.js'), 'utf8'));
+  assert.match(rowSrc, /sidebarTaskChildIndex\.get\(session\.sessionId\)/);
+  assert.match(rowSrc, /'session-detail-pill session-tasks-link-chip'/);
+  assert.match(rowSrc, /'Started by '/);
+  assert.match(rowSrc, /'session-detail-pill session-review-chip session-spawn-task-chip'/, 'not the task-list chip\'s class');
+  const sidebarSrc = stripComments(fs.readFileSync(path.join(REN, 'shell', 'sidebar.js'), 'utf8'));
+  const render = sidebarSrc.slice(sidebarSrc.indexOf('function renderProjects'));
+  assert.ok(render.indexOf('taskChildIndexOf(projects)') < render.indexOf('buildAttentionInbox(projects)'), 'the index is built before any row');
+  const events = stripComments(fs.readFileSync(path.join(REN, 'shell', 'sidebar-events.js'), 'utf8'));
+  const reveal = events.slice(events.indexOf('function revealStartedTask'), events.indexOf('async function removeTaskWorktree'));
+  assert.match(reveal, /canonicalSessionRow\(task\.sessionId, sidebarContent\)/);
+  assert.doesNotMatch(reveal, /openSession\(/, 'a reveal starts nothing');
+  assert.match(events, /t\.closest\('\.session-tasks-link-chip'\)\) \{ e\.stopPropagation\(\); revealStartedTask\(session\)/);
+});
+
+test("the reveal opens a closed 'older' fold of the task's worktree and looks again; a task worktree is deleted through its own door", () => {
+  const events = stripComments(fs.readFileSync(path.join(REN, 'shell', 'sidebar-events.js'), 'utf8'));
+  const reveal = events.slice(events.indexOf('function revealStartedTask'), events.indexOf('async function removeTaskWorktree'));
+  assert.match(reveal, /sessions-more-toggle/);
+  assert.match(reveal, /toggle\.click\(\)/, "through the fold's own toggle, which renders a deferred fold (#516)");
+  assert.match(reveal, /attempt < 10/, 'bounded');
+  const del = events.slice(events.indexOf('async function deleteWorktree'));
+  assert.match(del.slice(0, 600), /spawnKind === 'task'[\s\S]*removeTaskWorktree\(taskRow\)/, 'not the plain git worktree remove');
+  const sub = stripComments(fs.readFileSync(path.join(REN, 'shell', 'sidebar-subagents.js'), 'utf8'));
+  assert.match(sub, /kinds\.has\('task'\) \? 'task'/);
+});

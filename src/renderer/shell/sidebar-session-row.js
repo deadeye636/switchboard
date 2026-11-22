@@ -229,6 +229,34 @@ function buildSessionItem(session, opts = {}) {
     reviewChip.title = 'Started by another session\'s agent for a read-only review.';
     detailEl.appendChild(reviewChip);
   }
+  // A task another session's agent handed over (spec 41): the same plain pill, its own word. It works in a worktree of
+  // its own, so the row also offers that worktree's changes and its removal (below).
+  if (session.spawnKind === 'task') {
+    const taskChip = document.createElement('span');
+    taskChip.className = 'session-detail-pill session-review-chip session-spawn-task-chip';
+    taskChip.textContent = 'Task';
+    // The row stays in its worktree's block (E24), so it names the session that started it.
+    const caller = session.spawnedBy && typeof sessionMap !== 'undefined' ? sessionMap.get(session.spawnedBy) : null;
+    const callerName = caller ? (caller.name || caller.summary || '').trim() : '';
+    taskChip.title = 'Started by ' + (callerName ? `“${callerName}”` : 'another session\'s agent')
+      + ' for a task in a worktree of its own. Nothing is merged into the project.';
+    detailEl.appendChild(taskChip);
+  }
+  // The caller's way to its tasks (spec 41 E24): their rows live in their worktrees' blocks, so the caller row counts them
+  // and a click reveals the newest one there. The same plain pill, made clickable; nothing is moved or drawn twice.
+  const startedTasks = typeof sidebarTaskChildIndex !== 'undefined' && sidebarTaskChildIndex.get(session.sessionId);
+  if (startedTasks && startedTasks.length) {
+    const tasksChip = document.createElement('span');
+    tasksChip.className = 'session-detail-pill session-tasks-link-chip';
+    tasksChip.textContent = startedTasks.length === 1 ? '1 task' : `${startedTasks.length} tasks`;
+    // Reachable from the keyboard: Enter and Space are delegated like every other control on the row.
+    if (typeof ariaButton === 'function') ariaButton(tasksChip, 'Show the newest task this session started');
+    // Named by their worktrees, the name each block shows: a task's first prompt is the runner's preamble, not a title.
+    const label = (t) => (typeof worktreeLabelOf === 'function' && worktreeLabelOf(t.projectPath)) || t.name || t.sessionId;
+    tasksChip.title = 'Tasks this session started, each in a worktree of its own: '
+      + startedTasks.map(label).join(', ') + '. Click to show the newest.';
+    detailEl.appendChild(tasksChip);
+  }
   if (typeof window.isMcpActiveForSession === 'function' && window.isMcpActiveForSession(session.sessionId)) {
     const ideChip = document.createElement('span');
     ideChip.className = 'session-detail-pill session-ide-chip';
@@ -480,6 +508,22 @@ function buildSessionItem(session, opts = {}) {
       viewSwitchBtn.setAttribute('aria-label', viewSwitchBtn.title);
       setIcon(viewSwitchBtn, view.inGui ? VIEW_ICON_TERMINAL_14 : VIEW_ICON_GUI_14);
       actions.appendChild(viewSwitchBtn);
+    }
+    // A task's worktree (spec 41 T8): what it changed, in the session's Changes window, and the removal of the checkout.
+    // The branch always stays. Main refuses a session that does not work in a worktree the app made.
+    if (session.spawnKind === 'task') {
+      const changesBtn = document.createElement('button');
+      changesBtn.className = 'session-task-changes-btn';
+      changesBtn.title = 'Open the task\'s changes';
+      changesBtn.setAttribute('aria-label', changesBtn.title);
+      setIcon(changesBtn, '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 8h4"/><path d="M7 6v4"/><path d="M15 16h4"/></svg>');
+      actions.appendChild(changesBtn);
+      const removeWtBtn = document.createElement('button');
+      removeWtBtn.className = 'session-task-remove-wt-btn';
+      removeWtBtn.title = 'Remove the task\'s worktree (the branch stays)';
+      removeWtBtn.setAttribute('aria-label', removeWtBtn.title);
+      setIcon(removeWtBtn, '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>');
+      actions.appendChild(removeWtBtn);
     }
     actions.appendChild(archiveBtn);
   }

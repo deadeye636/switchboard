@@ -2396,6 +2396,8 @@ body.window-hidden .sidebar-tab *,
 .session-timeline-btn,
 .session-handoff-btn,
 .session-view-switch-btn,
+.session-task-changes-btn,
+.session-task-remove-wt-btn,
 .session-archive-btn {
   cursor: pointer;
   background: none;
@@ -2556,6 +2558,32 @@ body.window-hidden .sidebar-tab *,
 
 .session-archive-btn {
   color: #6068b0;
+}
+
+.session-task-changes-btn {
+  color: #6a8aa8;
+}
+
+.session-task-remove-wt-btn {
+  color: #b86060;
+}
+
+.session-task-changes-btn:hover,
+.session-task-remove-wt-btn:hover {
+  background: rgba(255,255,255,0.08);
+}
+
+/* The caller's "N tasks" pill (spec 41 E24): the plain pill, clickable. */
+.session-tasks-link-chip {
+  cursor: pointer;
+}
+.session-tasks-link-chip:hover {
+  background: rgba(255,255,255,0.08);
+}
+/* The task row a click on that pill revealed, marked for a moment. */
+.session-item.task-revealed > .session-row {
+  outline: 1px solid rgba(128, 136, 255, 0.7);
+  outline-offset: -1px;
 }
 
 .session-stop-btn:hover {

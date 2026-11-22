@@ -126,8 +126,14 @@ function createPolicy(ctx) {
         try { trusted = trust && typeof trust.get === 'function' ? trust.get(projectPath) : null; } catch { trusted = null; }
         if (trusted !== true) return { ok: false, error: SENTENCES.untrusted };
       }
+      // The worktree is named by the task (E25): the first eight characters of its id, which the sidebar shows as the
+      // worktree's name and git as `switchboard/task-<that>`. Taken already (the same eight characters, by chance): the
+      // whole id, which cannot be.
       let made = null;
-      try { made = await ctx.checkouts.create({ projectPath, taskId: rec.id }); } catch { made = null; }
+      try {
+        made = await ctx.checkouts.create({ projectPath, taskId: rec.id.slice(0, 8) });
+        if (made && made.ok !== true && made.reason === 'exists') made = await ctx.checkouts.create({ projectPath, taskId: rec.id });
+      } catch { made = null; }
       if (!made || made.ok !== true) return { ok: false, error: (made && made.message) || SENTENCES.noWorktree };
       rec.worktree = { worktreePath: made.worktreePath, repoPath: made.repoPath, branch: made.branch, baseCommit: made.baseCommit };
       if (needsTrust) {

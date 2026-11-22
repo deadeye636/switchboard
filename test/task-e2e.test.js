@@ -123,7 +123,7 @@ test('a caller lists the task tools, starts a task in its worktree, sees needs-i
   assert.equal(started.json.result.isError, undefined, JSON.stringify(started.json));
   const accepted = dataOf(started);
   assert.equal(accepted.state, 'running');
-  assert.equal(accepted.branch, `switchboard/task-${accepted.id}`);
+  assert.equal(accepted.branch, `switchboard/task-${accepted.id.slice(0, 8)}`, "the worktree and its branch are named short (E25)");
   const [taskId, session] = [...activeSessions.entries()].find(([id]) => id !== 'caller-a');
   assert.equal(session.cwd, WT, 'the task session starts in its worktree');
   assert.equal(session.opts.spawnKind, 'task');

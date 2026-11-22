@@ -222,7 +222,7 @@ per-caller and app-wide caps, the timers, the end of a turn, the stop path, the 
 it. `src/app/review-runner.js` is the review's (spec 39), unchanged in behaviour: every existing review test passes as it
 was. `src/app/task-runner.js` is the task's:
 
-- **Worktree first.** A start creates the worktree (`task-worktree.js`, named by the task id) and starts the session in
+- **Worktree first.** A start creates the worktree (`task-worktree.js`, named by the task id, short: E25) and starts the session in
   it. A refused start removes it again; a task that ends keeps it (E8), with its branch, until the user removes it (T8).
   A folder that is not a repository refuses with the worktree service's sentence.
 - **Trust inherited (O16).** For a target that declares `trustBeforeStart`, the caller's project must already be trusted
@@ -256,7 +256,7 @@ was. `src/app/task-runner.js` is the task's:
 - **Caps.** 30 minutes (`SWITCHBOARD_TASK_MAX_MS` shortens it for a measurement), one running task per caller, three in
   the app, counted apart from reviews (three confirmed by the owner, 2026-11-22, as was the preamble's request to commit).
 
-The `tasks` tool group came next (T7, below); the sidebar row is T8.
+The `tasks` tool group came next (T7, below), then the sidebar row (T8).
 The `backendDefaults` a task launch merges under its profile (T4 verifier, point 2; owner, 2026-11-22): the profile is
 merged last, so it clears what must not reach a task. claude-native's clears `worktree`/`worktreeName` (the task already
 has a worktree; a stored one would nest a second inside it) and `addDirs` (a directory outside the worktree, the project
@@ -296,6 +296,45 @@ Tests: `test/task-e2e.test.js` (the whole chain once: the real emitter, listener
 stand-in client and session), `test/task-tools.test.js` (schemas, pass-through, refusals, the two groups side by side, the release),
 `test/spawn-review.test.js` (the toggle on and off, both groups, a child gets none), `test/claude-native.test.js` and
 `test/codex.test.js` (the declared fields).
+
+## Built: the task's row (#804 T8)
+
+- **Where the row is (E24, decided after the click test).** A writing task runs in its own worktree, so its row is in
+  that worktree's block of the project, not in the caller's list, and the per-list nesting reviews use never sees the
+  two together. The row stays there: the worktree is the task's visible boundary (E5), and its header already carries
+  the worktree's actions. `nestReviews` (`src/renderer/shell/sidebar-state.js`) still nests a child of either kind
+  that IS in its caller's list, and a child takes no children. The caller reaches its tasks through
+  `taskChildIndexOf(projects)`, built once per render across every list of the payload (`sidebarTaskChildIndex` in
+  `src/renderer/shell/sidebar.js`): the caller row carries a plain pill "N task(s)" whose click reveals the newest task's
+  row (`revealStartedTask` in `sidebar-events.js`: it opens the worktree fold and the worktree block the way their own
+  toggles do, scrolls to the row and marks it for a moment; it opens no session). The task row's pill names its caller.
+  Rejected: pulling the row under the caller (breaks the running-worktree rule of #598, leaves a header with no row but
+  a delete button, separates the task from its subagents), a second reference row (breaks one row per session),
+  nesting only while running (the row moves when the user looks for the result).
+- **The worktree header's Delete** on a task's worktree goes through the same door as the row's removal
+  (`deleteWorktree` hands it to `removeTaskWorktree`), so it is refused while a session runs there, asks before losing
+  uncommitted changes, drops the owner marker and takes back the trust. A row in a closed "N older" fold of the
+  worktree block is not built (#516); the reveal opens that fold through its own toggle and looks again, at most ten
+  times. `task-actions.js` asks `liveSessionsIn` (`src/projects/projects.js`), the one reading of "a session of ours runs
+  in this folder".
+- **The worktree's name (E25).** The worktree folder, and so the name its block shows, is the first eight characters of
+  the task id, and its branch `switchboard/task-<those>`; when those are taken, the whole id.
+- **Hide (E26, not built).** Hiding a worktree with a running task was to be refused. That contradicts the rule that
+  `hideProject` has no live-session guard (`.claude/rules/backends.md`, #578: hiding is the way out every refusal
+  names), so it is left to the owner; a task that waits for an answer still reaches the user through the attention
+  inbox, which a hidden worktree does not silence.
+- **The pill.** A task row carries the plain `Task` pill beside where a review carries `Review` (the review's classes plus
+  `session-spawn-task-chip`; `session-task-chip` is the task LIST's chip and is not reused). Its state is the session's own: running, waiting on a question (the attention the core raised), idle.
+- **Its actions** (`src/renderer/shell/sidebar-session-row.js`, styled with the row's shared button rule): the task's
+  changes open the session's Changes window (`sessionChangesOpenDetails`, spec 47), and "Remove the task's worktree"
+  asks first, then calls `task-remove-worktree` with the SESSION id (`src/app/task-actions.js`). Main finds the
+  worktree as the session's own folder, accepts only an `app_worktree` row, refuses while any live session of the app
+  runs in it, and answers `dirty` for uncommitted changes, which the renderer asks about a second time before it sends
+  `force`. The branch always stays.
+- **Not restored.** The session restore skips every started child (since T6).
+
+Tests: `test/sidebar-review-nesting.test.js` (task nesting, depth, the pill, the buttons, the shared rule, the session id),
+`test/task-actions.test.js` (the removal by session id, the refusals, `dirty` and `force`).
 
 ## Probes not run
 

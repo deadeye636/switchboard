@@ -515,8 +515,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   under its data folder, on a branch of its own; nothing is merged, and the caller gets the branch. It starts only when
   the target already trusts the project, and the worktree takes that trust over and gives it back on removal. Its
   questions go to the user and are never answered from remembered approvals; one unanswered for ten minutes ends the
-  task, which then still reports what it said and its branch. Thirty minutes, one per caller, three in the app. Not
-  yet clicked: the sidebar row comes with T8. Spec: [`specs/41-task-sessions.md`](specs/41-task-sessions.md).
+  task, which then still reports what it said and its branch. Thirty minutes, one per caller, three in the app. The
+  task's row sits in its worktree's block with a Task pill naming its caller, and offers the task's changes and the
+  removal of its worktree (the branch stays); the caller's row counts its tasks and a click shows the newest. Spec: [`specs/41-task-sessions.md`](specs/41-task-sessions.md).
 - **External MCP servers per project (#789, slices A and B)** — a project can list MCP servers that exist elsewhere
   (a stdio launch, an HTTP endpoint), and each session started in it gets them for that launch only. Nothing is
   written to the CLI's own config. It reaches Codex, agy, Claude (terminal) and Pi; Hermes has no per-launch

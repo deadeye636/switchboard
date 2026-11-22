@@ -1749,6 +1749,8 @@ function registerIpc(ipcMain) {
 module.exports = {
   init,
   registerIpc,
+  // The one asker for "is something of ours running in this folder" (#578); task-actions.js asks it too (#804).
+  liveSessionsIn,
   // operations (exported for tests, and for main.js where it calls them directly)
   browseFolder, addProject, hideProject, removeProject, getHiddenProjects, unhideProject, setProjectAutoAdd,
   remapProject, getProjectsAdmin, unlistedProjects, setProjectTrust, deleteProjectSessions, deletableBackends,

@@ -261,6 +261,9 @@ read-only profile as session options, follows it with `agentRpc.observe` (no vie
 assistant text, refuses every ask, and stops the session through `terminal/stop-session.js`. The caller polls
 `result(id)`; 10 minutes, 32 768 code points, one review per caller and three in the app. Every effect arrives through
 `ctx`; it imports no backend folder and names no backend. Since #804 it is the review's POLICY over `child-runner.js`),
+`task-actions.js` (what the user can do with a task's row — #804 T8, spec 41: `task-remove-worktree` takes a session id,
+never a path; the worktree is the session's own folder and must be an `app_worktree` row, a live session in it is refused,
+uncommitted changes answer `dirty` and only `force` removes them. The branch stays),
 `child-runner.js` (the machinery a session uses to start another and follow it — #804, spec 41: the id table, the per-caller
 and app-wide caps, the timers, the end of a turn, the stop path, the caller ending, once for reviews and tasks. A policy
 supplies the sentences, the caps, the preamble, the launch options, the observer's own members, an optional `prepare` /
@@ -270,7 +273,7 @@ worktree from `task-worktree.js` before the spawn, the caller project's trust gr
 so the session is not silenced; its observer answers no question (the card and the attention are the core's), says
 `answersFromMemory: false`, arms a 10-minute bound per open question and ends the task `failed` past it; `result`
 projects `needs-input` while one is open. 30 minutes, one per caller, three in the app. Wired in `src/main.js` as
-`createTaskRunner`; the `tasks` tool group that calls it is T7),
+`createTaskRunner` and built per registration by the spawn for the `tasks` tool group, `src/servers/task-tools.js`),
 `path-completion.js` (what an `@` in a session's text input completes to — #643; the project's files, by
 `readdir` for a named directory and by a bounded, cached, ASYNCHRONOUS walk for a bare name — a synchronous one
 measured 498 ms on a home directory, on the main process. It asks `isAtOrInside` about the directory BEFORE it
@@ -658,6 +661,7 @@ line there, in the same commit.
 | The CPU and memory of a session's process tree, sampled only when the sidebar asks (#834) | `src/app/process-usage.js` |
 | What a session changed since the last review: the Changes group, Details, Clear, the timeline, a diff by row id (#870) | `src/app/session-changes.js` |
 | A project's VS Code tasks, read-only, as plain rows for the launch popover (#616) | `src/app/vscode-tasks.js` |
+| A task's row: remove the worktree it worked in, named by the session (#804, spec 41) | `src/app/task-actions.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

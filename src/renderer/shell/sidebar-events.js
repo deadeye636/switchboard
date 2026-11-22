@@ -308,6 +308,9 @@ function dispatchSidebarActivation(e) {
     if (t.closest('.session-tags-btn')) { e.stopPropagation(); window.bookmarksTags?.openTagPicker(session, t.closest('.session-tags-btn')); return; }
     if (t.closest('.session-timeline-btn')) { e.stopPropagation(); showTimelineViewer(session); return; }
     if (t.closest('.session-archive-btn')) { e.stopPropagation(); archiveSessionFromRow(session); return; }
+    if (t.closest('.session-task-changes-btn')) { e.stopPropagation(); window.api.sessionChangesOpenDetails(session.sessionId); return; }
+    if (t.closest('.session-tasks-link-chip')) { e.stopPropagation(); revealStartedTask(session); return; }
+    if (t.closest('.session-task-remove-wt-btn')) { e.stopPropagation(); removeTaskWorktree(session); return; }
 
     // Row open (least specific). Clicks in the actions area / pin / health-chip never open the row.
     // (Rows of a missing project or a missing worktree already returned above.)
@@ -609,6 +612,72 @@ async function archiveProjectGroup(project) {
   if (targets) await applyBulkArchive(targets, shortName);
 }
 
+// Show the newest task a session started (spec 41 E24): its row is in its worktree's block, which may sit in the closed
+// "N worktrees" fold or be collapsed itself. Both are opened the way their own toggles open them, then the row is scrolled
+// to and marked for a moment. Nothing is moved and no session is opened: a click on the row does that.
+function revealStartedTask(session, attempt = 0) {
+  const tasks = typeof sidebarTaskChildIndex !== 'undefined' ? sidebarTaskChildIndex.get(session.sessionId) : null;
+  const task = tasks && tasks[0];
+  if (!task) return;
+  const row = canonicalSessionRow(task.sessionId, sidebarContent);
+  // Not built: the row is in its worktree block's "N older" fold, whose rows are built only once it is open (#516). The
+  // fold is opened through its own toggle, which renders it, and the reveal looks again, a bounded number of times.
+  const older = (el) => el && el.querySelector(':scope > .worktree-sessions > .sessions-more-toggle');
+  if (!row || row.closest('.sessions-older[style*="display: none"]')) {
+    const group = [...sidebarContent.querySelectorAll('.worktree-group')].find((g) => g.dataset.projectPath === task.projectPath);
+    const toggle = older(group);
+    if (toggle && !toggle.classList.contains('expanded')) toggle.click();
+    if (attempt < 10) setTimeout(() => revealStartedTask(session, attempt + 1), 100);
+    return;
+  }
+  for (let el = row.parentElement; el && el !== sidebarContent; el = el.parentElement) {
+    if (el.classList.contains('worktree-group')) {
+      const header = el.querySelector(':scope > .worktree-header');
+      if (header) header.classList.remove('collapsed');
+    }
+    if (el.classList.contains('worktree-fold-list') && el.style.display === 'none') {
+      el.style.display = '';
+      const toggle = el.previousElementSibling;
+      if (toggle && toggle.classList.contains('worktree-fold-toggle')) {
+        toggle.classList.add('expanded');
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+    }
+  }
+  row.scrollIntoView({ block: 'center' });
+  row.classList.add('task-revealed');
+  setTimeout(() => row.classList.remove('task-revealed'), 1600);
+}
+
+// A task's worktree (spec 41 T8). Main finds the worktree from the session, refuses one that is not the app's or still has
+// a session running in it, and answers `dirty` for uncommitted changes, which the user is asked about a second time.
+async function removeTaskWorktree(session) {
+  const confirmed = await showControlDialog({
+    title: 'Remove Task Worktree',
+    message: 'This deletes the folder the task worked in. Its branch stays, with every commit the task made.',
+    confirmLabel: 'Remove Worktree',
+    tone: 'warning',
+    details: { Folder: session.projectPath || '' },
+  });
+  if (!confirmed) return;
+  let result = await window.api.taskRemoveWorktree(session.sessionId, {});
+  if (result && result.dirty) {
+    const force = await showControlDialog({
+      title: 'Uncommitted Changes',
+      message: 'The worktree has changes the task did not commit. Removing it loses them.',
+      confirmLabel: 'Remove Anyway',
+      tone: 'danger',
+    });
+    if (!force) return;
+    result = await window.api.taskRemoveWorktree(session.sessionId, { force: true });
+  }
+  if (!result || result.ok !== true) {
+    await showControlMessage({ title: 'Remove Worktree Failed', message: (result && result.error) || 'The worktree could not be removed.', confirmLabel: 'OK', tone: 'danger' });
+    return;
+  }
+  loadProjects();
+}
+
 async function hideWorktree(wtProject) {
   // Through the shared helper, not a split on one separator: the path here is the resolved cwd out of a
   // transcript, which on Windows is spelled with backslashes — so `split('/')` handed the dialog the
@@ -640,6 +709,10 @@ async function hideWorktree(wtProject) {
 }
 
 async function deleteWorktree(wtProject) {
+  // A worktree the app made for a task (spec 41) is removed through the task's own door: it refuses while a session runs
+  // there, asks before losing uncommitted changes, drops the owner marker and takes back the trust the start granted.
+  const taskRow = (wtProject.sessions || []).find((s) => s && s.spawnKind === 'task');
+  if (taskRow && !wtProject.missing) { removeTaskWorktree(taskRow); return; }
   // A checkout that is already gone has nothing for git to remove (#679). What keeps its row is its history
   // and its config entry, so the button opens the Projects manager's clean-up for this one entry instead.
   if (wtProject.missing && typeof window.cleanupMissingEntry === 'function') {

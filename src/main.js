@@ -2466,6 +2466,10 @@ spawn.registerIpc(ipcMain);
 
 // Which view a session opens in (#670): taking a stored choice back. Setting one is an open, and the spawn
 // above stores it; the clear is the one write that is not a spawn.
+// #804 T8 (spec 41): what the user can do with a task's row; the renderer names a session, main finds its worktree.
+const taskActions = require('./app/task-actions');
+taskActions.init({ checkouts: taskWorktrees, getCachedSession, activeSessions, liveSessionsIn: (p) => projects.liveSessionsIn(p), notifyProjectsChanged: () => notifyRendererProjectsChanged(), log });
+taskActions.registerIpc(ipcMain);
 const sessionView = require('./app/session-view');
 sessionView.init({ getOpener, setOpener, notifyRendererProjectsChanged, log });
 sessionView.registerIpc(ipcMain);

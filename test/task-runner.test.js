@@ -89,7 +89,7 @@ const startOk = async (w, prompt = 'Rename the helper and update its callers.') 
 test('the happy path: a worktree, the trust it inherits, the task kind, the branch in every answer', async () => {
   const w = world();
   const accepted = await startOk(w);
-  assert.deepEqual(w.calls.created, [{ projectPath: PROJECT, taskId: accepted.id }], 'the worktree is named by the task');
+  assert.deepEqual(w.calls.created, [{ projectPath: PROJECT, taskId: accepted.id.slice(0, 8) }], 'the worktree is named by the task, short (E25)');
   assert.deepEqual(w.calls.trustSet, [[WT, true]], 'the worktree gets the trust the caller\'s project has');
   const [open] = w.calls.open;
   assert.equal(open.cwd, WT, 'the task starts in its worktree, not in the project');
@@ -286,4 +286,16 @@ test('the overall cap ends a task as timeout, with its text and its branch; the 
     assert.equal(r.branch, 'switchboard/task-x');
     assert.deepEqual(w.calls.aborted, [w.calls.open[0].id]);
   } finally { w_maxMs = undefined; }
+});
+
+test('a short worktree name that is taken falls back to the whole task id', async () => {
+  const w = world();
+  let first = true;
+  w.ctx.checkouts.create = async (args) => {
+    w.calls.created.push(args);
+    if (first) { first = false; return { ok: false, reason: 'exists', message: 'A worktree for this task already exists.' }; }
+    return { ok: true, worktreePath: WT, repoPath: PROJECT, branch: 'switchboard/task-x', baseCommit: 'abc123' };
+  };
+  const accepted = await startOk(w);
+  assert.deepEqual(w.calls.created.map((c) => c.taskId), [accepted.id.slice(0, 8), accepted.id]);
 });

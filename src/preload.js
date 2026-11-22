@@ -328,6 +328,9 @@ contextBridge.exposeInMainWorld('api', {
   // told through `onSessionChangesDetailsAt` (returns its unsubscribe). A large diff opens side by side by row id; the two
   // sides come from `sessionChangesVersions` (`{ ok, old, new }` or a `note`).
   sessionChangesOpenDetails: (sessionId, at) => ipcRenderer.invoke('session-changes-open-details', sessionId, at),
+  // #804 T8 (spec 41): remove the worktree a task session worked in, named by the session; `{ force }` after the user
+  // confirmed losing uncommitted changes. -> { ok, removed, branch } | { ok: false, dirty?, error }
+  taskRemoveWorktree: (sessionId, opts) => ipcRenderer.invoke('task-remove-worktree', sessionId, opts),
   sessionChangesOpenDiffWindow: (sessionId, targetId) => ipcRenderer.invoke('session-changes-open-diff-window', sessionId, targetId),
   sessionChangesVersions: (sessionId, targetId) => ipcRenderer.invoke('session-changes-versions', sessionId, targetId),
   onSessionChangesDetailsAt: (cb) => {
