@@ -317,12 +317,13 @@ stand-in client and session), `test/task-tools.test.js` (schemas, pass-through, 
   worktree block is not built (#516); the reveal opens that fold through its own toggle and looks again, at most ten
   times. `task-actions.js` asks `liveSessionsIn` (`src/projects/projects.js`), the one reading of "a session of ours runs
   in this folder".
-- **The worktree's name (E25).** The worktree folder, and so the name its block shows, is the first eight characters of
-  the task id, and its branch `switchboard/task-<those>`; when those are taken, the whole id.
-- **Hide (E26, not built).** Hiding a worktree with a running task was to be refused. That contradicts the rule that
-  `hideProject` has no live-session guard (`.claude/rules/backends.md`, #578: hiding is the way out every refusal
-  names), so it is left to the owner; a task that waits for an answer still reaches the user through the attention
-  inbox, which a hidden worktree does not silence.
+- **The worktree's name (E25, kept as built by the owner, 2026-11-22).** The worktree folder, and so the name its block
+  shows, is the first eight characters of the task id, and its branch `switchboard/task-<those>`; when those are taken,
+  the whole id.
+- **Hide (E26, decided not to build, owner 2026-11-22).** Hiding a worktree with a running task was to be refused. That
+  contradicts the rule that `hideProject` has no live-session guard (`.claude/rules/backends.md`, #578: hiding is the
+  way out every refusal names), so Hide stays as it is; a task that waits for an answer still reaches the user through
+  the attention inbox, which a hidden worktree does not silence.
 - **The pill.** A task row carries the plain `Task` pill beside where a review carries `Review` (the review's classes plus
   `session-spawn-task-chip`; `session-task-chip` is the task LIST's chip and is not reused). Its state is the session's own: running, waiting on a question (the attention the core raised), idle.
 - **Its actions** (`src/renderer/shell/sidebar-session-row.js`, styled with the row's shared button rule): the task's
