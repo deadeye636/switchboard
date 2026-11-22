@@ -1,5 +1,5 @@
 'use strict';
-// Spec 39, T7: the `reviewTools` toggle on Claude and claude-native (and since #808 on Codex and agy), through the
+// Spec 39, T7: the `reviewTools` toggle on Claude and claude-native (and since #808 on Codex, agy, Pi and pi-native), through the
 // REAL spawn block and the real composer, in the shape of test/spawn-claude-discovery.test.js. Only `node-pty`, the HTTP registration, the agent
 // process and the review runner are stand-ins.
 //
@@ -33,6 +33,8 @@ const claude = require('../src/backends/claude');
 const claudeNative = require('../src/backends/claude-native');
 const codex = require('../src/backends/codex');
 const agy = require('../src/backends/agy');
+const pi = require('../src/backends/pi');
+const piNative = require('../src/backends/pi-native');
 
 const bindingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-claude-review-'));
 // agy writes its bundle under the session's folder, so the project is a temp dir of its own, never the checkout.
@@ -56,6 +58,9 @@ const SHAPES = {
   // #808 (E13 b): the two terminal callers that already took `discovery`.
   codex: () => narrowed(codex),
   agy: () => narrowed(agy),
+  // #808 (E13 c): Pi in both modes, through its own MCP client.
+  pi: () => narrowed(pi),
+  'pi-native': () => narrowed(piNative, { transport: 'rpc', rpc: {} }),
 };
 
 function setup(backend, { project = {}, global = {} } = {}) {
@@ -115,13 +120,13 @@ async function launch(backend, sessionOptions = {}, settings) {
   return { ctx, argv, mcp, env: child.env || (child.opts && child.opts.env) || {}, session: ctx.activeSessions.get(id) };
 }
 // Whether the launch carries the app's own server, in each caller's own channel: Claude's `--mcp-config` file,
-// Codex' `-c mcp_servers.switchboard.*` overrides, agy's plugin bundle under the project.
+// Codex' `-c mcp_servers.switchboard.*` overrides, agy's plugin bundle under the project, Pi's `-e pi-mcp-*` extension.
 const agyBundles = () => {
   try { return fs.readdirSync(path.join(CWD, '.agents', 'plugins')).filter((d) => d.startsWith('switchboard-')); } catch { return []; }
 };
 const hasMcpConfig = (argv) => {
   const line = argv.join(' ');
-  return line.includes(path.join(bindingDir, 'claude-mcp-')) || line.includes('mcp_servers.switchboard.') || agyBundles().length > 0;
+  return line.includes(path.join(bindingDir, 'claude-mcp-')) || line.includes('mcp_servers.switchboard.') || line.includes(path.join(bindingDir, 'pi-mcp-')) || agyBundles().length > 0;
 };
 
 for (const [shape, make] of Object.entries(SHAPES)) {

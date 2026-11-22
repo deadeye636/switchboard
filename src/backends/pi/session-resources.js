@@ -51,18 +51,20 @@ function buildSessionResources({ dir, tag, options, resolveSource, externalServe
 }
 
 // The project's external MCP servers (#789, spec 36) as rows for the MCP section. `externalServers` is the
-// core's neutral source (rows already validated, `${VAR}`-expanded, filtered by enabled/backends). Pi takes
-// them through this section only — stdio, no `cwd` (the section starts a server in the session's directory) —
-// and never through its own mcp.json, so one entry never has two clients. A row it cannot take is said, by
-// name, never by value.
+// core's neutral source (rows already validated, `${VAR}`-expanded, filtered by enabled/backends). This section
+// takes the stdio ones, without a `cwd` (it starts a server in the session's directory); an http one goes through
+// the MCP quartet and Pi's own client instead (`./mcp-inject.js`, #808), and never through Pi's mcp.json, so one
+// entry never has two clients. A row neither takes is said, by name, never by value.
 function externalMcpRows(externalServers, log) {
   let rows = [];
   try { rows = typeof externalServers === 'function' ? externalServers() : []; } catch { rows = []; }
   const taken = [];
   for (const r of Array.isArray(rows) ? rows : []) {
     if (!r || typeof r.name !== 'string') continue;
-    if (r.transport !== 'stdio') {
-      if (log) log.info(`[session-resources] external MCP server "${r.name}" not given to Pi: only stdio servers are supported`);
+    if (r.transport === 'http') {
+      continue;   // the quartet's (`./mcp-inject.js`)
+    } else if (r.transport !== 'stdio') {
+      if (log) log.info(`[session-resources] external MCP server "${r.name}" not given to Pi: transport ${r.transport} is not supported`);
     } else if (r.cwd !== undefined) {
       if (log) log.info(`[session-resources] external MCP server "${r.name}" not given to Pi: a working directory is not supported`);
     } else {

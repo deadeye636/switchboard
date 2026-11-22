@@ -83,7 +83,7 @@ const PINNED = {
   pi: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',   // only for a model its own catalog lists with a window (#620)
-    mcpInject: 'no',
+    mcpInject: 'limited', // #808: http servers through Pi's own client (Pi 1.1+); stdio stays with the resources extension
     mcpPrune: 'no',   // spec 36, scope B: only the Claude family prunes; this one declines
     review: 'no',     // spec 39: a review runs on a pipe; Pi's pipe driver is pi-native
     task: 'no',     // spec 41: a task runs on a pipe; Pi's pipe driver is pi-native
@@ -106,7 +106,7 @@ const PINNED = {
   'pi-native': {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',
-    mcpInject: 'no',
+    mcpInject: 'limited', // #808: Pi's quartet; each call reaches the approval gate
     mcpPrune: 'no',   // spec 36, scope B: only the Claude family prunes; this one declines
     review: 'yes',    // spec 39: reviewProfile with the approval gate on
     task: 'yes',    // spec 41: taskProfile, asks shown on the row

@@ -1,8 +1,9 @@
 // Pins each backend's `externalMcpTakes` declaration (spec 36, plan 789 T3) against the REAL emitter: a stdio
 // entry with a `cwd`, an http entry and a plain stdio entry go through the path the spawn takes, and what comes
 // out must match what the descriptor says it takes. Claude, claude-native, Codex and agy go through
-// `composeMcpInjection`; Pi and pi-native take servers through `buildSessionResources` (no quartet); Hermes has
-// no channel. A flipped declaration fails here, which is the point.
+// `composeMcpInjection`; Pi and pi-native take stdio servers through `buildSessionResources` and http ones through
+// their quartet (#808), so both channels are read and merged; Hermes has no channel. A flipped declaration fails
+// here, which is the point.
 'use strict';
 
 const { test } = require('node:test');
@@ -83,6 +84,15 @@ async function keptByPi(backend) {
     const names = built ? built.mcpServers.map((m) => m.name) : [];
     const kept = {};
     for (const row of ROWS) if (names.includes(row.name)) kept[row.name] = { transport: row.transport, cwd: row.cwd !== undefined };
+    // The quartet's half: the generated extension carries what it registers as one JSON line.
+    const injection = await composeMcpInjection({ backend, ctx: { log }, sources: [ROWS], dir, tag: 't', cwd: dir });
+    if (injection) {
+      try {
+        const text = fs.readFileSync(injection.args[injection.args.indexOf('-e') + 1], 'utf8');
+        const servers = JSON.parse(/^const SERVERS: any = (.*);$/m.exec(text)[1]);
+        for (const name of Object.keys(servers)) kept[name] = { transport: 'http', cwd: false };
+      } finally { injection.release(); }
+    }
     return kept;
   } finally {
     if (built && built.cleanup) backend.releaseSessionResources(built.cleanup, log);

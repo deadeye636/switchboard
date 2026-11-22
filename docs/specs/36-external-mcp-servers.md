@@ -99,6 +99,22 @@ entry**. Which channel carries external entries is open (O1). The recommendation
 for the first slice, because it is shipped, tested and already keeps secrets off disk (one environment variable the
 section deletes after reading, `mcp-section.js` lines 10-13).
 
+**Since #808 (owner, 2026-11-22)** an http entry goes through Pi's own client instead, from a per-spawn extension
+(`src/backends/pi/mcp-inject.js`) that reads each header value from an environment variable and deletes it, like the
+section. stdio stays with the section, so the rule above still holds: one channel per entry. A header value Pi would
+expand (`${...}`) or run (a leading `!`) is not handed over; the server is skipped by name.
+
+Known limits of that channel (#808 verifier, recorded rather than built):
+
+- **A server of the same name in Pi's own `mcp.json` wins.** Pi lets a configured entry override a registered one
+  (docs/mcp.md of Pi), so a user's own `switchboard` entry, or one named like a project's external server, shadows
+  what the app gives the session, silently. Rename the one in Pi's `mcp.json` to keep both.
+- **The static check does not model two launch refusals.** A header name outside letters, digits and `-` (Codex has
+  the same rule) and a value Pi would expand or run are skipped at launch, while the check card shows the entry as
+  taken by Pi. The launch log says which server was skipped and why.
+- **`externalNames` counts rows handed to the emitter**, not rows it registered. Harmless while Pi declines the prune
+  (D-P6 reads that count).
+
 ## Prune (D-A4): a follow-up slice, argued
 
 Pruning removes tools a user already has. Injection only adds. The two differ in blast radius (a wrong injection adds a
@@ -145,7 +161,9 @@ observed** (see "Verification state").
   - Claude (terminal): a 0600 `--mcp-config` file, `type` always set, `cwd` declined with a log line,
     `--strict-mcp-config` never passed.
   - Pi: the resources-extension section (`SWITCHBOARD_PI_MCP_SERVERS`), stdio only; http entries and `cwd` are
-    dropped. pi-native takes the same route.
+    dropped. pi-native takes the same route. **Changed (#808, 2026-11-22):** http entries now go through Pi's own
+    MCP client, registered by a per-spawn extension (`src/backends/pi/mcp-inject.js`, the quartet); stdio stays with
+    the section and `cwd` is still declined. One entry still has exactly one client.
 - **The editor.** A JSON text area in the project settings, category "MCP servers" (`src/renderer/panels/settings-external-mcp.js`).
   A bad entry blocks Save with a sentence naming the field; a good list persists. Checked by hand in the running app.
 - **No secret value on argv (D-S2).** Codex through environment variables, agy and Claude through their 0600 files, Pi

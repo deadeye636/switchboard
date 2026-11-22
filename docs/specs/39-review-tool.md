@@ -467,7 +467,8 @@ exported `cutText`.
    headline case, and the two that can already call discovery). Codex and agy can take the group later by declaring the
    toggle; each needs its own real-model check. Pi and Hermes cannot call (no injection).
    **Extended (#808, owner E13 b, 2026-11-22):** Codex and agy declare `reviewTools` too, after their tool-call
-   timeouts were measured against a stub tool that sleeps (spec 41, P3 and P4). Pi follows as its own slice.
+   timeouts were measured against a stub tool that sleeps (spec 41, P3 and P4). Pi and pi-native followed in the same
+   issue, through Pi's own MCP client (spec 41, P6); Hermes still cannot call.
 4. **O4 May a caller review with its own backend?** Recommendation: yes. It is listed like any target; the wording
    already says the data goes to "that backend's vendor", which for the same vendor adds only the second session's cost.
 5. **O5 What a refused action does to the review.** Recommendation: refuse and continue; report the count as `refusedActions`;
@@ -548,7 +549,7 @@ click test showed.
 - `src/app/review-runner.js`: the runner, one per registration. `src/app/terminal/stop-session.js`: the stop it shares
   with the user's Stop.
 - `src/servers/review-tools.js`: the tool group; the bridge and the HTTP registration pass it through.
-- `src/app/terminal/spawn.js`: the `reviewTools` gate (Claude, claude-native, Codex and agy; any backend that declares the toggle), depth 1 from `spawnedBy` or the stored
+- `src/app/terminal/spawn.js`: the `reviewTools` gate (Claude, claude-native, Codex, agy, Pi and pi-native; any backend that declares the toggle), depth 1 from `spawnedBy` or the stored
   link on a resume, `_review` and `_spawnedBy` on the session.
 - `session_meta.spawnedBy` / `spawnKind` (one appended migration), kept across re-keys from both ends.
 - `src/app/hooks.js`: no attention for a `_review` session.

@@ -166,7 +166,11 @@ async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, optio
     const takes = backend.externalMcpTakes;
     for (const row of await collectRows(sources, ctx, log, externalRows)) {
       if (!accepts.includes(row.transport)) {
-        log.info(`[mcp-inject] dropped server "${row.name}": transport ${row.transport} is not accepted by ${backend.id || 'this backend'}`);
+        // A project row the backend takes through another channel of its own (Pi's stdio rows, its resources
+        // extension, #808) is not lost here, so it is not reported as dropped.
+        if (externalRows.has(row) && takes && Array.isArray(takes.transports) && takes.transports.includes(row.transport)) {
+          log.debug(`[mcp-inject] server "${row.name}": transport ${row.transport} goes through another channel of ${backend.id || 'this backend'}`);
+        } else log.info(`[mcp-inject] dropped server "${row.name}": transport ${row.transport} is not accepted by ${backend.id || 'this backend'}`);
       } else if (externalRows.has(row) && row.transport === 'stdio' && row.cwd && !(takes && takes.cwd === true)) {
         log.warn(`[mcp-inject] declined "${row.name}": ${backend.id || 'this backend'} takes no per-server cwd`);
       } else if (!(row.transport === 'http' ? row.url : row.command)) {

@@ -712,12 +712,15 @@ composes it and names no backend. Every backend answers the flag, declining incl
 (`providesMcpInjection: false` with a comment naming why, and none of the other three), and the `mcpInject`
 capability row says the same; `test/backend-parity.test.js` pins the shape. A template forwards the whole
 quartet in `profileToDescriptor`: the declaration without the hook it promises would be a half. agy (a plugin bundle on disk) and Codex
-(launch `-c` overrides, no file, token via an env var) are the consumers, and since #789 T10 so is the piped `claude-native`,
+(launch `-c` overrides, no file, token via an env var) are the consumers, and since #808 Pi and pi-native (a per-spawn
+`-e` extension that registers http rows with Pi's own MCP client, `src/backends/pi/mcp-inject.js`; Pi's stdio rows stay
+with its resources extension, so its `externalMcpTakes` names both transports and `acceptsMcpTransports` only `http`), and since #789 T10 so is the piped `claude-native`,
 which reuses terminal Claude's `--mcp-config` file — the gate `providesMcpInjection === true` no longer excludes a transport
 backend, and its injected tools are gated by its own `--permission-prompt-tool stdio` approval path. The registration carries tool GROUPS: besides `diff` there is a read-only `discovery`
 group (list a project's sessions and handoffs across backends, read a bounded transcript view), offered on
-agy, Codex, Claude and claude-native through the `discoveryTools` option (spec 35, spec 37), and a `review` group on
-Claude, claude-native, Codex and agy through `reviewTools` (spec 39, the last two since #808; see the `reviewProfile` paragraph below). The Claude family
+agy, Codex, Claude, claude-native, Pi and pi-native through the `discoveryTools` option (spec 35, spec 37; Pi since #808),
+and a `review` group on Claude, claude-native, Codex, agy, Pi and pi-native through `reviewTools` (spec 39, the last
+four since #808; see the `reviewProfile` paragraph below). The Claude family
 declares no `diffTool`: its diffs stay on `--ide`. A group opens only for a toggle the backend DECLARES in its
 `configFields` — a stored value it never offers opens nothing (spec 37, O9).
 

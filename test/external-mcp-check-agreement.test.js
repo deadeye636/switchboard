@@ -68,6 +68,11 @@ function keptNames(backend, got, cwd) {
     }
     return [...names];
   }
+  // Pi's quartet (#808): the per-spawn extension carries what it registers as one JSON line.
+  if (got.args.includes('-e')) {
+    const text = fs.readFileSync(got.args[got.args.indexOf('-e') + 1], 'utf8');
+    return Object.keys(JSON.parse(/^const SERVERS: any = (.*);$/m.exec(text)[1]));
+  }
   let file;
   if (backend.id === 'agy') {
     const root = path.join(cwd, '.agents', 'plugins');
@@ -92,9 +97,12 @@ async function launch(id, platform = 'linux') {
     if (backend.providesMcpInjection === true) {
       const got = await composeMcpInjection({ backend, ctx: { log }, sources: [source], dir, tag: 't', cwd });
       try { injected = keptNames(backend, got, cwd); } finally { if (got) got.release(); }
-    } else if (backend.providesSessionResources === true) {
+    }
+    // A backend with a second channel (Pi: stdio through the resources extension, http through the quartet, #808)
+    // keeps the union of both.
+    if (backend.providesSessionResources === true) {
       const built = await backend.buildSessionResources({ dir, tag: 't', options: {}, externalServers: source, log });
-      injected = built ? built.mcpServers.map((m) => m.name) : [];
+      injected = [...injected, ...(built ? built.mcpServers.map((m) => m.name) : [])];
       if (built && built.cleanup) backend.releaseSessionResources(built.cleanup, log);
     }
   } finally {
@@ -106,7 +114,7 @@ async function launch(id, platform = 'linux') {
     let m;
     if ((m = /skipped external server "([^"]+)": unset variable/.exec(l))) why.set(m[1], 'unset-variable');
     else if ((m = /dropped server "([^"]+)": transport/.exec(l))) why.set(m[1], 'transport');
-    else if ((m = /external MCP server "([^"]+)" not given to Pi: only stdio/.exec(l))) why.set(m[1], 'transport');
+    else if ((m = /external MCP server "([^"]+)" not given to Pi: transport/.exec(l))) why.set(m[1], 'transport');
     else if ((m = /external MCP server "([^"]+)" not given to Pi: a working directory/.exec(l))) why.set(m[1], 'cwd');
     else if ((m = /declined "([^"]+)": .*cwd/.exec(l))) why.set(m[1], 'cwd');
   }
@@ -169,7 +177,9 @@ test('G2: the launch log lines carry no value', async () => {
 test('G2: the fixture exercises every reason the card can give', async () => {
   const seen = new Set();
   for (const id of IDS) for (const [, why] of (await launch(id)).why) seen.add(why);
-  for (const r of ['entry-disabled', 'backend-filter', 'unset-variable', 'transport', 'cwd']) assert.ok(seen.has(r), r);
+  // No real backend declines a transport since #808 (Pi takes http through its own client), so `transport` is
+  // exercised by the flipped declaration in the next test instead of by a real launch.
+  for (const r of ['entry-disabled', 'backend-filter', 'unset-variable', 'cwd']) assert.ok(seen.has(r), r);
 });
 
 test('G2: a deliberate disagreement fails the comparison', async () => {
@@ -178,6 +188,8 @@ test('G2: a deliberate disagreement fails the comparison', async () => {
   const diff = await mismatches({ claude: { externalMcpTakes: flipped } });
   assert.ok(diff.some((d) => d.startsWith('claude/withcwd')), diff.join('\n'));
   const pi = backends.get('pi');
-  const diff2 = await mismatches({ pi: { externalMcpTakes: { ...pi.externalMcpTakes, transports: ['stdio', 'http'] } } });
+  // A declaration that says Pi does not take http (as before #808) while its launch does: the check gives the
+  // `transport` reason for `remote`, the launch injects it, and the comparison says so.
+  const diff2 = await mismatches({ pi: { externalMcpTakes: { ...pi.externalMcpTakes, transports: ['stdio'] } } });
   assert.ok(diff2.some((d) => d.startsWith('pi/remote')), diff2.join('\n'));
 });

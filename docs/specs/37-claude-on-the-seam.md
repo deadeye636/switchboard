@@ -179,7 +179,7 @@ Not designed here. Each is its own plan with its own go.
     tool (depth 1); one running review per caller; at most 10 minutes, then stopped; the answer capped at about
     32 KB; read-only (claude-native in plan mode, pi-native through its approval gate refusing writes; the plan
     settles each backend's way).
-- **Pi on the seam.** Its own slice. First step is measurement M7: `pi mcp --help`, is there a per-launch config
+- **Pi on the seam.** Built in #808 (2026-11-22) through Pi's own MCP client; spec 41, P6. Its own slice. First step is measurement M7: `pi mcp --help`, is there a per-launch config
   path, and does an http server take a header? Pi's own MCP section (`src/backends/pi/mcp-section.js`) is stdio
   only today.
 - Worktrees, promote and demote, messaging, resume, cascade shutdown stay later phases (spec 35, "Later phases").

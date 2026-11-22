@@ -462,8 +462,14 @@ test('every backend answers externalMcpTakes — null or { transports, cwd }, in
       && t.transports.every(x => x === 'http' || x === 'stdio'), `${b.id}: transports is a non-empty list of 'http' / 'stdio'`);
     assert.equal(typeof t.cwd, 'boolean', `${b.id}: cwd is a boolean`);
     if (b.providesMcpInjection === true) {
-      assert.deepEqual([...t.transports].sort(), [...b.acceptsMcpTransports].sort(),
-        `${b.id}: externalMcpTakes.transports must equal acceptsMcpTransports`);
+      // Every transport the quartet accepts is one the backend takes. A transport it takes BESIDE the quartet
+      // needs a second channel, and the only one is the per-spawn session resources (Pi's stdio section, #808);
+      // test/external-mcp-takes.test.js reads both channels and pins what each keeps.
+      const extra = t.transports.filter((x) => !b.acceptsMcpTransports.includes(x));
+      assert.ok(b.acceptsMcpTransports.every((x) => t.transports.includes(x)),
+        `${b.id}: every transport in acceptsMcpTransports must be in externalMcpTakes.transports`);
+      assert.ok(!extra.length || b.providesSessionResources === true,
+        `${b.id}: externalMcpTakes names ${extra.join(', ')} beside the quartet, but there is no other channel (providesSessionResources)`);
     }
   }
 });

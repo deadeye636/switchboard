@@ -89,6 +89,7 @@ supports E5: the app makes its own worktree.
 - **Pi:** yes, through `pi.registerMcpServer(name, { url, headers, timeout })` from the per-spawn resources extension
   (`src/backends/pi/resources-extension.js`), session-scoped, with the token in an environment variable. Today
   `providesMcpInjection` is `false` and Pi takes only stdio rows (`src/backends/pi/index.js`, `session-resources.js`).
+  **Built (#808, 2026-11-22):** see P6 below and "Measured: MCP tool-call timeouts".
   Whether it works for an HTTP server with a bearer header on Windows needs one turn on the smallest Pi model.
 - **Hermes:** no clean channel. It reads MCP servers only from `config.yaml` under `HERMES_HOME`, with no launch flag; writing
   the user's file or moving `HERMES_HOME` per session both break existing rules. It keeps declining.
@@ -209,7 +210,7 @@ These need a real turn. E4 keeps tasks on pipe-driven backends, so none of them 
 | P3 | Codex: the approval's trace in the rollout; the `PermissionRequest` hook after trust. ~~The real tool timeout with a stub tool that sleeps~~: measured, 300 s (see below) | ~~E13~~, E3 C |
 | P4 | agy: the step status an open prompt writes; whether a `timeoutSeconds` in the plugin bundle changes the limit. The default timeout: measured, 180 s (see below) | a terminal target |
 | P5 | Hermes: the database row while a prompt is open and after an interrupt; the cwd it records for `-w` | a terminal target |
-| P6 | Pi: `registerMcpServer` over HTTP with a bearer header | Pi as a caller (#808) |
+| P6 | ~~Pi: `registerMcpServer` over HTTP with a bearer header~~: measured, works (see below) | ~~Pi as a caller (#808)~~ |
 
 ## Measured: MCP tool-call timeouts (#808, 2026-11-22)
 
@@ -221,6 +222,7 @@ project; nothing of the user's configuration was changed.
 | CLI | Version | Model | The call ended after | What the CLI said | What the server saw |
 |---|---|---|---|---|---|
 | Codex | codex-cli 0.167.0 | `gpt-6-luna`, effort low | 300.0 s | `timed out awaiting tools/call after 300s` | the request closed, then `notifications/cancelled` ("MCP request cancelled by caller") |
+| Pi | 1.5.2 | `anthropic/claude-haiku-4-5` | 61.3 s (the request; the cancel at 60 s) | `MCP request timed out after 60000ms` | `notifications/cancelled` ("Request timed out"), then the request closed |
 | agy | 1.5.13 | `gemini-3.8-flash-low` | 180.0 s | `MCP tool call to server "<bundle>_sleepstub" timed out after 3m0s: context deadline exceeded` | the request closed, then `notifications/cancelled` ("context deadline exceeded") |
 
 What follows:
@@ -228,7 +230,12 @@ What follows:
 - Codex' source (300 s, spec 37 O2) is right and its documentation (60 s) is not. agy's default, unknown until now, is
   180 s. Both are far above what `startReview` and `reviewResult` take (they answer at once), so handle and poll holds and
   Switchboard still writes no timeout into an injected entry. That is what let #808 declare `reviewTools` on both.
-- Both CLIs cancel a timed-out call cleanly; neither retried it on its own.
+- All three cancel a timed-out call cleanly; none retried it on its own.
+- **Pi (P6):** an extension's `pi.registerMcpServer(name, { url, headers, exposure: 'direct' })` connected over http
+  with an `Authorization` header (no 401), listed and called the tool on Windows. Pi's client times a call out at its
+  `timeout` default, 60 s (docs/mcp.md of Pi: "per-request timeout in seconds (default 60)"). That is what #808
+  builds on (`src/backends/pi/mcp-inject.js`): the app's own server and a project's external http servers go through
+  Pi's client, stdio servers stay with the resources extension's section. Run with a prompt asking for 70 s.
 - Headless agy (`-p`) denies an MCP call outright without an allow rule (`user denied permission for mcp(...)`). In a
   terminal agy asks, as for its other tools; a headless agy caller would need a rule, which Switchboard does not write.
 - On each connect agy sent one `GET` with the bundle's `Authorization` header (the stream) and two `GET`s without one.

@@ -103,7 +103,8 @@ test('#789: a project\'s external servers reach the section: stdio only, expande
   assert.deepEqual(list.map((s) => s.name), ['a', 'ok'], 'shared first, then the external stdio server; the rest left out');
   assert.equal(list[0].command, 'node', 'a name the source holds wins');
   assert.deepEqual(list[1], { name: 'ok', command: 'sample-server', args: ['--flag'], env: { K: SECRET } }, 'expanded value rides the env var');
-  assert.ok(logged.some((m) => /"web".*only stdio/.test(m)), 'http row dropped with a log');
+  // An http row is the quartet's since #808 (`src/backends/pi/mcp-inject.js`): not in this list, and not reported here.
+  assert.equal(logged.some((m) => /"web"/.test(m)), false, 'http row left to the quartet, without a log');
   assert.ok(logged.some((m) => /"with-cwd".*working directory/.test(m)));
   assert.ok(logged.some((m) => /"a" skipped/.test(m)));
   assert.ok(logged.some((m) => /SAMPLE_MISSING/.test(m)));

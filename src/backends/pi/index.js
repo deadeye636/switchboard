@@ -28,6 +28,7 @@ const trust = require('./trust');
 const liveBinding = require('./live-binding');
 const promptTemplates = require('./prompt-templates');
 const sessionResources = require('./session-resources');
+const mcpInject = require('./mcp-inject');
 const turnQueue = require('./turn-queue');
 const transcriptView = require('./transcript-view');
 const resources = require('./resources');
@@ -173,6 +174,13 @@ const configFields = [
     description: 'Pi theme for this run. One name, or `light-name/dark-name` to pair one of each. Empty = the theme Pi is configured with.' },
   { id: 'noContextFiles', label: 'Ignore AGENTS.md / CLAUDE.md', type: 'toggle', default: false,
     description: 'Do not load the project\'s context files for this session.' },
+  // Spec 35 and 39 via #808 (E13 c): the app's own `discovery` and `review` groups, over the quartet below and Pi's
+  // own MCP client. Handle and poll, so the client's 60 s call timeout (measured, spec 41 P6) never meets a long call.
+  // pi-native takes both by reference (its fields are Pi's).
+  { id: 'discoveryTools', label: 'Offer the session discovery tools', type: 'toggle', default: false, appliesAt: 'spawn',
+    description: "Offers read-only discovery tools (list this project's sessions, read the last turns of one, list and read its handoff packets) to the agent through a per-session MCP server named switchboard, registered with Pi's own MCP client (Pi 1.1 or newer). What an agent reads there may come from sessions of ANY backend in the same project, so a conversation of one vendor can reach another vendor's model. It is an offer: the agent has to choose the tool, and nothing is written. In Pi (GUI) each call arrives at the approval gate." },
+  { id: 'reviewTools', label: 'Offer the review tools', type: 'toggle', default: false, appliesAt: 'spawn',
+    description: "Offers two tools that let this agent ask another backend's agent for a review: startReview and reviewResult. When the agent uses them, Switchboard starts a session of that backend in this folder, as a row in the sidebar under this one, sends it the agent's prompt, and gives the answer back. The prompt and any file of this project that the other agent reads go to that backend's vendor, and the run uses that backend's account and quota. The other agent runs read-only (Claude's plan mode, Pi's approval gate; Switchboard refuses every action it asks about), one review at a time, for at most 10 minutes. Read-only is enforced by those modes, not by a sandbox. It needs Pi 1.1 or newer (Pi's own MCP client). It is an offer: the agent has to choose the tool, and in Pi (GUI) each call arrives at the approval gate." },
 ];
 
 /** Is pi actually installed? */
@@ -525,9 +533,13 @@ module.exports = {
   providesSessionResources: true,
   buildSessionResources: (ctx) => sessionResources.buildSessionResources(ctx),
   releaseSessionResources: (file, log) => sessionResources.releaseSessionResources(file, log),
-  // Per-spawn MCP injection (spec 34): declines for now — Pi's MCP servers already travel as a section of the
-  // resources extension above (#633), not through this hook.
-  providesMcpInjection: false,
+  // Per-spawn MCP injection (spec 34, #808): http servers only — the app's own and a project's external http ones —
+  // through a per-spawn extension that registers them with Pi's built-in MCP client (`./mcp-inject.js`). stdio
+  // servers stay with the resources extension's MCP section above (#633), so the composer keeps them from here.
+  providesMcpInjection: true,
+  acceptsMcpTransports: ['http'],
+  buildMcpInjection: (ctx) => mcpInject.buildMcpInjection(ctx),
+  releaseMcpInjection: (cleanup, log) => mcpInject.releaseMcpInjection(cleanup, log),
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
   // Not a review target (spec 39): a review runs on a pipe, and Pi's pipe driver is pi-native.
@@ -545,9 +557,9 @@ module.exports = {
     return hook.singleFileFlowAnswer(row, row && row.filePath, { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
   },
   readSessionFlow: (sources, opts) => require('./flow-reader').readSessionFlow(sources, opts),
-  // External MCP servers (spec 36): through the resources extension's MCP section, stdio only, no `cwd`
-  // (`./session-resources.js`); there is no quartet, so this is the only place the channel is declared.
-  externalMcpTakes: { transports: ['stdio'], cwd: false },
+  // External MCP servers (spec 36): stdio through the resources extension's MCP section (`./session-resources.js`),
+  // http through the quartet above and Pi's own client (#808); neither takes a per-server `cwd`.
+  externalMcpTakes: { transports: ['stdio', 'http'], cwd: false },
   // Lineage (#193): a FORKED Pi session records its origin in the header as `parentSession` — the full
   // path of the parent transcript. A hard link, like Claude's `forkedFrom` and Hermes' parent column.
   //
@@ -636,7 +648,7 @@ module.exports = {
     resumeModel: 'yes',
     turnDigest: 'yes',
     quota: { state: 'no', note: 'reports no plan allowance' },
-    mcpInject: { state: 'no', note: 'declines for now; its MCP servers travel in the resources extension instead' },
+    mcpInject: { state: 'limited', note: 'http servers only (the app\'s own discovery and review groups, a project\'s external http servers), through a per-session extension and Pi\'s own MCP client, Pi 1.1 or newer; stdio servers travel in the resources extension instead' },
     mcpPrune: { state: 'no', note: 'declines; Pi\'s own MCP servers and the ones Switchboard gives it share one channel, so one cannot be hidden without the other' },
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is pi-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is pi-native' },

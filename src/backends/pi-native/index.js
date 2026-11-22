@@ -224,9 +224,12 @@ module.exports = {
   providesSessionResources: pi.providesSessionResources,
   buildSessionResources: pi.buildSessionResources,
   releaseSessionResources: pi.releaseSessionResources,
-  // Per-spawn MCP injection (spec 34): declines for now, as Pi does — its MCP servers travel in the
-  // resources extension above.
-  providesMcpInjection: false,
+  // Per-spawn MCP injection (spec 34, #808): Pi's own quartet — http servers through Pi's built-in client, which the
+  // pipe launch loads like the terminal one; its calls reach the approval gate by their `mcp__` name.
+  providesMcpInjection: pi.providesMcpInjection,
+  acceptsMcpTransports: pi.acceptsMcpTransports,
+  buildMcpInjection: pi.buildMcpInjection,
+  releaseMcpInjection: pi.releaseMcpInjection,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
   // The read-only profile a review session starts with (spec 39): the approval gate, so every command, file change

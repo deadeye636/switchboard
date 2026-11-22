@@ -497,7 +497,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   (Haiku called `listSessions` in a terminal and in the conversation view). Specs:
   [`specs/35-session-discovery-tools.md`](specs/35-session-discovery-tools.md),
   [`specs/37-claude-on-the-seam.md`](specs/37-claude-on-the-seam.md).
-- **The review tool (#507, slice 2b)** — an opt-in `reviewTools` launch option on Claude and claude-native (and since #808 on Codex and agy) adds a
+- **The review tool (#507, slice 2b)** — an opt-in `reviewTools` launch option on Claude and claude-native (and since #808 on Codex, agy, Pi and pi-native) adds a
   `review` group to the session's own MCP endpoint: `startReview` answers an id at once and `reviewResult` answers
   running or the reply (a call does not block, because each CLI times tool calls out differently). The review is a
   real pipe-driven session of the target (claude-native in plan mode, pi-native behind its approval gate) in the
