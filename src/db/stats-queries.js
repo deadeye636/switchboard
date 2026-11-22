@@ -356,6 +356,23 @@ function rollupGate(sessionIds) {
   };
 }
 
+// A session imported into another CLI (`hermes sessions import`, #552) is the parent's `importedFrom` (a subagent rides with it).
+const IMPORTED_EXPR = 'CASE WHEN p.sessionId IS NULL THEN sc.importedFrom ELSE p.importedFrom END';
+
+/**
+ * The imported share of the range (#584): distinct parent `sessions` and the `messages` of rows whose session was imported from
+ * another CLI's transcript. Every block above groups by backend and counts such a row like any other, ON PURPOSE (owner decision
+ * on #584): the sidebar shows an imported session beside its original and marks it, so Stats counts it too and SAYS so. The
+ * original is read from its own store, so a combined total holds that session twice; the page names how many of its sessions
+ * and messages are imported. One row, zero when there are none. The caller runs it only when no backend filter is set: under one
+ * backend the original (another backend) is not in the total, so nothing is counted twice.
+ */
+function importedCounts(filter) {
+  return selectFrom(
+    `${PARENT_COUNT} AS sessions, COALESCE(SUM(m.messageCount), 0) AS messages`,
+    filter, { extra: [`${IMPORTED_EXPR} IS NOT NULL`], parent: true });
+}
+
 /** Messages per day over the filter's window (the caller passes the 365-day window as from/to). */
 function rhythmDays(filter) {
   return selectFrom('m.date AS date, SUM(m.messageCount) AS messages', filter, { tail: 'GROUP BY m.date' });
@@ -408,11 +425,13 @@ function facetBackends(filter) {
  *   series     {measure, split}  (the bucket is derived from the range)
  *   sessions   {by, limit}
  *   heatmap    {from, to}  the year window of the heatmap (the range does not narrow it)
+ *   imported   true to add `imported` (importedCounts): the caller asks for it only for a combined total
  */
 function payloadPlan(request) {
   const { filter, prevFrom = null } = request;
   const days = rangeDays(filter);
   return {
+    ...(request.imported ? { imported: importedCounts(filter) } : {}),
     keyFigures: keyFigures(filter, { prevFrom }),
     periodCounts: periodCounts(filter, { prevFrom }),
     series: series(filter, { ...request.series, bucket: bucketKindFor(days) }),
@@ -464,5 +483,5 @@ module.exports = {
   // #877: the page's queries. They take a filter object (see buildPredicate).
   buildPredicate, bucketKindFor, payloadPlan,
   keyFigures, periodCounts, series, projectsTable, modelsTable, backendsTable, sessionsTable, sessionsRollup, rollupGate, ROLLUP_MAX_DEPTH,
-  rhythmDays, rhythmGrid, sidebarSeries, facetModels, facetBackends, usageWindowFigures,
+  importedCounts, rhythmDays, rhythmGrid, sidebarSeries, facetModels, facetBackends, usageWindowFigures,
 };

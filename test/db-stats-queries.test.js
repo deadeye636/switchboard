@@ -29,7 +29,8 @@ CREATE TABLE session_cache (
   projectPath TEXT,
   costStatus TEXT,
   aiTitle TEXT,
-  created TEXT
+  created TEXT,
+  importedFrom TEXT
 );
 CREATE TABLE session_metrics (
   sessionId TEXT NOT NULL,
@@ -682,6 +683,34 @@ test('payloadPlan: every block runs on the real schema, filtered and unfiltered'
         assert.doesNotThrow(() => run(db, spec), name);
       }
     }
+  } finally { db.close(); }
+});
+
+test('importedCounts: one imported and one native session, the imported one counted and named (#584)', () => {
+  const db = openMemory();
+  try {
+    db.exec(SCHEMA);
+    db.exec(`
+      INSERT INTO session_cache (sessionId, parentSessionId, backendId, projectPath, importedFrom) VALUES
+        ('native', NULL, 'claude', '/p/a', NULL),
+        ('copy', NULL, 'hermes', '/p/a', 'claude'),
+        -- a subagent rides with its PARENT's provenance: its own importedFrom is not what decides
+        ('copy-sub', 'copy', 'hermes', '/p/a', NULL),
+        ('native-sub', 'native', 'claude', '/p/a', 'claude');
+      INSERT INTO session_metrics (sessionId, date, hour, model, messageCount, inputTokens, outputTokens) VALUES
+        ('native', '2026-06-02', 9, 'opus', 4, 100, 50),
+        ('native-sub', '2026-06-02', 9, 'opus', 5, 0, 0),
+        ('copy', '2026-06-02', 9, '', 3, 0, 0),
+        ('copy-sub', '2026-06-02', 9, '', 1, 0, 0),
+        ('copy', '2026-06-20', 9, '', 9, 0, 0);
+    `);
+    // The combined total keeps BOTH copies, the way the sidebar lists both (owner decision on #584).
+    assert.equal(cnt(db, RANGE, null)[1].sessions, 2, 'the imported session stays in the total');
+    assert.deepEqual(run(db, q.importedCounts(RANGE)), [{ sessions: 1, messages: 4 }], 'and its share is named, range only');
+    assert.deepEqual(run(db, q.importedCounts({ ...RANGE, backend: ['claude'] })), [{ sessions: 0, messages: 0 }]);
+    const asked = q.payloadPlan({ filter: RANGE, imported: true });
+    assert.deepEqual(run(db, asked.imported), [{ sessions: 1, messages: 4 }]);
+    assert.equal('imported' in q.payloadPlan({ filter: RANGE }), false, 'not run unless asked (a backend filter)');
   } finally { db.close(); }
 });
 

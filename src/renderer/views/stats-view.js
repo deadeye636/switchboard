@@ -1016,9 +1016,19 @@ function buildKeyFigures(payload) {
   const grid = document.createElement('div');
   grid.className = 'stats-figures';
 
-  grid.appendChild(statTile('Sessions', fmtCount(cur.sessions), { change: statsChangeText(ch.sessions) }));
+  // An imported session is counted here AND under the CLI it came from, the way the sidebar lists both (#584): the total
+  // keeps it and the tile says how much of it that is. Only a combined total carries `imported`.
+  const imp = kf.imported;
+  const impTitle = imp
+    ? `Includes ${fmtCount(imp.sessions)} imported session${imp.sessions === 1 ? '' : 's'} (${fmtCount(imp.messages)} messages). `
+      + 'Their originals may be counted under the CLI they came from as well.'
+    : undefined;
+  grid.appendChild(statTile('Sessions', fmtCount(cur.sessions), {
+    sub: imp ? `incl. ${fmtCount(imp.sessions)} imported` : undefined,
+    change: statsChangeText(ch.sessions), title: impTitle,
+  }));
   grid.appendChild(statTile('Messages', fmtCount(cur.messages), {
-    sub: `${fmtCount(cur.toolCalls)} tool calls`, change: statsChangeText(ch.messages),
+    sub: `${fmtCount(cur.toolCalls)} tool calls`, change: statsChangeText(ch.messages), title: impTitle,
   }));
   grid.appendChild(statTile('Tokens', fmtTokens(cur.tokens), {
     sub: `in ${fmtTokens(cur.input)} · out ${fmtTokens(cur.output)} · cache ${fmtTokens(cur.cacheRead)} read / ${fmtTokens(cur.cacheWrite)} written`,

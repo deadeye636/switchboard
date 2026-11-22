@@ -551,3 +551,16 @@ test('export data: 501 session lines mean cut (sliced to the cap), exactly 500 d
   stats.getStats({}, {});
   assert.equal(calls.payload[0].sessions.limit, 50);
 });
+
+test('imported share: asked for and named only on a combined total; none imported is null (#584)', () => {
+  const raw = () => ({ ...emptyRaw(), imported: [{ sessions: 2, messages: 7 }] });
+  const { calls } = makeCtx({ raw });
+  const all = stats.getStats({ range: { kind: '30d' } });
+  assert.equal(calls.payload[0].imported, true, 'a combined total asks for the imported share');
+  assert.deepEqual(all.payload.keyFigures.imported, { sessions: 2, messages: 7 });
+  const one = stats.getStats({ range: { kind: '30d' }, backend: 'alpha' });
+  assert.equal(one.filter.backend, 'alpha');
+  assert.equal(calls.payload[1].imported, false, 'under one backend the original is not in the total');
+  assert.equal(stats.foldImported([{ sessions: 0, messages: 0 }]), null);
+  assert.equal(stats.foldImported(undefined), null);
+});

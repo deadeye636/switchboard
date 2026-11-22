@@ -142,6 +142,19 @@ shared predicate. No row-level data crosses IPC except the capped session table.
 | Rhythm (V6) | `GROUP BY m.date` (year window) and `GROUP BY weekday, hour` (the range, hour >= 0) | per-day messages; the 7 x 24 grid |
 | Sidebar list (V7) | the Projects aggregate plus a per-project series bucketed to at most 30 points, for the top 50 projects | total and sparkline per project. The SQL ranks the top 50 on the RAW `projectPath`, before the worktree fold: a project whose tokens are split over many worktrees can fall out of the 50 although its folded total would rank. This build accepts the limit (Known gaps) |
 | Facets | distinct models and distinct backends under the other filters | choices for the filter bar, so a choice never leads to an empty page |
+| Imported share (#584) | `importedCounts`: distinct parents and messages whose parent row carries `importedFrom`, run only when no backend filter is set | `keyFigures.imported` `{sessions, messages}`, or null when there are none |
+
+**An imported session counts, and the page says so (#584).** A session that `hermes sessions import` copied from another
+CLI's transcript is a Hermes row (`importedFrom` set), and the original is read from its own store as well, so a combined
+total holds that session twice. The owner's decision on #584: keep it in every figure, the way the sidebar lists it beside its
+original with an "Imported from" chip, and name the share instead of subtracting it. The Sessions tile then reads
+"incl. N imported", and the Sessions and Messages tiles carry a tooltip with both counts. Under a backend filter nothing is
+counted twice (the original belongs to another backend), so the query is not run and no note appears. The import writes no
+model usage, so tokens and cost are not doubled; the note covers sessions and messages only. Per-backend tables and the
+backend split of the chart are unaffected. The other combined figures hold an imported session twice as well and carry no
+note of their own: the chart's "none" split, the Projects table and the sidebar project list, the Rhythm heatmap and grid,
+and the Projects CSV. The JSON export carries `keyFigures.imported`. When the source CLI's store is not read (the backend is
+off, or the original transcript is gone), nothing is doubled, which is why the tooltip says the originals "may" be counted.
 
 Rules that every figure follows:
 

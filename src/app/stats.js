@@ -397,6 +397,16 @@ function foldKeyFigures(raw, hasPrev, idx) {
   return { cur: cur.figures, prev: prev ? prev.figures : null, change, cacheExcluded: cur.excluded };
 }
 
+/**
+ * The imported share of a combined total (#584), or null when there is none or it was not asked (a backend filter). Imported
+ * sessions stay IN the totals, like the sidebar keeps them beside their original; the page names this share instead.
+ */
+function foldImported(rows) {
+  const r = rows && rows[0];
+  if (!r || !(num(r.sessions) > 0)) return null;
+  return { sessions: num(r.sessions), messages: num(r.messages) };
+}
+
 // --- the series ----------------------------------------------------------------------------------------------------------
 
 function enumerateBuckets(from, to, kind) {
@@ -606,10 +616,12 @@ function buildPayload(clean, view, today, know, full = false) {
     series: { measure: view.measure, split: view.split },
     sessions: { by: view.sessionsBy, limit: full ? EXPORT_SESSIONS_CAP + 1 : 50 },
     heatmap: { from: heatmapFrom, to: range.to },
+    // Only a combined total can hold an imported session twice (#584): under one backend its original is not in it.
+    imported: !clean.backend,
   });
   return {
     range,
-    keyFigures: foldKeyFigures(raw, range.prevFrom != null, know.idx),
+    keyFigures: { ...foldKeyFigures(raw, range.prevFrom != null, know.idx), imported: foldImported(raw.imported) },
     series: foldSeries(raw.series, range, view, bucketKindFor(range.days), today, know),
     projects: foldProjects(raw.projects, know, full ? Infinity : PROJECTS_CAP),
     models: foldModels(raw.models, know.idx),
@@ -794,5 +806,5 @@ function registerIpc(ipc) {
 module.exports = {
   init, registerIpc, getStats, getFacets, getUsageWindows, getExportData, setRhythmCollapsed,
   FILTER_KEY, defaultFilter, sanitiseFilter, sanitiseRange, sanitiseView, resolveRange, localDayKey, localDayOf,
-  backendIds, bucketOf, costFold, foldKeyFigures, foldSeries, foldProjects, foldBackends, enumerateBuckets,
+  backendIds, bucketOf, costFold, foldKeyFigures, foldImported, foldSeries, foldProjects, foldBackends, enumerateBuckets,
 };
