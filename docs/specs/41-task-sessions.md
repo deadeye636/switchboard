@@ -256,8 +256,7 @@ was. `src/app/task-runner.js` is the task's:
 - **Caps.** 30 minutes (`SWITCHBOARD_TASK_MAX_MS` shortens it for a measurement), one running task per caller, three in
   the app, counted apart from reviews (three confirmed by the owner, 2026-11-22, as was the preamble's request to commit).
 
-Not yet: the `tasks` tool group and its toggle (T7) — nothing calls `createTaskRunner` until then, it is only wired in
-`src/main.js` — and the sidebar row (T8): until then a task's row is not nested under its caller and carries no pill.
+The `tasks` tool group came next (T7, below); the sidebar row is T8.
 The `backendDefaults` a task launch merges under its profile (T4 verifier, point 2; owner, 2026-11-22): the profile is
 merged last, so it clears what must not reach a task. claude-native's clears `worktree`/`worktreeName` (the task already
 has a worktree; a stored one would nest a second inside it) and `addDirs` (a directory outside the worktree, the project
@@ -270,6 +269,33 @@ its own settings never asks (claude-native: the user's `permissions.allow` rules
 Tests: `test/task-runner.test.js` (fakes), `test/agent-rpc-stream.test.js` (the observer without approval memory, on a
 real pipe), `test/spawn-review.test.js` (the kind on a launch and on a resume), `test/task-worktree.test.js` (the trust
 taken back on removal); the review tests run unchanged against the shared runner.
+
+## Built: the `tasks` tool group (#804 T7)
+
+`src/servers/task-tools.js` is the group, the sibling of `review-tools.js`: `startTask` (`backend`, an `enum` of the task
+runner's targets when `tools/list` is asked, and `prompt`) and `taskResult` (`id`). A result is one `text` item of compact
+JSON or an `isError` result with a sentence; a throw never carries its own text. The descriptions say what the review's
+do not: the task may change files, only in a worktree on a branch of its own, nothing is merged, it asks the user before
+each edit or command, and a question nobody answers within 10 minutes ends it (E14: the text names the vendor, the
+account and the worktree as the boundary).
+
+The toggle is `taskTools` (off, applied at spawn), declared on every caller that has `reviewTools` (owner, 2026-11-22,
+#808): Claude, Codex, agy and Pi, and claude-native and pi-native, which take their owner's field. Its description in
+each backend's settings carries the privacy text. `src/app/terminal/spawn.js` opens the group only where the backend
+declares the toggle, builds one task runner per registration (`ctx.createTaskRunner`) beside the review runner, and
+drops the group when no runner can be built; a started child (`spawnedBy`, or a resume of its row) gets no group at all,
+so a task cannot start a task (E11). `ownServerSource` (`src/app/mcp-inject.js`) hands the runner to the registration and
+releases it once with the launch, which stops a running task (E8: its row and its worktree stay). The bridge
+(`src/servers/mcp-bridge.js`) lists the group only for a registration that carries `entry.tasks`.
+
+The safety text in the field, the tool description and the README says what the start mode and the worktree are: requests
+to the target CLI, not a sandbox. Its own allow rules can let an edit or a command through without a question, and a
+path outside the worktree is not blocked (plan R2; the review's field says the same about its read-only modes).
+
+Tests: `test/task-e2e.test.js` (the whole chain once: the real emitter, listener, bridge and task runner against a
+stand-in client and session), `test/task-tools.test.js` (schemas, pass-through, refusals, the two groups side by side, the release),
+`test/spawn-review.test.js` (the toggle on and off, both groups, a child gets none), `test/claude-native.test.js` and
+`test/codex.test.js` (the declared fields).
 
 ## Probes not run
 

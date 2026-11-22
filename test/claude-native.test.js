@@ -886,7 +886,7 @@ test('the permission mode is sent only when chosen, and the skip flag is not off
   assert.equal(field.default, 'default');
   // The spawn-applied fields are the MCP offers, discovery (spec 37) and review (spec 39): the MCP injection block reads
   // them, and that block runs for a piped spawn too. Nothing terminal-only (`mcpEmulation`, `afkTimeoutSec`) is applied here.
-  assert.deepEqual(d.configFields.filter(f => f.appliesAt === 'spawn').map(f => f.id), ['discoveryTools', 'reviewTools'],
+  assert.deepEqual(d.configFields.filter(f => f.appliesAt === 'spawn').map(f => f.id), ['discoveryTools', 'reviewTools', 'taskTools'],
     'only the MCP-injection options are applied at the spawn site');
 });
 

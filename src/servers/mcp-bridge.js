@@ -14,6 +14,7 @@ const os = require('os');
 const { noteWork } = require('../perf');
 const { DISCOVERY_TOOLS, run: runDiscoveryTool } = require('./discovery-tools');
 const { reviewTools, REVIEW_TOOL_NAMES, run: runReviewTool } = require('./review-tools');
+const { taskTools, TASK_TOOL_NAMES, run: runTaskTool } = require('./task-tools');
 
 // Where Claude looks for IDE lock files. Follows the isolated home (#241): SWITCHBOARD_STORE_CLAUDE
 // names the projects dir, the home is its parent. Resolved per call — the bridge is required at load,
@@ -155,11 +156,18 @@ const TOOL_GROUPS = {
     try { targets = typeof entry.review.targets === 'function' ? entry.review.targets() : []; } catch { targets = []; }
     return reviewTools(targets);
   },
+  // Likewise for `startTask` (spec 41): the task runner's targets when the list is asked.
+  tasks: (entry) => {
+    let targets = [];
+    try { targets = typeof entry.tasks.targets === 'function' ? entry.tasks.targets() : []; } catch { targets = []; }
+    return taskTools(targets);
+  },
 };
 
 // A group whose tools need a per-registration object is offered only when the registration carries it.
 function groupOff(entry, group) {
-  return (group === 'discovery' && !entry.discovery) || (group === 'review' && !entry.review);
+  return (group === 'discovery' && !entry.discovery) || (group === 'review' && !entry.review)
+    || (group === 'tasks' && !entry.tasks);
 }
 
 // The tools an entry exposes, assembled from the groups its transport was opened with. A `ws` entry
@@ -168,7 +176,7 @@ function groupOff(entry, group) {
 function toolsFor(entry) {
   const tools = [];
   for (const group of entry.groups) {
-    // The `discovery` group is offered only when the registration carries its reader, `review` its runner.
+    // The `discovery` group is offered only when the registration carries its reader, `review` and `tasks` their runner.
     if (groupOff(entry, group)) continue;
     const groupTools = typeof TOOL_GROUPS[group] === 'function' ? TOOL_GROUPS[group](entry) : TOOL_GROUPS[group];
     if (groupTools) tools.push(...groupTools);
@@ -452,10 +460,18 @@ function reviewHandler(toolName) {
   };
 }
 
+// And the task handlers: the pure `run` (task-tools.js) asks the registration's task runner.
+function taskHandler(toolName) {
+  return async (entry, rpcId, args, log) => {
+    sendResult(entry, rpcId, await runTaskTool(toolName, args, { runner: entry.tasks, log }));
+  };
+}
+
 const TOOL_HANDLERS = {
   diff: { openDiff: handleAgentOpenDiff },
   discovery: Object.fromEntries(DISCOVERY_TOOLS.map((t) => [t.name, discoveryHandler(t.name)])),
   review: Object.fromEntries(REVIEW_TOOL_NAMES.map((name) => [name, reviewHandler(name)])),
+  tasks: Object.fromEntries(TASK_TOOL_NAMES.map((name) => [name, taskHandler(name)])),
 };
 
 async function handleOpenFile(entry, rpcId, args, log) {
@@ -674,12 +690,13 @@ async function startMcpServer(sessionId, workspaceFolders, getWindow, log) {
  * to the response that carried its request id. `getWindow` and `groups` work exactly as for a `ws` entry,
  * so `targetWindow`, the pending-diff lifecycle and `toolsFor` need no transport-specific branch.
  */
-function createHttpEntry({ sessionId, getWindow, groups, projectPath, diffTimeoutMs, discovery, review }) {
+function createHttpEntry({ sessionId, getWindow, groups, projectPath, diffTimeoutMs, discovery, review, tasks }) {
   const entry = {
     sessionId,
     kind: 'http',
     discovery: discovery || null,
     review: review || null,
+    tasks: tasks || null,
     projectPath: projectPath || null,
     diffTimeoutMs: diffTimeoutMs > 0 ? diffTimeoutMs : 0,
     groups: Array.isArray(groups) ? groups : [],

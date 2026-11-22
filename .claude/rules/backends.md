@@ -720,7 +720,8 @@ backend, and its injected tools are gated by its own `--permission-prompt-tool s
 group (list a project's sessions and handoffs across backends, read a bounded transcript view), offered on
 agy, Codex, Claude, claude-native, Pi and pi-native through the `discoveryTools` option (spec 35, spec 37; Pi since #808),
 and a `review` group on Claude, claude-native, Codex, agy, Pi and pi-native through `reviewTools` (spec 39, the last
-four since #808; see the `reviewProfile` paragraph below). The Claude family
+four since #808; see the `reviewProfile` paragraph below), and a `tasks` group on the same callers through `taskTools`
+(spec 41, #804; see the `taskProfile` paragraph). The Claude family
 declares no `diffTool`: its diffs stay on `--ide`. A group opens only for a toggle the backend DECLARES in its
 `configFields` — a stored value it never offers opens nothing (spec 37, O9).
 

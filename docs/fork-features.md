@@ -508,6 +508,15 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   the caller in the sidebar with a Review pill and raises no attention. Clicked on the demo with Haiku: the approval
   card, a claude-native review answering, the nesting. A live Pi review was not run. Spec:
   [`specs/39-review-tool.md`](specs/39-review-tool.md).
+- **Tasks on another backend (#804)** — an opt-in `taskTools` launch option on the callers that have `reviewTools`
+  adds a `tasks` group to the session's own MCP endpoint: `startTask` answers an id and a branch at once, `taskResult`
+  answers running, `needs-input` while a question waits, or the result. The task is a pipe-driven session of the target
+  (claude-native in its default permission mode, pi-native behind its approval gate) in a git worktree the app makes
+  under its data folder, on a branch of its own; nothing is merged, and the caller gets the branch. It starts only when
+  the target already trusts the project, and the worktree takes that trust over and gives it back on removal. Its
+  questions go to the user and are never answered from remembered approvals; one unanswered for ten minutes ends the
+  task, which then still reports what it said and its branch. Thirty minutes, one per caller, three in the app. Not
+  yet clicked: the sidebar row comes with T8. Spec: [`specs/41-task-sessions.md`](specs/41-task-sessions.md).
 - **External MCP servers per project (#789, slices A and B)** — a project can list MCP servers that exist elsewhere
   (a stdio launch, an HTTP endpoint), and each session started in it gets them for that launch only. Nothing is
   written to the CLI's own config. It reaches Codex, agy, Claude (terminal) and Pi; Hermes has no per-launch

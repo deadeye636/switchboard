@@ -184,6 +184,13 @@ chart rather than a row of zeroes.
   gate, with every action it asks about refused. One at a time, ten minutes at most, no notifications. The prompt
   and the files the reviewer reads go to that backend's vendor, so it is off by default.
   → [`docs/specs/39-review-tool.md`](docs/specs/39-review-tool.md)
+- **Hand a task to another backend** — a second opt-in launch option on the same backends gives the agent two tools to
+  start a task that may change files on Claude (GUI) or Pi (GUI) and poll for its result. The task works in a git
+  worktree of its own on a separate branch, and nothing is merged into the project. It starts in a mode that asks
+  before edits and commands, and each question waits for you on its row; one left unanswered for ten minutes ends the
+  task. The worktree is not a sandbox, and the target's own allow rules still apply. Off by default, for the same
+  vendor reason as the review.
+  → [`docs/specs/41-task-sessions.md`](docs/specs/41-task-sessions.md)
 - **External MCP servers per project** — list MCP servers (a stdio launch or an HTTP endpoint) in a project's
   settings, as a one-line row per server with an on/off switch and a form to add or edit one; an *Edit as JSON* view
   holds the same list. Its sessions start with them for that launch only. Works for Codex, agy, Claude and Pi; Hermes

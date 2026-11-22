@@ -93,6 +93,12 @@ function setup(backend, { project = {}, global = {} } = {}) {
       ctx.runners.push(runner);
       return runner;
     },
+    taskRunners: [],
+    createTaskRunner: (scope) => {
+      const runner = { scope, releases: 0, targets: () => [], start() {}, result() {}, release() { runner.releases += 1; } };
+      ctx.taskRunners.push(runner);
+      return runner;
+    },
     windowForSession: () => null,
     startMcpServer: async () => null,
     shutdownMcpServer: () => {},
@@ -188,6 +194,28 @@ for (const [shape, make] of Object.entries(SHAPES)) {
     assert.deepEqual(caller.ctx.registered[0].groups, ['discovery', 'review']);
   });
 
+  // Spec 41 T7: the tasks group is its own toggle, beside review, and a started child gets neither.
+  test(`[${shape}] taskTools on: the tasks group and its runner, built for this terminal; off: nothing of it`, async () => {
+    const { ctx, mcp, session } = await launch(make(), { taskTools: true });
+    assert.deepEqual(ctx.registered[0].groups, ['tasks']);
+    assert.equal(ctx.taskRunners.length, 1);
+    assert.equal(ctx.runners.length, 0, 'no review runner for the task toggle');
+    assert.equal(ctx.registered[0].tasks, ctx.taskRunners[0]);
+    assert.deepEqual(ctx.taskRunners[0].scope, { projectPath: CWD, callerTag: session._terminalTag });
+    assert.ok(mcp);
+    session._mcpInjectionRelease();
+    session._mcpInjectionRelease();
+    assert.equal(ctx.taskRunners[0].releases, 1, 'released once with the launch');
+    const both = await launch(make(), { reviewTools: true, taskTools: true });
+    assert.deepEqual(both.ctx.registered[0].groups, ['review', 'tasks']);
+    const off = await launch(make(), { reviewTools: true });
+    assert.equal(off.ctx.taskRunners.length, 0);
+    assert.deepEqual(off.ctx.registered[0].groups, ['review']);
+    const child = await launch(make(), { spawnedBy: 'caller-1', spawnKind: 'task', taskTools: true, reviewTools: false });
+    assert.equal(child.ctx.registered.length, 0, 'a task cannot start a task (depth 1)');
+    assert.equal(child.ctx.taskRunners.length, 0);
+  });
+
   test(`[${shape}] releasing the registration releases the runner, once`, async () => {
     const { ctx, session } = await launch(make(), { reviewTools: true });
     assert.equal(typeof session._mcpInjectionRelease, 'function');
@@ -238,4 +266,14 @@ test('without a runner factory the review group is dropped, and nothing else cha
   const r = await spawn.openTerminal(`rv-${++n}`, CWD, true, { backendId: backend.id, reviewTools: true, discoveryTools: true });
   assert.equal(r.ok, true, r.error);
   assert.deepEqual(ctx.registered[0].groups, ['discovery']);
+});
+
+test('a task runner factory that throws drops only the tasks group; the session starts with the rest', async () => {
+  const backend = SHAPES.claude();
+  const ctx = setup(backend);
+  ctx.createTaskRunner = () => { throw new Error('boom'); };
+  spawn.init(ctx);
+  const r = await spawn.openTerminal(`rv-${++n}`, CWD, true, { backendId: backend.id, reviewTools: true, taskTools: true });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(ctx.registered[0].groups, ['review']);
 });

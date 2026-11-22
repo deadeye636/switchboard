@@ -51,8 +51,8 @@ async function collectRows(sources, ctx, log, externalRows) {
 // `groups` is the list of tool groups the caller computed from the launch's toggles (spec 35, D7); an empty
 // list registers nothing. `discovery` is the project-scoped reader the caller built for the `discovery`
 // group, `review` the review runner for the `review` group (spec 39); each is handed to the registration only when its
-// group is on.
-function ownServerSource({ backend, groups, discovery, review, registerSession, sessionId, projectPath, getWindow, log } = {}) {
+// group is on. `tasks` is the task runner for the `tasks` group (spec 41), handed over and released the same way.
+function ownServerSource({ backend, groups, discovery, review, tasks, registerSession, sessionId, projectPath, getWindow, log } = {}) {
   const groupList = Array.isArray(groups) ? groups.filter((g) => typeof g === 'string' && g) : [];
   const lg = { debug: noop, info: noop, warn: noop, ...(log || {}) };
   let registration = null;
@@ -62,6 +62,7 @@ function ownServerSource({ backend, groups, discovery, review, registerSession, 
     const reg = { sessionId, projectPath, getWindow, groups: groupList, log };
     if (groupList.includes('discovery')) reg.discovery = discovery;
     if (groupList.includes('review')) reg.review = review;
+    if (groupList.includes('tasks')) reg.tasks = tasks;
     const got = await registerSession(reg);
     if (!got || got.unavailable || !got.url || !got.token) {
       lg.info(`[mcp-inject] own server unavailable: ${(got && got.reason) || 'no answer'}`);
@@ -80,6 +81,12 @@ function ownServerSource({ backend, groups, discovery, review, registerSession, 
     review = null;
     if (runner && typeof runner.release === 'function') {
       try { runner.release(); } catch (err) { lg.warn(`[mcp-inject] the review runner could not be released: ${err && err.name}`); }
+    }
+    // The caller's running task is stopped too (spec 41 E8: its row and its worktree stay); once.
+    const taskRunner = tasks;
+    tasks = null;
+    if (taskRunner && typeof taskRunner.release === 'function') {
+      try { taskRunner.release(); } catch (err) { lg.warn(`[mcp-inject] the task runner could not be released: ${err && err.name}`); }
     }
   };
   return source;

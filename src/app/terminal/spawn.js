@@ -1161,14 +1161,15 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
         // template on a base that lacks it) must not open a group, e.g. `diff` beside Claude's `--ide` (spec 37, O9).
         const declares = (id) => Array.isArray(backend.configFields) && backend.configFields.some((f) => f && f.id === id);
         const mcpGroups = [];
-        // A session a review started (`spawnParent`, spec 39: the runner's launch, or a resume of its row) gets no
-        // group of the app's own server at all: depth 1,
+        // A session a review or a task started (`spawnParent`, spec 39 and 41: the runner's launch, or a resume of its row)
+        // gets no group of the app's own server at all: depth 1, so a task cannot start a task,
         // and a reviewer has no use for the diff or discovery tools either (A4/O12). Its project's external servers
         // below are not the app's and stay.
         if (!spawnParent) {
           if (mcpOptions.diffTool === true && declares('diffTool')) mcpGroups.push('diff');
           if (mcpOptions.discoveryTools === true && declares('discoveryTools')) mcpGroups.push('discovery');
           if (mcpOptions.reviewTools === true && declares('reviewTools')) mcpGroups.push('review');
+          if (mcpOptions.taskTools === true && declares('taskTools')) mcpGroups.push('tasks');
         }
         const discovery = mcpGroups.includes('discovery') && typeof ctx.createDiscoveryReader === 'function'
           ? ctx.createDiscoveryReader({ projectPath, callerSessionId: sessionId })
@@ -1183,10 +1184,18 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
           }
         }
         if (mcpGroups.includes('review') && !review) mcpGroups.splice(mcpGroups.indexOf('review'), 1);
+        // The task runner (spec 41) the same way: one per registration, built only where the injection can run.
+        let tasks = null;
+        if (mcpGroups.includes('tasks') && typeof ctx.createTaskRunner === 'function' && typeof backend.buildMcpInjection === 'function') {
+          try { tasks = ctx.createTaskRunner({ projectPath, callerTag: terminalTag }); } catch (err) {
+            ctx.log.warn(`[spawn] the task runner could not be built: ${err && err.name}`);
+          }
+        }
+        if (mcpGroups.includes('tasks') && !tasks) mcpGroups.splice(mcpGroups.indexOf('tasks'), 1);
         const injection = await composeMcpInjection({
           backend, ctx, dir: ctx.bindingDir, tag: terminalTag, cwd: projectPath, options: mcpOptions,
           sources: [ownServerSource({
-            backend, groups: mcpGroups, discovery, review, registerSession: ctx.registerMcpHttpSession, sessionId, projectPath,
+            backend, groups: mcpGroups, discovery, review, tasks, registerSession: ctx.registerMcpHttpSession, sessionId, projectPath,
             // Honour the id the bridge passes (`entry.getWindow(entry.sessionId)`): a backend that adopts
             // its own session id re-keys the registration, and a closure over the launch-time id would then
             // resolve a window that no longer exists — the diff is sent nowhere, silently (#330).
