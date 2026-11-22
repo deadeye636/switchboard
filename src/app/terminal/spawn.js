@@ -1327,6 +1327,10 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
       // inside them, a single quote that nushell cannot escape at all). A text that would arrive altered is declined.
       const wantedPrompt = typeof sessionOptions?.initialPrompt === 'string' ? sessionOptions.initialPrompt : '';
       let promptArgCount = 0;
+      // Kept apart and appended LAST, after everything the spawn adds to the command (Claude's `--ide` below): a flag
+      // after the prompt's `--` would be read as more prompt, and the CLI would start without it (measured: the IDE
+      // bridge was off). The length check below counts it on the line all the same.
+      let firstPromptArgs = null;
       if (wantedPrompt.trim()) {
         const shellBase = useArgvSpawn ? '' : path.basename(String(shell || '')).toLowerCase();
         const cmdShell = /^cmd(\.exe)?$/.test(shellBase);
@@ -1347,12 +1351,13 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
           const escaped = (s) => s.length + (s.match(/["\\]/g) || []).length + 3;
           const lineLength = useArgvSpawn
             ? all.reduce((n, a) => n + escaped(a), launch.command.length)
-            : escaped((preLaunchCmd ? preLaunchCmd + ' ' : '') + launch.command + ' ' + quoteArgvForShell(shell, all));
+            // ` --ide`, which Claude's binary gets after this point, is counted too.
+            : escaped((preLaunchCmd ? preLaunchCmd + ' ' : '') + launch.command + ' ' + quoteArgvForShell(shell, all)) + 6;
           if (lineLength > COMMAND_LINE_MAX_CHARS) promptArgs = null;
         }
         if (Array.isArray(promptArgs) && promptArgs.length && promptArgs.every((a) => typeof a === 'string')) {
           promptArgCount = promptArgs.length;
-          launch.args = [...launch.args, ...promptArgs];
+          firstPromptArgs = promptArgs;
           initialPromptResult = 'applied';
         } else {
           initialPromptResult = 'declined';
@@ -1380,6 +1385,11 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
         } catch (err) {
           ctx.log.error(`[mcp] Failed to start MCP server for ${sessionId}: ${err.message}`);
         }
+      }
+      // The first prompt goes last (#888), after `--ide` and every other flag.
+      if (firstPromptArgs) {
+        if (claudeCmd != null) claudeCmd += ' ' + quoteArgvForShell(shell, firstPromptArgs);
+        else launch.args = [...launch.args, ...firstPromptArgs];
       }
 
       // Core terminal env comes from the backend layer (single source of truth): iTerm identity so

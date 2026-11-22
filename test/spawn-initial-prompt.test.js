@@ -87,6 +87,28 @@ test('a fresh launch puts the first prompt last on the command line and says so'
   assert.equal('initialPrompt' in backend.seen.at(-1), false, 'the prompt is not a launch option');
 });
 
+test('through a shell, the prompt is the very last thing on the command line, after --ide', async (t) => {
+  // Claude's binary on the shell path gets `--ide` appended after the launch args; a prompt before it would swallow
+  // the flag as more prompt (measured: the IDE bridge was off).
+  const backend = fakeBackend({
+    buildLaunch: () => ({ command: 'claude', args: ['--base'], env: {} }),
+    initialPromptArgs: (text) => ['--', text],
+  });
+  const ctx = setup(backend);
+  ctx.resolveArgvExecutable = () => null;
+  ctx.startMcpServer = async () => ({ port: 1, stop() {} });
+  spawn.init(ctx);
+  const r = await spawn.openTerminal(`ip-${++n}`, CWD, true, { backendId: backend.id, initialPrompt: 'say hi' });
+  assert.equal(r.ok, true, r.error);
+  // The resolved shell is the machine's: through cmd.exe (Windows without Git Bash) every prompt is declined on purpose.
+  if (/^cmd(\.exe)?$/i.test(path.basename(String(ptySpawns.at(-1).cmd)))) { t.skip('the shell here is cmd.exe'); return; }
+  assert.equal(r.initialPrompt, 'applied');
+  const line = ptySpawns.at(-1).args.join(' ');
+  const ide = line.indexOf('--ide');
+  assert.ok(ide !== -1, line);
+  assert.ok(ide < line.indexOf("'--'") && line.indexOf("'--'") < line.indexOf('say'), `--ide comes before the prompt: ${line}`);
+});
+
 test('no first prompt: nothing added, and the answer is null', async () => {
   const { r, args } = await launch(fakeBackend());
   assert.equal(r.initialPrompt, null);

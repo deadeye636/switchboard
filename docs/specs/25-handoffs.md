@@ -259,11 +259,15 @@ Now, by what the session is:
   cmd.exe (it expands `%VAR%` inside quotes), through Windows PowerShell 5.1 for a text with `"` (5.1 drops them), through
   fish or nushell for a text with `'` or `\` (their quoting differs), over 16 000 characters, and when the quoted command
   line would pass 30 000 characters. Pi declines a text starting with `@` (a file to attach), agy one starting with `-`
-  (it reads it as a flag).
-- **Any other terminal** (Claude, Hermes, or a declined case): nothing is typed. A toast offers **Insert** (the
+  (it reads it as a flag). Claude `claude -- <prompt>` (Claude Code 2.1.330, Haiku) was measured after the others:
+  in an untrusted project it showed its trust question first and sent the prompt after it, byte for byte (quotes,
+  `$HOME`, backticks, `%PATH%`, a backslash and a line break arrived as written), and a text starting with `-` stayed a
+  prompt. The prompt is the LAST thing on the command line, after `--ide`: appended before it, the flag was read as more
+  prompt and the IDE bridge stayed off.
+- **Any other terminal** (Hermes, or a declined case): nothing is typed. A toast offers **Insert** (the
   context-menu paste: bracketed only when the CLI asked for it, never submitted), **Copy** (the toast stays) and
-  **Dismiss**; it has no timeout, because the text may exist nowhere else. Measured with Claude: its trust question
-  stayed untouched, and Insert put the message into the composer once the session was up. The handoff that has a
+  **Dismiss**; it has no timeout, because the text may exist nowhere else. Measured with Claude before its form was
+  declared: its trust question stayed untouched, and Insert put the message into the composer once the session was up. The handoff that has a
   fresh agent read the previous session waits for its answer from the Insert on, not from the launch.
 
 A running session that is asked something (the handoff request, the plan request) is still typed into, with two

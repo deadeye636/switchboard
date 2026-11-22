@@ -729,8 +729,9 @@ on a fresh terminal launch, or `null`, answered by every backend (`test/backend-
 `src/app/terminal/spawn.js` after the spawn mode is decided and declines on a resume, a fork, a pipe, cmd.exe and past
 16 000 characters, and on what PowerShell 5.1, fish or nushell would alter and a quoted line past 30 000 characters; the
 renderer then offers the text instead of typing it (spec 25, "How the first message reaches a new session").
-Codex `-- <prompt>`, Pi `-- <message>` and agy `-i` (declining a text that starts with `-`) answer, each measured; Claude
-and Hermes decline until measured. A template inherits it, and `scripts/managed-flags.js` asks it, so a flag it uses is audited.
+Codex `-- <prompt>`, Pi `-- <message>`, Claude `-- <prompt>` and agy `-i` (declining a text that starts with `-`) answer,
+each measured; Hermes declines (only its `chat` subcommand takes a prompt). The core appends the prompt after everything
+else it adds, Claude's `--ide` included, or the flag is read as prompt. A template inherits it, and `scripts/managed-flags.js` asks it, so a flag it uses is audited.
 
 **A prune is a flag and ONE hook, not a quartet (spec 36).** `providesMcpPrune` + `buildMcpPrune({ injectedNames, options, env, cwd, log })` → `{ args, env } | null`, composed by `src/app/mcp-prune.js`. There is no release half (launch arguments and environment only), so it is not a `HOOK_PAIRS` row; `test/backend-parity.test.js` pins the flag-and-hook shape separately. Every backend answers the flag, declining included, and the `mcpPrune` capability row says the same; a template forwards both in `profileToDescriptor`.
 

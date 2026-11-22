@@ -1270,9 +1270,12 @@ description:
   },
   configFields,
   buildLaunch,
-  // No first prompt on the command line yet (#888): `claude [prompt]` exists, but this backend spawns through a
-  // shell and the form is not measured. The renderer keeps a first prompt for the user to insert.
-  initialPromptArgs: null,
+  // The first prompt on the command line (#888), appended by the core after everything else on a fresh launch, so the
+  // CLI shows its own start-up screens first and sends the prompt after them.
+  // Claude: `claude [options] [prompt]`, interactive; behind `--`, so a text that starts with `-` stays a prompt.
+  // Measured (#888, Claude Code 2.1.330, through the Git Bash shell path): the trust question came first and the prompt
+  // after it, byte for byte with quotes, `$HOME`, backticks, `%PATH%`, a backslash and a line break.
+  initialPromptArgs: (text) => ['--', String(text)],
   discoverSessions,
   parseSession,
   parseSessionIncremental,
