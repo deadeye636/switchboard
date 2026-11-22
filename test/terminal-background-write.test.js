@@ -139,6 +139,8 @@ function setupDom({ fitDims = null } = {}) {
                      'renderer/terminal/terminal-fit.js',
                      // selection-text.js holds the copy text both of the next two build (#467)
                      'renderer/terminal/selection-text.js',
+                     // the drain takes terminal queries out of the output it writes late (#887)
+                     'shared/terminal-queries.js',
                      'renderer/terminal/terminal-context-menu.js', 'renderer/terminal/terminal-manager.js',
                      'renderer/views/grid-view.js']) {
     const src = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');

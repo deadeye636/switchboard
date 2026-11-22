@@ -209,7 +209,8 @@ test('a stale alt-screen flag is NOT injected when the replay says the session l
 
   const r = await spawn.openTerminal('s', process.cwd(), false, {});
   assert.equal(r.reattached, true);
-  assert.equal(replayed(ctx)[0], `${ENTER_1049}a frame`,
+  // The buffer is replayed as ONE write (#887: joined, so a terminal query cut across chunks is found and taken out).
+  assert.equal(replayed(ctx)[0], session.outputBuffer.join(''),
     'the replay starts immediately — no injected escape in front of it');
   assert.equal(replayed(ctx).includes(ENTER_1049), false,
     'and the enter sequence was never sent on its own');
@@ -223,7 +224,7 @@ test('a leave split across two buffer entries also suppresses the injection', as
   const ctx = setup([['s', session]]);
 
   await spawn.openTerminal('s', process.cwd(), false, {});
-  assert.equal(replayed(ctx)[0], `${ENTER_1049}a frame`, 'nothing was injected in front of the replay');
+  assert.equal(replayed(ctx)[0], session.outputBuffer.join(''), 'nothing was injected in front of the replay');
 });
 
 // The other half of the same bullet: the injection is not removed on a guess. Where the buffer says
@@ -237,7 +238,7 @@ test('a buffer that carries no transition leaves the flag in charge', async () =
   const ctx = setup([['s', session]]);
 
   await spawn.openTerminal('s', process.cwd(), false, {});
-  assert.deepEqual(replayed(ctx), [ENTER_1049, 'a frame', 'and another', `${ESC}[?25l`],
+  assert.deepEqual(replayed(ctx), [ENTER_1049, 'a frameand another', `${ESC}[?25l`],
     'injected, then the buffer, then the cursor hide');
 });
 

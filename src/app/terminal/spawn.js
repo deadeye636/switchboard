@@ -31,6 +31,7 @@ const { resolveShell, isWindows, isWslShell, windowsToWslPath, ptyShellArgs, quo
 const { settingsOwnerPath } = require('../../shared/worktree-path');
 const backendModes = require('../../shared/backend-modes');
 const { normalizeLauncher } = require('../../shared/custom-launchers');
+const { stripTerminalQueries } = require('../../shared/terminal-queries');
 const { classifyAttentionSignal } = require('../../shared/attention-source');
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
@@ -388,10 +389,11 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
       sendTerminalData(sessionId, '\x1b[?1049h');
     }
 
-    // Send buffered output for reattach
-    for (const chunk of session.outputBuffer) {
-      sendTerminalData(sessionId, chunk);
-    }
+    // Send buffered output for reattach — as one write, without the terminal queries in it (#887): the fresh xterm
+    // would answer each old question again, into a CLI that stopped waiting long ago and reads the answer as typed
+    // text. Joined first, so a query cut across two chunks is still found.
+    const replay = stripTerminalQueries(session.outputBuffer.join(''));
+    if (replay) sendTerminalData(sessionId, replay);
 
     if (!session.isPlainTerminal) {
       // Hide cursor after buffer replay — the live PTY stream or resize nudge

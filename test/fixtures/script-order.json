@@ -82,6 +82,7 @@
     "selection-text.js",
     "terminal-context-menu.js",
     "variable-insert.js",
+    "terminal-queries.js",
     "variables-panel.js",
     "palette-core.js",
     "variable-palette.js",

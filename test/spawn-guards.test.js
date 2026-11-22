@@ -97,7 +97,8 @@ test('reattaching to a live session replays its buffer and does not spawn', asyn
   assert.deepEqual(r, { ok: true, reattached: true, mcpActive: true, pathShell: null });
   assert.equal(session.rendererAttached, true);
   assert.equal(session.firstResize, true, 'so the TUI gets its repaint nudge');
-  assert.deepEqual(ctx.sent.map((a) => a[2]), ['\x1b[?1049h', 'hello', 'world', '\x1b[?25l'],
+  // The buffer goes as one write (#887), terminal queries taken out.
+  assert.deepEqual(ctx.sent.map((a) => a[2]), ['\x1b[?1049h', 'helloworld', '\x1b[?25l'],
     'alt-screen escape, then the buffer, then the cursor hide');
 });
 

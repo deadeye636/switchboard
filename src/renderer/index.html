@@ -322,6 +322,8 @@
   <!-- The insert-template core, shared with main (dual-mode module). The template editor's preview composes
        with these exact functions, so it cannot drift from what the insert actually produces. -->
   <script src="../shared/variable-insert.js"></script>
+  <!-- Terminal queries taken out of output that is written into xterm again (#887) — read by terminal-manager.js. -->
+  <script src="../shared/terminal-queries.js"></script>
   <script src="panels/variables-panel.js"></script>
   <!-- The hotkey's variable palette (#207). After the context menu, whose pasteIntoTerminal it uses. -->
   <script src="terminal/palette-core.js"></script>

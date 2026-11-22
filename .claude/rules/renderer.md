@@ -803,7 +803,8 @@ the check is drawn as plain text. Loosening the check means an agent's text can 
 The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,
 `preview-kind`, `worktree-path` (#582), `convention-dir-name` (#630), `partial-args` (#664), `backend-modes` (#761: the CLI grouping, mode choices, shared launch fields and the picker default), the Flow trio
 `flow-snapshot` / `flow-layout` / `flow-text` (#826: the neutral shape, the pure layout the Flow tab in `session/flow-view.js` draws, and the words the tab and every export in main (SVG, PDF pages, Mermaid) draw with; each adds one
-global and no helper name), and two that only `settings.html` loads on the renderer side: `external-mcp-validate` (main's
+global and no helper name), `terminal-queries` (#887: the terminal queries taken out of output written into xterm a second
+time, by the main reattach replay and the renderer's hidden-tab drain), and two that only `settings.html` loads on the renderer side: `external-mcp-validate` (main's
 `external-mcp.js` and `external-mcp-check.js` validate with it too) and `mcp-addon-catalog` (main's `mcp-registry.js` and
 `windows.js`). The Backends panel, the welcome tour and the New Session picker read a CLI's modes from `backend-modes` (#761) and derive no
 group of their own. **List the directory rather than trusting this line.**

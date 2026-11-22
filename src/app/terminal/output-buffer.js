@@ -36,8 +36,8 @@
 //      or when a single chunk larger than max is pushed directly)
 //
 // Replay correctness:
-//   The reattach loop in main.js iterates `for (const chunk of outputBuffer)`
-//   and forwards each chunk verbatim to xterm.js.  Because we only ever
+//   The reattach in `src/app/terminal/spawn.js` joins the chunks and forwards them as one write, with the
+//   terminal QUERIES taken out (#887, `src/shared/terminal-queries.js`) and nothing else changed.  Because we only ever
 //   remove bytes from the front of the conceptual stream (never insert, split,
 //   or reorder), xterm.js sees a consistent terminal state.  The line-boundary
 //   trim means the replay starts at a newline (not mid-escape), so cursor/color

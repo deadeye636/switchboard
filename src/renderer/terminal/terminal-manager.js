@@ -1195,7 +1195,9 @@ function drainReplayBuffer(sessionId) {
     rawReplayBuffers.delete(sessionId);
     return;
   }
-  const data = arr.join('');
+  // Output a hidden tab collected is written now, long after the CLI asked its questions in it: without them,
+  // or xterm answers into a CLI that no longer waits (#887, `src/shared/terminal-queries.js`).
+  const data = stripTerminalQueries(arr.join(''));
   rawReplayBuffers.delete(sessionId);
   entry.terminal.write(data, () => {
     // Destroyed between write() and callback → terminal is disposed, don't touch it.
