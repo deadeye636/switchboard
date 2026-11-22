@@ -1520,7 +1520,7 @@ function createConversationView(getSession, container) {
       c.setAttribute('aria-pressed', (overridden || null) === value ? 'true' : 'false');
       c.textContent = label;
       // `state.mode` is the mode in force, so it names the settings' value only while nothing overrides it.
-      c.title = value ? 'For this running session only'
+      c.title = value ? 'For this session only, kept when it is resumed'
         : overridden ? 'Follow the settings again' : `Follow the settings (now: ${IDLE_LABELS[state.mode] || state.mode})`;
       c.addEventListener('click', () => {
         Promise.resolve(window.api.agent.idleMaintenanceSet(view.session.sessionId, { idleMaintenanceMode: value })).then((fresh) => {

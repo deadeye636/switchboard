@@ -96,6 +96,8 @@ module.exports = {
   // --- worktrees recognised by their `.git` file, outside the layout (worktree-store.js, #757) ---
   recordMaintenanceTurn: maintenanceStore.recordMaintenanceTurn,
   getMaintenanceTurns: maintenanceStore.getMaintenanceTurns,
+  getIdleOverride: maintenanceStore.getIdleOverride,
+  setIdleOverride: maintenanceStore.setIdleOverride,
   getKnownWorktrees: worktreeStore.getKnownWorktrees,
   recordKnownWorktree: worktreeStore.recordKnownWorktree,
   forgetKnownWorktree: worktreeStore.forgetKnownWorktree,
@@ -193,7 +195,12 @@ module.exports = {
   listChangeEntries: changesStore.listEntries,
   getChangesView: changesStore.getChangesView,
   setChangesView: changesStore.setChangesView,
-  deleteChangesStateForSession: changesStore.deleteChangesStateForSession,
+  // Every DELIBERATE session delete calls this (the name is #870's), so the session's other user choice in session_meta,
+  // its idle-maintenance override (spec 45, O2), goes with it here rather than at each of the delete paths.
+  deleteChangesStateForSession: (sessionId) => {
+    changesStore.deleteChangesStateForSession(sessionId);
+    maintenanceStore.setIdleOverride(sessionId, null);
+  },
   // --- the stats aggregates (stats-store.js) ---
   getStatsPayload: statsStore.getStatsPayload,
   getStatsFacets: statsStore.getStatsFacets,

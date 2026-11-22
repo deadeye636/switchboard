@@ -223,7 +223,7 @@ about when a session is finished. A core caller can follow a session without a v
 `observe(sessionId, observer)` — the review runner does (spec 39): busy edges with the turn's outcome, finished
 entries with their assistant text, the text still streaming (coalesced like the view's), every ask before the
 approval memory, the exit),
-`idle-maintenance.js` (the schedule that keeps a pipe-driven session's cache warm or compacts it while idle — #827, spec 45; keyed on the tag `agent-rpc.js` reports edges under, so a re-key does not move it. Off by default, every idle period bounded by a limit and a ceiling, and `stop()` runs before the database closes. Electron-free, db-free, names no backend: the actions and the gate are `agent-rpc.js`'s, the bound is the descriptor's `idleMaintenance()`),
+`idle-maintenance.js` (the schedule that keeps a pipe-driven session's cache warm or compacts it while idle — #827, spec 45; keyed on the tag `agent-rpc.js` reports edges under, so a re-key does not move it; the session's override is also stored by session id through `ctx.loadOverride`/`saveOverride`, so a resume takes it back (spec 45, O2). Off by default, every idle period bounded by a limit and a ceiling, and `stop()` runs before the database closes. Electron-free, db-free, names no backend: the actions and the gate are `agent-rpc.js`'s, the bound is the descriptor's `idleMaintenance()`),
 `agent-shell.js` (a `!` line run BY THE APP for a runtime-driven session whose protocol has no shell command —
 #786, claude-native; the project's terminal shell as a login shell with no stdin, output kept up to a cap, the
 tree killed on Stop and on the session's exit, no timeout. `agent-rpc.js` starts it and carries the finished line

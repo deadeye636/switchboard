@@ -9,7 +9,7 @@ const MIN = 60000;
 const PI_LIKE = { cacheClass: '5m', maxRefreshMs: 270000, warm: true, compact: true, callsCold: true };
 const CLAUDE_LIKE = { cacheClass: '1h', maxRefreshMs: 50 * MIN, warm: true, compact: true, callsCold: false };
 
-function setup(settings, { answer = PI_LIKE, usageAfter = () => ({ input: 10, read: 5000, write: 10 }) } = {}) {
+function setup(settings, { answer = PI_LIKE, usageAfter = () => ({ input: 10, read: 5000, write: 10 }), store = null, tag = 't1' } = {}) {
   let time = 1000;
   let timers = [];
   const sent = [];
@@ -17,10 +17,11 @@ function setup(settings, { answer = PI_LIKE, usageAfter = () => ({ input: 10, re
   const notes = [];
   let open = true;
   let usage = { input: 10, read: 5000, write: 10 };
+  let id = 's1';
   const handle = {
-    tag: 't1',
+    tag,
     projectPath: 'p',
-    sessionId: () => 's1',
+    sessionId: () => id,
     open: () => open,
     busy: () => false,
     linesSent: () => 0,
@@ -37,7 +38,12 @@ function setup(settings, { answer = PI_LIKE, usageAfter = () => ({ input: 10, re
     effectiveSettings: () => ({ idleMaintenanceMode: 'off', ...settings }),
     capabilityOf: () => answer,
     recordMaintenance: (r) => records.push(r),
-    recordLifecycle: (id, kind, label, detail) => notes.push({ kind, label, detail }),
+    recordLifecycle: (_id, kind, label, detail) => notes.push({ kind, label, detail }),
+    // A Map stands in for session_meta.idleOverride: the value as the store would hand it back.
+    ...(store ? {
+      loadOverride: (sid) => (store.has(sid) ? { ...store.get(sid) } : null),
+      saveOverride: (sid, o) => { if (o) store.set(sid, { ...o }); else store.delete(sid); },
+    } : {}),
     log: { info() {}, warn() {} },
   });
   const edge = (e, quiet = false) => idle.track({ edge: e, handle, quiet });
@@ -56,8 +62,110 @@ function setup(settings, { answer = PI_LIKE, usageAfter = () => ({ input: 10, re
   // A real turn of the user's: its busy edge, a model call, its idle edge.
   const realTurn = () => { edge('busy'); usage = { input: 10, read: 5000, write: 10 }; edge('idle'); };
   const advance = (ms) => { time += ms; };
-  return { edge, step, realTurn, advance, sent, records, notes, timers: () => timers, setOpen: (v) => { open = v; }, time: () => time, handle };
+  return { edge, step, realTurn, advance, sent, records, notes, timers: () => timers, setOpen: (v) => { open = v; }, time: () => time, handle, setId: (v) => { id = v; } };
 }
+
+test('an override is stored with the session id and a new process of that session takes it back', (t) => {
+  t.after(() => idle.stop());
+  const store = new Map();
+  const first = setup({ idleMaintenanceMode: 'off' }, { store });
+  first.edge('start');
+  idle.setOverride('s1', { idleMaintenanceMode: 'warm' });
+  assert.deepEqual(store.get('s1'), { idleMaintenanceMode: 'warm' });
+  first.edge('exit');
+
+  // The restart: another process, another tag, the same conversation.
+  const second = setup({ idleMaintenanceMode: 'off' }, { store, tag: 't2' });
+  second.edge('start');
+  assert.equal(idle.getState('s1').mode, 'warm');
+  assert.deepEqual(idle.getState('s1').overrides, { idleMaintenanceMode: 'warm' });
+  second.realTurn();
+  assert.equal(second.timers().length, 1, 'the restored mode plans a refresh');
+});
+
+test('following the settings again clears the stored override, and the next process follows them', (t) => {
+  t.after(() => idle.stop());
+  const store = new Map([['s1', { idleMaintenanceMode: 'warm' }]]);
+  const h = setup({ idleMaintenanceMode: 'off' }, { store });
+  h.edge('start');
+  assert.equal(idle.getState('s1').mode, 'warm');
+  idle.setOverride('s1', { idleMaintenanceMode: null });
+  assert.equal(store.has('s1'), false);
+  h.edge('exit');
+  setup({ idleMaintenanceMode: 'off' }, { store, tag: 't2' }).edge('start');
+  assert.equal(idle.getState('s1').mode, 'off');
+});
+
+test('a session never given an override follows the settings and stores nothing', (t) => {
+  t.after(() => idle.stop());
+  const store = new Map();
+  const h = setup({ idleMaintenanceMode: 'compact' }, { store });
+  h.edge('start');
+  h.realTurn();
+  assert.equal(idle.getState('s1').mode, 'compact');
+  assert.equal(store.size, 0);
+});
+
+test('a re-key keeps the running override and stores it under the new id; an id with its own takes that', (t) => {
+  t.after(() => idle.stop());
+  const store = new Map([['s3', { idleMaintenanceMode: 'compact' }]]);
+  const h = setup({ idleMaintenanceMode: 'off' }, { store });
+  h.edge('start');
+  idle.setOverride('s1', { idleMaintenanceMode: 'warm' });
+  h.setId('s2');
+  h.edge('rekey');
+  assert.equal(idle.getState('s2').mode, 'warm');
+  assert.deepEqual(store.get('s2'), { idleMaintenanceMode: 'warm' });
+  h.setId('s3');
+  h.edge('rekey');
+  assert.equal(idle.getState('s3').mode, 'compact');
+});
+
+test('an id the handle learns only after its start edge still takes the stored override back, first asked or first busy', (t) => {
+  t.after(() => idle.stop());
+  // In the app the start edge comes before the session is registered, so the handle answers no id yet.
+  const store = new Map([['s1', { idleMaintenanceMode: 'warm' }]]);
+  const asked = setup({ idleMaintenanceMode: 'off' }, { store });
+  asked.setId(null);
+  asked.edge('start');
+  asked.setId('s1');
+  assert.equal(idle.getState('s1').mode, 'warm', 'the first state request binds and loads');
+  asked.edge('exit');
+
+  const busy = setup({ idleMaintenanceMode: 'off' }, { store, tag: 't2' });
+  busy.setId(null);
+  busy.edge('start');
+  busy.setId('s1');
+  busy.realTurn();
+  assert.equal(busy.timers().length, 1, 'the first busy edge binds before the period is planned');
+  assert.equal(idle.getState('s1').mode, 'warm');
+});
+
+test('a fork under a fresh id inherits nothing from the session it came from', (t) => {
+  t.after(() => idle.stop());
+  const store = new Map([['s1', { idleMaintenanceMode: 'warm' }]]);
+  const fork = setup({ idleMaintenanceMode: 'off' }, { store, tag: 't-fork' });
+  fork.setId('f1');
+  fork.edge('start');
+  fork.realTurn();
+  assert.equal(idle.getState('f1').mode, 'off');
+  assert.equal(store.has('f1'), false);
+});
+
+test('a store that throws costs the memory, never the edge', (t) => {
+  t.after(() => idle.stop());
+  const h = setup({ idleMaintenanceMode: 'off' });
+  idle.init({
+    ...{ now: () => h.time(), setTimer: () => ({}), clearTimer: () => {} },
+    effectiveSettings: () => ({ idleMaintenanceMode: 'off' }),
+    capabilityOf: () => PI_LIKE,
+    loadOverride: () => { throw new Error('busy'); },
+    saveOverride: () => { throw new Error('busy'); },
+    log: { info() {}, warn() {} },
+  });
+  h.edge('start');
+  assert.equal(idle.setOverride('s1', { idleMaintenanceMode: 'warm' }).mode, 'warm');
+});
 
 test('off does nothing, and a declining backend does nothing whatever the setting', async (t) => {
   t.after(() => idle.stop());

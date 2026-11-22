@@ -192,8 +192,12 @@ Keys in the settings blob, global and per project: `idleMaintenanceMode` (`off`)
 `idleMaintenanceBestEffortCompact`. Both settings windows show them in a category of their own, **Session idle
 maintenance** (`idle-maintenance`, #832); the global window had them inside Sessions, without a heading, where they read
 as stray fields. The project value goes
-through `settingsOwnerPath` (reflex 17), never `'project:' + path` by hand. The running-session override is a third,
-runtime-only level held by main per live session; it never writes the defaults and is not persisted (O2). Default is Off.
+through `settingsOwnerPath` (reflex 17), never `'project:' + path` by hand. The session override is a third level, held by
+main per live session and stored with the session's id in `session_meta.idleOverride` (O2, revised 2026-11-22). It never
+writes the defaults. A new process of the same conversation (an app restart, a resume) takes it back when its handle first
+answers that id; a re-key keeps the running override and stores it under the new id too, unless that id already has its
+own, which then applies. Settings in the popover clears the stored value. A fork has a new id and follows the cascade.
+Default is Off.
 All keys are added to `docs/settings-reference.md` with their real code defaults.
 
 ### Hit check (best effort)
@@ -244,7 +248,10 @@ All eight decided by the owner on 2026-11-09, each as recommended below.
   (`src/renderer/session/conversation-view.js`), because the feature exists only for pipe sessions. Confirm the exact
   element in T12 before building.
 - [x] **O2** Does the override persist? Recommendation: no, it lives with the running process and is reset when the process ends;
-  a resumed session falls back to the cascade.
+  a resumed session falls back to the cascade. **Revised by the owner on 2026-11-22:** the override is stored per session id
+  (`session_meta.idleOverride`), so a restart or resume runs on the mode last picked for that session; see "Settings
+  (cascade, then the running session)". Accepted cost: an override picked long ago keeps spending tokens after a resume
+  until the user picks Settings again; the popover marks it as the session's own.
 - [x] **O3** Hit-verdict threshold and the Claude miss. Recommendation: derive the Pi threshold from repeated runs (T2), label
   Claude best effort, and measure a Claude miss only on the owner's explicit go (about 70 minutes on Haiku).
 - [x] **O4** Side effects beyond E8: message and user-turn counts and daily metrics move; the busy edge clears the suggestion
@@ -310,6 +317,9 @@ window stayed hidden to the renderer); and on Pi a prompt right after `/session`
   was out is caught by `tick` through the handle's `maintaining()`. Neither path is reached by today's two backends
   (claude-native writes without an answer, Pi's compaction ends with its answer); both are pinned by tests.
 - In a detached window a maintenance turn draws Working, because `recordActivityEdge` takes it; the main window's row stays quiet.
+- [x] The stored override (`session_meta.idleOverride`, O2 revised) went nowhere when a session was deleted. Closed
+  2026-11-22: every deliberate delete clears it through `deleteChangesStateForSession` on the `src/db/db.js` façade; a
+  source-gone delete leaves it, like the other user state in `session_meta`.
 - The control shows the mode and its source, not the interval, the ceiling or the idle time, and only the mode can be overridden
   from the view. `setOverride` takes every `idleMaintenance*` key.
 

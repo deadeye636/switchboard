@@ -701,6 +701,12 @@ const migrations = [
   (db) => {
     try { db.exec('ALTER TABLE session_meta ADD COLUMN changesView TEXT'); } catch {}
   },
+  // The idle-maintenance override picked for a session (spec 45, O2 revised), a JSON object of `idleMaintenance*` keys: a
+  // USER's choice, so it sits in session_meta like `changesView`. A resumed session takes it back; NULL = follow the
+  // settings. Nothing is backfilled.
+  (db) => {
+    try { db.exec('ALTER TABLE session_meta ADD COLUMN idleOverride TEXT'); } catch {}
+  },
 ];
 
 /**

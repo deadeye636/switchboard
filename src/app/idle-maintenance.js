@@ -4,7 +4,8 @@
 //
 // It names no backend and no format. A session arrives as the handle `src/app/agent-rpc.js` gives it (`maintain`, `open`,
 // `usage`, `busy`), what the backend can do is its `idleMaintenance()` answer, and the settings come through `ctx`. Keyed on
-// the handle's tag. Electron-free and database-free, like everything `ctx` hands in.
+// the handle's tag; the session's override is also stored by its id (`ctx.loadOverride` / `ctx.saveOverride`). Electron-free
+// and database-free, like everything `ctx` hands in.
 //
 // The plan is read again before every action, so a setting changed meanwhile applies before anything is spent.
 
@@ -52,8 +53,8 @@ function bounded(value, fallback, min, max) {
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 }
 
-// The schedule as of now: the effective settings, each field overridden by the running session's own value (`overrides`, which
-// writes nothing back), against what the backend answers.
+// The schedule as of now: the effective settings, each field overridden by the session's own value (`overrides`, which
+// writes nothing back to the settings and is stored with the session's id), against what the backend answers.
 // What a backend says about a warm it leaves to its runtime (the descriptor's `warmBy` / `warmNote`), else null.
 const runtimeWarmNote = (answer) => (answer && answer.warmBy && answer.warmNote ? String(answer.warmNote) : null);
 
@@ -241,10 +242,46 @@ function afterWarm(session) {
 function sessionFor(handle) {
   let session = sessions.get(handle.tag);
   if (!session) {
-    session = { handle, overrides: {}, timer: null, nextAction: null, nextAt: null, refreshes: 0, plan: null, verdict: null, ended: null, running: null, clockAt: 0, lastTurnAt: 0, usageBefore: null, atBusy: null, gone: false };
+    session = { handle, overrides: {}, boundId: null, timer: null, nextAction: null, nextAt: null, refreshes: 0, plan: null, verdict: null, ended: null, running: null, clockAt: 0, lastTurnAt: 0, usageBefore: null, atBusy: null, gone: false };
     sessions.set(handle.tag, session);
   }
   return session;
+}
+
+const hasOverrides = (session) => Object.keys(session.overrides).length > 0;
+
+// The stored override, kept by session id through `ctx` (spec 45, O2). A store that fails costs the memory, never the edge.
+function loadOverride(id) {
+  if (!ctx.loadOverride) return null;
+  try { return ctx.loadOverride(id) || null; } catch (err) {
+    if (ctx.log) ctx.log.warn(`[idle-maintenance] a stored override was not read: ${err.message}`);
+    return null;
+  }
+}
+function saveOverride(session) {
+  if (!session.boundId || !ctx.saveOverride) return;
+  try { ctx.saveOverride(session.boundId, hasOverrides(session) ? { ...session.overrides } : null); } catch (err) {
+    if (ctx.log) ctx.log.warn(`[idle-maintenance] an override was not stored: ${err.message}`);
+  }
+}
+
+/**
+ * Bind the schedule to the id its handle answers now. The first id a process gets takes back what was stored for it, so a
+ * resumed session runs on the mode last picked for it. A later id (a re-key) takes its own stored override where it has
+ * one, and otherwise keeps the running one, which is then stored under the new id as well: the override already outlived a
+ * re-key in memory, and a restart must not undo that.
+ */
+function bindStored(session) {
+  const id = session.handle.sessionId();
+  if (!id || id === session.boundId) return;
+  session.boundId = id;
+  const stored = loadOverride(id);
+  if (stored) {
+    session.overrides = { ...stored };
+    if (session.plan) session.plan = planFor(session);
+  } else if (hasOverrides(session)) {
+    saveOverride(session);
+  }
 }
 
 // What `src/app/agent-rpc.js` reports about a session it drives. A quiet edge is a maintenance turn's own. `confirmed` on
@@ -253,6 +290,7 @@ function sessionFor(handle) {
 function track({ edge, handle, quiet, confirmed = null, cause = null }) {
   if (!ctx || stopped) return;
   const session = sessionFor(handle);
+  if (edge !== 'exit') bindStored(session);
   switch (edge) {
     case 'start':
       return;
@@ -351,23 +389,28 @@ function stateOf(session) {
 }
 
 function find(sessionId) {
-  for (const s of sessions.values()) if (s.handle.sessionId() === sessionId) return s;
+  for (const s of sessions.values()) {
+    if (s.handle.sessionId() === sessionId) { bindStored(s); return s; }
+  }
   return null;
 }
 
 /**
- * The running session's own values; a null removes one. Nothing here is written to the settings (spec 45, O2). It re-plans
- * only a period still waiting: one that has ended stays ended until the user's next turn, so a change here can neither
- * compact a second time nor rebuild a cold cache.
+ * The running session's own values; a null removes one. Nothing here is written to the settings; the values are stored with
+ * the session's id, so a restart or a resume of it takes them back (spec 45, O2). It re-plans only a period still waiting:
+ * one that has ended stays ended until the user's next turn, so a change here can neither compact a second time nor rebuild
+ * a cold cache.
  */
 function setOverride(sessionId, patch) {
   const session = find(sessionId);
   if (!session) return null;
+  let changed = false;
   for (const [key, value] of Object.entries(patch || {})) {
     if (!key.startsWith('idleMaintenance')) continue;
-    if (value === null || value === undefined) delete session.overrides[key];
-    else session.overrides[key] = value;
+    if (value === null || value === undefined) { if (key in session.overrides) { delete session.overrides[key]; changed = true; } }
+    else if (session.overrides[key] !== value) { session.overrides[key] = value; changed = true; }
   }
+  if (changed) saveOverride(session);
   session.plan = planFor(session);
   if (session.clockAt > 0 && !session.running && !session.ended) armNext(session);
   return stateOf(session);

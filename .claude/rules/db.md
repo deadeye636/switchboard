@@ -22,7 +22,9 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
   an OBSERVED fact, kept apart from `meta-store` because the user decided nothing there; beside it in its own
   table `app_worktree`, the checkouts the APP created for a task — #805, a row there is the owner marker, and the
   app removes no worktree without one),
-  `maintenance-store` (the turns the app itself sent to an idle session — #827, spec 45; read back so one is not drawn as the user's)
+  `maintenance-store` (the turns the app itself sent to an idle session — #827, spec 45; read back so one is not drawn as the user's.
+  Beside them the session's own idle override in `session_meta.idleOverride`, a USER choice read back on resume; its pure
+  shape is `idle-override-record.js`)
 - `legacy-handoffs.js` — the handoff library's old table, and only the two calls that empty it (#468).
   Its statements are prepared INSIDE its functions, unlike every store beside it: after the first
   successful export there is no table to prepare against, and a fresh database never had one
