@@ -254,12 +254,15 @@ was. `src/app/task-runner.js` is the task's:
 - **The prompt.** A preamble names the branch, says nothing reaches the project until the caller merges, and asks the
   task to commit on that branch and end with a short summary.
 - **Caps.** 30 minutes (`SWITCHBOARD_TASK_MAX_MS` shortens it for a measurement), one running task per caller, three in
-  the app, counted apart from reviews.
+  the app, counted apart from reviews (three confirmed by the owner, 2026-11-22, as was the preamble's request to commit).
 
 Not yet: the `tasks` tool group and its toggle (T7) — nothing calls `createTaskRunner` until then, it is only wired in
 `src/main.js` — and the sidebar row (T8): until then a task's row is not nested under its caller and carries no pill.
-The `backendDefaults` a task launch merges under its profile (`restricted`, `worktree`, `addDirs`) are as for a review;
-which of them a task should drop is still open (T4 verifier, point 2).
+The `backendDefaults` a task launch merges under its profile (T4 verifier, point 2; owner, 2026-11-22): the profile is
+merged last, so it clears what must not reach a task. claude-native's clears `worktree`/`worktreeName` (the task already
+has a worktree; a stored one would nest a second inside it) and `addDirs` (a directory outside the worktree, the project
+included, would be writable); `restricted` stays as stored, because it only takes tools away. pi-native stores no option
+of that kind. Pinned in `test/task-profile.test.js` on the argv.
 
 Known limit: "never answered from what was allowed before" holds for the APP's answers. A CLI that allows a call from
 its own settings never asks (claude-native: the user's `permissions.allow` rules), and that is not visible to the app.

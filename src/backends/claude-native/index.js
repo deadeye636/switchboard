@@ -344,8 +344,11 @@ module.exports = {
   reviewProfile: () => ({ options: { permissionMode: 'plan', promptSuggestionsOff: true } }),
   // The profile a writing task starts with (spec 41 E3, E4): `default`, the mode in which Claude asks before an edit
   // or a command, SENT as a flag (`permissionModeSent`) so neither the user's settings nor Claude's own auto mode
-  // decide it; each ask reaches the task's row. No prompt suggestions, for the reason the review gives.
-  taskProfile: () => ({ options: { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true } }),
+  // decide it; each ask reaches the task's row. No prompt suggestions, for the reason the review gives. The task already
+  // works in a worktree of its own, so a stored `worktree` would nest a second one inside it, and stored `addDirs` would
+  // let it write outside that worktree, into the project the task is kept away from (spec 41, owner 2026-11-22): both
+  // are cleared. `restricted` stays as stored: it only takes tools away.
+  taskProfile: () => ({ options: { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true, worktree: false, worktreeName: '', addDirs: '' } }),
   // Idle maintenance (spec 45). Every write measured here was in the 1-hour class, with a hit after 6.5 minutes; 50 minutes is
   // inferred from the class and not measured, and it promises no hit (docs/backend-formats.md).
   idleMaintenance: () => ({ cacheClass: '1h', maxRefreshMs: 3000000, warm: true, compact: true, callsCold: false }),

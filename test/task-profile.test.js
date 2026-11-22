@@ -15,7 +15,7 @@ test('every backend answers taskProfile, and only the two pipe drivers answer a 
   assert.deepEqual(answers, {
     claude: null,
     // Claude's default mode, sent as a flag: an edit or a command is asked for first.
-    'claude-native': { options: { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true } },
+    'claude-native': { options: { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true, worktree: false, worktreeName: '', addDirs: '' } },
     pi: null,
     'pi-native': { options: { approvalGate: true } },
     codex: null,
@@ -43,6 +43,18 @@ test('the claude-native task launch SENDS --permission-mode default; the stored 
   assert.equal(argv({ permissionMode: 'nonsense', permissionModeSent: true }).includes('--permission-mode'), false);
 });
 
+test('a stored worktree or extra directory does not reach a task launch: the profile, merged last, clears both', () => {
+  const native = descriptors.find((d) => d.id === 'claude-native');
+  const argv = (options) => native.buildLaunch({ cwd: '/w', sessionId: 's1', options }).args.join(' ');
+  const stored = { worktree: true, worktreeName: 'mine', addDirs: '/elsewhere', restricted: true };
+  const plain = argv(stored);
+  assert.match(plain, /--worktree/, 'the stored values do send something on their own');
+  assert.match(plain, /--add-dir/);
+  const task = argv({ ...stored, ...native.taskProfile().options });
+  assert.doesNotMatch(task, /--worktree/, 'no worktree inside the task\'s worktree');
+  assert.doesNotMatch(task, /--add-dir/, 'no directory outside it');
+});
+
 test('the capability row says the same as the hook, with a note for every answer', () => {
   for (const d of descriptors) {
     const row = d.capabilities.task;
@@ -54,7 +66,7 @@ test('the capability row says the same as the hook, with a note for every answer
 
 test('taskTargets offers the two drivers when they can launch, with the task options, not the review ones', () => {
   assert.deepEqual(taskTargets(descriptors, all).map((t) => [t.id, t.options]), [
-    ['claude-native', { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true }],
+    ['claude-native', { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true, worktree: false, worktreeName: '', addDirs: '' }],
     ['pi-native', { approvalGate: true }],
   ]);
   assert.deepEqual(taskTargets(descriptors, new Set(['pi-native'])).map((t) => t.id), ['pi-native']);
