@@ -190,7 +190,7 @@ test('descriptor: codex is Axis-B, ready, monogram Cx, with its own configFields
   const ids = codex.configFields.map(f => f.id);
   assert.deepStrictEqual(ids.sort(), [
     'addDirs', 'approvalMode', 'configOverrides', 'diffTool', 'discoveryTools', 'effort', 'localProvider', 'model', 'oss', 'profile',
-    'sandbox', 'search',
+    'reviewTools', 'sandbox', 'search',
   ]);
 });
 

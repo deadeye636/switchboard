@@ -121,6 +121,10 @@ const configFields = [
     description: 'Offers Switchboard\'s diff-review tool to the agent through a per-session MCP server passed to Codex with `-c`. It is an offer, not a redirect: the agent has to choose the tool, Codex\' own approval prompt still runs, and Switchboard never edits your files — an accepted change is applied by the agent\'s own tool.' },
   { id: 'discoveryTools', label: 'Offer the session discovery tools', type: 'toggle', default: false, appliesAt: 'spawn',
     description: 'Offers read-only discovery tools (list this project\'s sessions, read the last turns of one, list and read its handoff packets) to the agent through the same per-session MCP server as the diff tool. What an agent reads there may come from sessions of ANY backend in the same project, so a conversation of one vendor can reach another vendor\'s model. It is an offer: the agent has to choose the tool, Codex\' own approval prompt still runs, and nothing is written.' },
+  // Spec 39 via #808 (E13 b): the `review` group over the same per-session `-c` row. Handle and poll, so Codex'
+  // tool-call timeout (measured, spec 41 P3) never meets a long call: `startReview` answers an id at once.
+  { id: 'reviewTools', label: 'Offer the review tools', type: 'toggle', default: false, appliesAt: 'spawn',
+    description: "Offers two tools that let this agent ask another backend's agent for a review: startReview and reviewResult. When the agent uses them, Switchboard starts a session of that backend in this folder, as a row in the sidebar under this one, sends it the agent's prompt, and gives the answer back. The prompt and any file of this project that the other agent reads go to that backend's vendor, and the run uses that backend's account and quota. The other agent runs read-only (Claude's plan mode, Pi's approval gate; Switchboard refuses every action it asks about), one review at a time, for at most 10 minutes. Read-only is enforced by those modes, not by a sandbox. It is an offer: the agent has to choose the tool, and Codex' own approval prompt still runs." },
 ];
 
 /**

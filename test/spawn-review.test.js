@@ -1,6 +1,6 @@
 'use strict';
-// Spec 39, T7: the `reviewTools` toggle on Claude and claude-native, through the REAL spawn block and the real
-// composer, in the shape of test/spawn-claude-discovery.test.js. Only `node-pty`, the HTTP registration, the agent
+// Spec 39, T7: the `reviewTools` toggle on Claude and claude-native (and since #808 on Codex and agy), through the
+// REAL spawn block and the real composer, in the shape of test/spawn-claude-discovery.test.js. Only `node-pty`, the HTTP registration, the agent
 // process and the review runner are stand-ins.
 //
 // What is pinned:
@@ -31,9 +31,16 @@ stub(require.resolve('node-pty'), {
 const spawn = require('../src/app/terminal/spawn');
 const claude = require('../src/backends/claude');
 const claudeNative = require('../src/backends/claude-native');
+const codex = require('../src/backends/codex');
+const agy = require('../src/backends/agy');
 
 const bindingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-claude-review-'));
-after(() => { fs.rmSync(bindingDir, { recursive: true, force: true }); });
+// agy writes its bundle under the session's folder, so the project is a temp dir of its own, never the checkout.
+const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-review-project-'));
+after(() => {
+  fs.rmSync(bindingDir, { recursive: true, force: true });
+  fs.rmSync(projectDir, { recursive: true, force: true });
+});
 
 const PICK = ['id', 'label', 'axis', 'configFields', 'buildLaunch', 'providesMcpInjection', 'acceptsMcpTransports',
   'buildMcpInjection', 'releaseMcpInjection', 'externalMcpTakes', 'providesMcpPrune', 'buildMcpPrune'];
@@ -46,6 +53,9 @@ const SHAPES = {
   claude: () => narrowed(claude),
   // The pipe itself is a stand-in (`startAgentProcess`); `rpc: {}` keeps the protocol out of this test.
   'claude-native': () => narrowed(claudeNative, { transport: 'stdio', rpc: {} }),
+  // #808 (E13 b): the two terminal callers that already took `discovery`.
+  codex: () => narrowed(codex),
+  agy: () => narrowed(agy),
 };
 
 function setup(backend, { project = {}, global = {} } = {}) {
@@ -89,7 +99,7 @@ function setup(backend, { project = {}, global = {} } = {}) {
   return ctx;
 }
 
-const CWD = process.cwd();
+const CWD = projectDir;
 let n = 0;
 /** One spawn; answers the argv and env the child was started with, the registrations made and the session. */
 async function launch(backend, sessionOptions = {}, settings) {
@@ -99,19 +109,30 @@ async function launch(backend, sessionOptions = {}, settings) {
   assert.equal(r.ok, true, r.error);
   const child = backend.transport ? ctx.agentSpawns.at(-1) : ptySpawns.at(-1);
   const argv = backend.transport ? child.args : [child.cmd, ...child.args];
-  return { ctx, argv, env: child.env || (child.opts && child.opts.env) || {}, session: ctx.activeSessions.get(id) };
+  // Read the injection now and clear agy's bundles, so the next launch in this file starts from an empty project.
+  const mcp = hasMcpConfig(argv);
+  for (const d of agyBundles()) fs.rmSync(path.join(CWD, '.agents', 'plugins', d), { recursive: true, force: true });
+  return { ctx, argv, mcp, env: child.env || (child.opts && child.opts.env) || {}, session: ctx.activeSessions.get(id) };
 }
-const hasMcpConfig = (argv) => argv.join(' ').includes(path.join(bindingDir, 'claude-mcp-'));
+// Whether the launch carries the app's own server, in each caller's own channel: Claude's `--mcp-config` file,
+// Codex' `-c mcp_servers.switchboard.*` overrides, agy's plugin bundle under the project.
+const agyBundles = () => {
+  try { return fs.readdirSync(path.join(CWD, '.agents', 'plugins')).filter((d) => d.startsWith('switchboard-')); } catch { return []; }
+};
+const hasMcpConfig = (argv) => {
+  const line = argv.join(' ');
+  return line.includes(path.join(bindingDir, 'claude-mcp-')) || line.includes('mcp_servers.switchboard.') || agyBundles().length > 0;
+};
 
 for (const [shape, make] of Object.entries(SHAPES)) {
   test(`[${shape}] toggle on: one review registration, the runner built for this terminal and handed over`, async () => {
-    const { ctx, argv, session } = await launch(make(), { reviewTools: true });
+    const { ctx, argv, mcp, session } = await launch(make(), { reviewTools: true });
     assert.equal(ctx.registered.length, 1);
     assert.deepEqual(ctx.registered[0].groups, ['review']);
     assert.equal(ctx.runners.length, 1);
     assert.equal(ctx.registered[0].review, ctx.runners[0], 'the runner is handed to the registration');
     assert.deepEqual(ctx.runners[0].scope, { projectPath: CWD, callerTag: session._terminalTag });
-    assert.ok(hasMcpConfig(argv), argv.join(' '));
+    assert.ok(mcp, argv.join(' '));
     assert.equal(session._review, false);
     assert.equal(session._spawnedBy, null);
     const both = await launch(make(), { reviewTools: true, discoveryTools: true });
@@ -125,7 +146,7 @@ for (const [shape, make] of Object.entries(SHAPES)) {
     for (const r of [absent, off]) {
       assert.equal(r.ctx.registered.length, 0, 'nothing registered');
       assert.equal(r.ctx.runners.length, 0, 'no runner built');
-      assert.equal(hasMcpConfig(r.argv), false);
+      assert.equal(r.mcp, false);
     }
     const strip = (r) => JSON.stringify({ argv: r.argv.map((a) => a.replace(/rv-\d+/g, 'ID')), env: r.env });
     assert.equal(strip(absent), strip(without));
@@ -136,19 +157,19 @@ for (const [shape, make] of Object.entries(SHAPES)) {
     const backend = make();
     backend.configFields = backend.configFields.filter((f) => f.id !== 'reviewTools');
     const stored = { global: { backendDefaults: { [backend.id]: { reviewTools: true } } } };
-    const { ctx, argv } = await launch(backend, {}, stored);
+    const { ctx, mcp } = await launch(backend, {}, stored);
     assert.equal(ctx.registered.length, 0);
     assert.equal(ctx.runners.length, 0);
-    assert.equal(hasMcpConfig(argv), false);
+    assert.equal(mcp, false);
   });
 
   test(`[${shape}] a session a review started gets no group of the app's own server, whatever is stored`, async () => {
     const backend = make();
     const stored = { global: { backendDefaults: { [backend.id]: { reviewTools: true, discoveryTools: true } } } };
-    const { ctx, argv, session } = await launch(backend, { spawnedBy: 'caller-1', reviewTools: false }, stored);
+    const { ctx, mcp, session } = await launch(backend, { spawnedBy: 'caller-1', reviewTools: false }, stored);
     assert.equal(ctx.registered.length, 0, 'no registration');
     assert.equal(ctx.runners.length, 0, 'no runner');
-    assert.equal(hasMcpConfig(argv), false, 'no --mcp-config for the own server');
+    assert.equal(mcp, false, 'no channel for the own server');
     assert.equal(session._review, true);
     assert.equal(session._spawnedBy, 'caller-1');
     // Without `spawnedBy` the same stored values open both groups: the stored defaults are what was refused.

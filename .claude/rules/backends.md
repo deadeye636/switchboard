@@ -717,7 +717,7 @@ which reuses terminal Claude's `--mcp-config` file — the gate `providesMcpInje
 backend, and its injected tools are gated by its own `--permission-prompt-tool stdio` approval path. The registration carries tool GROUPS: besides `diff` there is a read-only `discovery`
 group (list a project's sessions and handoffs across backends, read a bounded transcript view), offered on
 agy, Codex, Claude and claude-native through the `discoveryTools` option (spec 35, spec 37), and a `review` group on
-Claude and claude-native through `reviewTools` (spec 39; see the `reviewProfile` paragraph below). The Claude family
+Claude, claude-native, Codex and agy through `reviewTools` (spec 39, the last two since #808; see the `reviewProfile` paragraph below). The Claude family
 declares no `diffTool`: its diffs stay on `--ide`. A group opens only for a toggle the backend DECLARES in its
 `configFields` — a stored value it never offers opens nothing (spec 37, O9).
 

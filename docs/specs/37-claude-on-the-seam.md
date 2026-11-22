@@ -134,6 +134,7 @@ Numbered, stable. The plan carries the same list; an answered point says so.
      is only logged.
    - **agy:** the tool-call default is not known. The binary bounds each call ("timed out after …") and knows a
      per-server `timeoutSeconds`; its meaning is inferred from the name. Unmeasured.
+     **Measured 2026-11-22 (#808, spec 41): 180 s on agy 1.5.13; Codex 300 s on 0.167.0, so the source was right.**
    - **Pi** through Switchboard's own section (`src/backends/pi/mcp-section.js`): no limit on `tools/call`; only the
      user's abort ends one.
    - **Switchboard today** writes no timeout field into any injected entry (`src/backends/claude/mcp-inject.js`,

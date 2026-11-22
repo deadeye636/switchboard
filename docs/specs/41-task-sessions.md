@@ -206,7 +206,31 @@ These need a real turn. E4 keeps tasks on pipe-driven backends, so none of them 
 |---|---|---|
 | P1 | Claude: does `Stop` fire on Esc; the `Notification` body for a permission prompt | a terminal target (E4 B) |
 | P2 | Claude: does an HTTP `PermissionRequest` hook answer the prompt within its timeout | an allow-list (E3 C) |
-| P3 | Codex: the approval's trace in the rollout; the `PermissionRequest` hook after trust; the real tool timeout with a stub tool that sleeps | E13, E3 C |
-| P4 | agy: the step status an open prompt writes; a `timeoutSeconds` in the plugin bundle | E13 |
+| P3 | Codex: the approval's trace in the rollout; the `PermissionRequest` hook after trust. ~~The real tool timeout with a stub tool that sleeps~~: measured, 300 s (see below) | ~~E13~~, E3 C |
+| P4 | agy: the step status an open prompt writes; whether a `timeoutSeconds` in the plugin bundle changes the limit. The default timeout: measured, 180 s (see below) | a terminal target |
 | P5 | Hermes: the database row while a prompt is open and after an interrupt; the cwd it records for `-w` | a terminal target |
 | P6 | Pi: `registerMcpServer` over HTTP with a bearer header | Pi as a caller (#808) |
+
+## Measured: MCP tool-call timeouts (#808, 2026-11-22)
+
+One turn per CLI on its smallest model against `scripts/measure-mcp-tool-timeout.js`, a stub server whose `sleep` tool
+was asked for 620 s, wired the way the app injects its own endpoint (Codex: `-c mcp_servers.<name>.url` plus
+`bearer_token_env_var`; agy: a workspace plugin bundle with an `Authorization` header). The probe folder was a throwaway
+project; nothing of the user's configuration was changed.
+
+| CLI | Version | Model | The call ended after | What the CLI said | What the server saw |
+|---|---|---|---|---|---|
+| Codex | codex-cli 0.167.0 | `gpt-6-luna`, effort low | 300.0 s | `timed out awaiting tools/call after 300s` | the request closed, then `notifications/cancelled` ("MCP request cancelled by caller") |
+| agy | 1.5.13 | `gemini-3.8-flash-low` | 180.0 s | `MCP tool call to server "<bundle>_sleepstub" timed out after 3m0s: context deadline exceeded` | the request closed, then `notifications/cancelled` ("context deadline exceeded") |
+
+What follows:
+
+- Codex' source (300 s, spec 37 O2) is right and its documentation (60 s) is not. agy's default, unknown until now, is
+  180 s. Both are far above what `startReview` and `reviewResult` take (they answer at once), so handle and poll holds and
+  Switchboard still writes no timeout into an injected entry. That is what let #808 declare `reviewTools` on both.
+- Both CLIs cancel a timed-out call cleanly; neither retried it on its own.
+- Headless agy (`-p`) denies an MCP call outright without an allow rule (`user denied permission for mcp(...)`). In a
+  terminal agy asks, as for its other tools; a headless agy caller would need a rule, which Switchboard does not write.
+- On each connect agy sent one `GET` with the bundle's `Authorization` header (the stream) and two `GET`s without one.
+  The run's stub logged no request paths (the script now does); the unauthenticated ones match the OAuth discovery probes the app's endpoint already
+  answers 404 (`src/servers/mcp-http.js`, before the Bearer check). Nothing in the measurement depends on them.
