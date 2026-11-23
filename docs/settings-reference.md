@@ -51,6 +51,8 @@ back on Save.
 | `expandToolOutput` | Show tool calls expanded | bool | `false` | global |
 | `conversationEnterWhileBusy` | Enter while a turn runs | `hold` \| `steer` | `hold` | global |
 | `sessionSidebarDefault` | Session sidebar on a new session: whether it starts open in a session with no stored state (#831, spec 43) | `open` \| `closed` | `closed` | global |
+| `sessionSidebarShared` | One session sidebar state for all sessions: open or closed, width and expanded sections apply to every session at once instead of per session (#892, spec 43) | bool | `false` | global |
+| `sessionSidebarSharedState` | The shared state itself, written by the sidebar while `sessionSidebarShared` is on; cleared by the settings screen when the setting is switched on (#892, spec 43). Not shown in the UI | `{ open, width, groups }` \| `null` | none | global |
 | `spellCheck` | Check spelling | bool | `true` | global |
 | `spellCheckLanguages` | Spelling languages | language codes separated by commas; empty means `de-DE, en-US`; hidden on macOS, where the OS decides | empty | global |
 | `documentPreview` | Documents in the conversation | `card` \| `inline` | `card` | global |

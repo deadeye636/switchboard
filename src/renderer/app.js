@@ -2523,6 +2523,8 @@ async function reapplyGlobalSettings() {
   if (typeof sessionSidebarOrderChanged === 'function') sessionSidebarOrderChanged();
   // #835: the sections hidden in another window, from the same cache.
   if (typeof sessionSidebarHiddenChanged === 'function') sessionSidebarHiddenChanged();
+  // #892: one sidebar state for every session, switched on or moved in another window.
+  if (typeof sessionSidebarSharedChanged === 'function') sessionSidebarSharedChanged();
   // #620: the handoff threshold and the fill text judge grid cards too. The sidebar rebuilds above; a grid
   // card only re-reads its health on a status update, which could be 30 s away in an idle window.
   if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof updateGridCardStatuses === 'function') {

@@ -94,6 +94,9 @@ const SETTING_DEFAULTS = {
   sidebarWidth: 340,
   // Whether a session sidebar starts open in a session that has no stored state of its own (#831): 'open' | 'closed'.
   sessionSidebarDefault: 'closed',
+  // One sidebar state (open, width, open groups) for every session instead of one per session (#892). The state itself
+  // is `sessionSidebarSharedState`, written by the sidebar; it has no default.
+  sessionSidebarShared: false,
   terminalTheme: 'switchboard',
   shellProfile: 'auto',
   // T-2.5/T-3.7: the Terminal bucket's shell (in-app plain terminal + External Terminal).

@@ -28,7 +28,8 @@
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
 // toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
 // view's `context` op (`sessionSidebarContextChanged`), its session line's tooltip (`contextLineDetails`) and
-// `reapplyGlobalSettings` in app.js (`sessionSidebarOrderChanged`, #829; `sessionSidebarHiddenChanged`, #835) and
+// `reapplyGlobalSettings` in app.js (`sessionSidebarOrderChanged`, #829; `sessionSidebarHiddenChanged`, #835;
+// `sessionSidebarSharedChanged`, #892) and
 // `loadProjects` in app.js after it refreshed the session objects (`sessionSidebarSessionsChanged`, #840).
 
 const SESSION_SIDEBAR_KEY = 'sessionSidebar';
@@ -80,6 +81,21 @@ function rekeySidebarState(map, oldId, newId) {
   const next = { ...map, [newId]: map[newId] || map[oldId] };
   delete next[oldId];
   return next;
+}
+
+// The shared state (#892): one row for every session while `sessionSidebarShared` is on, kept as the global setting
+// `sessionSidebarSharedState`. Anything that is not an object is no state yet (null), so a caller knows to fall back to
+// the session's own row until one is written. A stored one reads like a stored row: its own `open`, never the default.
+function sidebarSharedStateOf(shared) {
+  if (!shared || typeof shared !== 'object' || Array.isArray(shared)) return null;
+  return sidebarStateOf({ shared }, 'shared');
+}
+
+// The open groups as a set: a list read off the DOM follows the section order (#829), a stored one may not.
+function sameSidebarState(a, b) {
+  if (!a || !b) return false;
+  const groups = new Set(a.groups);
+  return a.open === b.open && a.width === b.width && groups.size === new Set(b.groups).size && b.groups.every((g) => groups.has(g));
 }
 
 // The groups' order (#829): one global setting, `sessionSidebarOrder`, a list of group ids. An id this version does not
@@ -369,7 +385,7 @@ function contextHeadBarHtml(figures, breakdown) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+    sidebarStateOf, sidebarSharedStateOf, sameSidebarState, sidebarToggleAction, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
     instructionGroups, instructionRow, repositoryRows, repositorySignature, repositoryRowHtml, processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure,
     contextHeadBarHtml, sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
@@ -386,11 +402,56 @@ function readSidebarStates() {
 function sidebarDefaultOpen() {
   return typeof appGlobalSettings !== 'undefined' && !!appGlobalSettings && appGlobalSettings.sessionSidebarDefault === 'open';
 }
-// Read fresh on every write: a detached window shares this storage and writes its own session's row.
+// #892: is one state shared by every session, and that state when one has been written (null until then).
+function sidebarSharedOn() {
+  return typeof appGlobalSettings !== 'undefined' && !!appGlobalSettings && appGlobalSettings.sessionSidebarShared === true;
+}
+function sidebarSharedState() {
+  return sidebarSharedOn() ? sidebarSharedStateOf(appGlobalSettings.sessionSidebarSharedState) : null;
+}
+// What a session shows now: the shared state while it is on and written, else the session's own row.
+function currentSidebarState(sessionId) {
+  const shared = sidebarSharedState();
+  if (shared) sidebarSharedApplied = true;
+  return shared || sidebarStateOf(readSidebarStates(), sessionId, sidebarDefaultOpen());
+}
+// Read fresh on every write: a detached window shares this storage and writes its own session's row. While the state is
+// shared, the write goes to the shared state instead and the session's own row is left as it was, so switching the
+// setting off brings each session's own state back.
 function writeSidebarState(sessionId, patch) {
+  if (sidebarSharedOn()) {
+    commitSidebarSharedState({ ...currentSidebarState(sessionId), ...patch }, openSessions.get(sessionId));
+    return;
+  }
   const map = readSidebarStates();
   const next = patchSidebarState(map, sessionId, patch, sidebarDefaultOpen(), Date.now());
   try { localStorage.setItem(SESSION_SIDEBAR_KEY, JSON.stringify(next)); } catch { /* the state is a convenience */ }
+}
+
+// One shared write: this window's cache first and its other sidebars (`broadcastSettingsChanged` skips the sender,
+// renderer.md #146), then a key-scoped merge and the broadcast to the other windows. An unchanged state writes nothing:
+// a sidebar drawn with groups open reports them once by itself, and every write is a broadcast to every window.
+// `except` is the entry that made the change and already shows it.
+function commitSidebarSharedState(state, except) {
+  const cache = typeof appGlobalSettings !== 'undefined' && appGlobalSettings ? appGlobalSettings : null;
+  if (!cache) return;
+  const next = sidebarSharedStateOf(state);
+  if (sameSidebarState(next, sidebarSharedStateOf(cache.sessionSidebarSharedState))) return;
+  const previous = cache.sessionSidebarSharedState;
+  cache.sessionSidebarSharedState = next;
+  sessionSidebarApplyShared(except);
+  const api = window.api;
+  if (!api || typeof api.mergeSetting !== 'function') return;
+  Promise.resolve(api.mergeSetting('global', { sessionSidebarSharedState: next }))
+    .then(() => { if (typeof api.notifySettingsChanged === 'function') api.notifySettingsChanged(); })
+    .catch(() => {
+      // Only while nothing newer replaced it, so a later write that worked is not undone.
+      if (cache.sessionSidebarSharedState === next) {
+        cache.sessionSidebarSharedState = previous;
+        sessionSidebarApplyShared(null);
+      }
+      window.showControlToast?.('The session sidebar state could not be saved.');
+    });
 }
 
 // In view and able to show it: a grid card holds the session but hides its sidebar.
@@ -1769,7 +1830,7 @@ function wireSidebarGroupOrder(root) {
 
 function buildSidebar(entry) {
   const sessionId = () => entry.session.sessionId;
-  const state = sidebarStateOf(readSidebarStates(), sessionId());
+  const state = currentSidebarState(sessionId());
   const hidden = sessionSidebarHiddenIds();
   const root = document.createElement('aside');
   root.className = 'session-sidebar';
@@ -1815,8 +1876,11 @@ function buildSidebar(entry) {
   root.addEventListener('toggle', (e) => {
     const section = e.target;
     if (!section.classList || !section.classList.contains('ssb-group')) return;
-    const open = [...root.querySelectorAll('.ssb-group')].filter((s) => s.open).map((s) => s.dataset.group);
-    writeSidebarState(sessionId(), { groups: open });
+    // A toggle the shared state applied (#892) is not a user's choice and writes nothing back. Compared with the value it
+    // set, so a click that lands before the event and turns it back is still written.
+    const applied = section._sharedApply;
+    section._sharedApply = undefined;
+    if (applied === undefined || applied !== section.open) writeSidebarState(sessionId(), { groups: [...root.querySelectorAll('.ssb-group')].filter((s) => s.open).map((s) => s.dataset.group) });
     // A group drawn open fires this once by itself, and `showSidebar` has already read it.
     const action = sidebarToggleAction({ open: section.open, closedOnce: !!section._closedOnce, inView: sidebarInView(entry) });
     if (!section.open && section.dataset.group === 'repository') sidebarUnfollowVcs(entry);
@@ -1985,7 +2049,7 @@ function hideSidebar(entry) {
 // A session that had it open comes back with it open.
 function sessionSidebarMount(entry) {
   if (!entry || !entry.session) return;
-  const state = sidebarStateOf(readSidebarStates(), entry.session.sessionId, sidebarDefaultOpen());
+  const state = currentSidebarState(entry.session.sessionId);
   if (state.open) showSidebar(entry, state.width);
 }
 
@@ -1999,14 +2063,90 @@ function sessionSidebarToggle(sessionId) {
   if (!entry) return false;
   const open = !sessionSidebarIsOpen(sessionId);
   writeSidebarState(sessionId, { open });
-  if (open) showSidebar(entry, sidebarStateOf(readSidebarStates(), sessionId).width);
+  if (open) showSidebar(entry, currentSidebarState(sessionId).width);
   else {
     hideSidebar(entry);
     // The caret goes back to the session, as the head's Close did before the toolbar button became the only way to close.
     sidebarSessionFocus(entry);
   }
-  for (const btn of document.querySelectorAll(`[data-sidebar-session="${CSS.escape(sessionId)}"]`)) btn.classList.toggle('active', open);
+  sidebarMarkButtons(sessionId, open);
   return open;
+}
+
+function sidebarMarkButtons(sessionId, open) {
+  for (const btn of document.querySelectorAll(`[data-sidebar-session="${CSS.escape(sessionId)}"]`)) btn.classList.toggle('active', open);
+}
+
+// #892: the shared state onto every sidebar this window holds but `except`: open or closed, the width, the open groups.
+// Nothing is rebuilt: a group keeps what it has read, and one opened here reads through its own toggle. A group set here
+// is marked, so its toggle writes nothing back. A close takes no caret: the user is working in another session.
+function sessionSidebarApplyShared(except) {
+  const state = sidebarSharedState();
+  if (!state) return;
+  sidebarSharedApplied = true;
+  for (const entry of openSessions.values()) {
+    if (entry && entry !== except) applySidebarState(entry, state);
+  }
+}
+
+// Has this window drawn the shared state? Then switching the setting off puts each session's own row back on screen.
+let sidebarSharedApplied = false;
+
+function applySidebarState(entry, state) {
+  if (!entry || !entry.session || !entry.element) return;
+  const isOpen = entry.element.classList.contains('sidebar-open');
+  if (state.open !== isOpen) {
+    if (state.open) showSidebar(entry, state.width);
+    else hideSidebar(entry);
+    sidebarMarkButtons(entry.session.sessionId, state.open);
+  }
+  if (!entry.sidebar) return;
+  if (entry.sidebarWidth !== state.width) {
+    applySidebarWidth(entry, state.width);
+    refitForSidebar(entry);
+  }
+  for (const section of entry.sidebar.querySelectorAll('.ssb-group')) {
+    const want = state.groups.includes(section.dataset.group);
+    if (section.open !== want) {
+      section._sharedApply = want;
+      section.open = want;
+    }
+  }
+}
+
+// What a session shows on screen right now, which is what the shared state starts from: its own row's width and groups
+// while its sidebar is closed, since a closed sidebar shows neither.
+function sidebarShownState(entry) {
+  // No session in view: nothing is shown, so nothing opens, whatever `sessionSidebarDefault` says.
+  if (!entry || !entry.session) return { ...sidebarStateOf({}, null), open: false };
+  const own =sidebarStateOf(readSidebarStates(), entry && entry.session ? entry.session.sessionId : null, sidebarDefaultOpen());
+  if (!entry || !entry.element) return own;
+  const open = entry.element.classList.contains('sidebar-open');
+  if (!open || !entry.sidebar) return { ...own, open };
+  const groups = [...entry.sidebar.querySelectorAll('.ssb-group')].filter((s) => s.open).map((s) => s.dataset.group);
+  return { open, width: clampSidebarWidth(entry.sidebarWidth), groups };
+}
+
+// A settings change from another window (`reapplyGlobalSettings`, app.js): the setting switched on or off, or the shared
+// state moved. The settings screen clears the state when it switches the setting on, and the main window then starts it
+// from what its active session shows; a detached window waits for that write rather than starting one of its own.
+function sessionSidebarSharedChanged() {
+  if (!sidebarSharedOn()) {
+    if (!sidebarSharedApplied) return;
+    sidebarSharedApplied = false;
+    const map = readSidebarStates();
+    for (const entry of openSessions.values()) {
+      if (entry && entry.session) applySidebarState(entry, sidebarStateOf(map, entry.session.sessionId, sidebarDefaultOpen()));
+    }
+    return;
+  }
+  if (!sidebarSharedState()) {
+    if (typeof window.isDetachedWindow === 'function' && window.isDetachedWindow()) return;
+    const id = typeof activeSessionId !== 'undefined' ? activeSessionId : null;
+    commitSidebarSharedState(sidebarShownState(id ? openSessions.get(id) : null), null);
+    return;
+  }
+  sessionSidebarApplyShared(null);
 }
 
 // The index's session objects were refreshed (`loadProjects`): a terminal session's `contextFill` moves with each turn

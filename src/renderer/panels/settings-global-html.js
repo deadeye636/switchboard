@@ -57,7 +57,7 @@
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, sessionSidebarGroupsHtml, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, sessionSidebarSharedValue, sessionSidebarGroupsHtml, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -240,6 +240,15 @@
                       <option value="closed" ${sessionSidebarDefaultValue !== 'open' ? 'selected' : ''}>Closed</option>
                       <option value="open" ${sessionSidebarDefaultValue === 'open' ? 'selected' : ''}>Open</option>
                     </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">One session sidebar state for all sessions</span>
+                    <div class="settings-description">Whether the sidebar is open, its width and which sections are expanded apply to every session at once. Switched on, all sessions start from the active session in the main window. Switched off, each session gets its own state back.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-session-sidebar-shared" ${sessionSidebarSharedValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">

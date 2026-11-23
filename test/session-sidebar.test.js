@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  sidebarStateOf, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+  sidebarStateOf, sidebarSharedStateOf, sameSidebarState, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
   sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails, repositoryRows, repositorySignature,
   SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
 } = require('../src/renderer/session/session-sidebar');
@@ -259,4 +259,40 @@ test('both surfaces mount it, the re-key moves it, and both toolbars offer it', 
   assert.match(read('src', 'renderer', 'shell', 'session-ipc.js'), /rekeySessionSidebar\(oldId, newId\)/);
   assert.match(read('src', 'renderer', 'views', 'panes-view.js'), /sessionSidebarToggle\(sessionId\)/);
   assert.match(read('src', 'renderer', 'app.js'), /sessionSidebarToggle\(/);
+});
+
+test('the shared state (#892): nothing stored is no state, a stored one reads like a row', () => {
+  assert.equal(sidebarSharedStateOf(null), null);
+  assert.equal(sidebarSharedStateOf(undefined), null);
+  assert.equal(sidebarSharedStateOf([]), null, 'a list is not a state');
+  assert.equal(sidebarSharedStateOf('open'), null);
+  assert.deepEqual(sidebarSharedStateOf({ open: true, width: 9999, groups: ['tasks', 3] }), { open: true, width: SESSION_SIDEBAR_WIDTH.max, groups: ['tasks'] });
+  assert.equal(sidebarSharedStateOf({}).open, false, 'a stored state keeps its own open, never a default');
+  assert.deepEqual(sidebarSharedStateOf({}).groups, ['repository', 'tasks', 'context']);
+});
+
+test('the shared state is written only when it changed (#892)', () => {
+  const a = { open: true, width: 300, groups: ['tasks', 'context'] };
+  assert.equal(sameSidebarState(a, { ...a, groups: ['tasks', 'context'] }), true);
+  assert.equal(sameSidebarState(a, { ...a, open: false }), false);
+  assert.equal(sameSidebarState(a, { ...a, width: 301 }), false);
+  assert.equal(sameSidebarState(a, { ...a, groups: ['context', 'tasks'] }), true, 'the open groups are a set: the DOM follows the section order');
+  assert.equal(sameSidebarState(a, { ...a, groups: ['context'] }), false);
+  assert.equal(sameSidebarState(a, { ...a, groups: ['context', 'handoffs'] }), false);
+  assert.equal(sameSidebarState(a, null), false, 'no stored state is always a change');
+});
+
+// Source checks for the wiring #892 rests on: each one is a line a refactor could drop with every pure test still green.
+test('the shared state is wired (#892): settings broadcast, Save transition, no own-row write while shared, main seeds', () => {
+  assert.match(read('src', 'renderer', 'app.js'), /sessionSidebarSharedChanged\(\)/, 'reapplyGlobalSettings applies it in every window');
+  assert.match(read('src', 'renderer', 'panels', 'settings-panel.js'),
+    /settings\.sessionSidebarShared === true && existing\.sessionSidebarShared !== true\) settings\.sessionSidebarSharedState = null/,
+    'switching it on clears the state, judged against the fresh blob');
+  const sidebar = read('src', 'renderer', 'session', 'session-sidebar.js');
+  const write = sidebar.slice(sidebar.indexOf('function writeSidebarState('), sidebar.indexOf('function commitSidebarSharedState('));
+  assert.ok(write.indexOf('return;') > -1 && write.indexOf('return;') < write.indexOf('localStorage.setItem'),
+    'while shared, a write returns before the session row is touched');
+  const changed = sidebar.slice(sidebar.indexOf('function sessionSidebarSharedChanged('));
+  assert.ok(changed.indexOf('isDetachedWindow()') > -1 && changed.indexOf('isDetachedWindow()') < changed.indexOf('commitSidebarSharedState('),
+    'a detached window does not seed the state');
 });

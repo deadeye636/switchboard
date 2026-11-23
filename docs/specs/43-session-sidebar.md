@@ -46,6 +46,27 @@ is no "last state" option and no per-project override. `sidebarStateOf` takes th
 only when there is no row; a write passes it too, so a width change in a session that was showing open by default stores
 `open`.
 
+### One state for every session (#892)
+
+The global setting `sessionSidebarShared` (default off) makes every session show one state instead of its own row: open
+or closed, the width and the open groups. The state is the global setting `sessionSidebarSharedState`, not
+`localStorage`, so every window applies a change live through the settings broadcast, as it does the order (#829).
+
+- **A write while it is on goes to the shared state only.** The session's own row is left as it was, so switching the
+  setting off brings each session's own state back.
+- **The window that made the change applies it to its other sidebars itself**, because the broadcast skips the sender.
+  Nothing is rebuilt: a sidebar opens or closes, takes the width, and its groups are set open or closed. A group set
+  that way is marked, so its `toggle` writes nothing back; an unchanged state is not written at all, because a sidebar
+  drawn with groups open reports them once by itself and every write is a broadcast.
+- **Switching it on starts the shared state from the active session.** The settings screen clears
+  `sessionSidebarSharedState` when its Save turns the setting on; the main window then fills it from what its active
+  session shows on screen (`sidebarShownState`; its own row's width and groups while its sidebar is closed, and closed
+  when no session is active), so nothing moves in the session the user is looking at. A detached window waits for that write instead of starting one. Until a
+  state exists, a session shows its own row.
+- **Switching it off puts each session's own row back on screen** at once, in every window that drew the shared state.
+- **Order and hidden sections are not part of it.** They are global already (#829, #835). A choice of scope (global, per
+  project, per session, a session that keeps its own) is #893.
+
 ## Choices worth keeping
 
 - **A group reads when it is open and in view.** A restart can bring back several sessions with an open sidebar. Hidden

@@ -398,6 +398,7 @@
     const expandToolOutputValue = fieldValue('expandToolOutput', false);
     const conversationEnterWhileBusyValue = fieldValue('conversationEnterWhileBusy', 'hold');
     const sessionSidebarDefaultValue = fieldValue('sessionSidebarDefault', 'closed');
+    const sessionSidebarSharedValue = fieldValue('sessionSidebarShared', false) === true;
     // #835: what the window opened with; each switch re-reads the stored list before it writes (wired below).
     const sidebarHidden = hiddenSidebarGroups(fieldValue('sessionSidebarHidden', []));
     // Built here, like `idleMaintenanceFields`: the names come from lib/sidebar-groups.js, and the template stays a pure
@@ -1086,7 +1087,7 @@ ${window.settingsInstructions.sectionHtml('project')}
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, sessionSidebarGroupsHtml, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, sessionSidebarSharedValue, sessionSidebarGroupsHtml, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -1710,6 +1711,7 @@ ${window.settingsInstructions.sectionHtml('project')}
         settings.expandToolOutput = settingsViewerBody.querySelector('#sv-expand-tool-output').checked;
         settings.conversationEnterWhileBusy = settingsViewerBody.querySelector('#sv-conversation-enter-while-busy')?.value === 'steer' ? 'steer' : 'hold';
         settings.sessionSidebarDefault = settingsViewerBody.querySelector('#sv-session-sidebar-default')?.value === 'open' ? 'open' : 'closed';
+        settings.sessionSidebarShared = settingsViewerBody.querySelector('#sv-session-sidebar-shared')?.checked === true;
         settings.forgeIssuesEnabled = settingsViewerBody.querySelector('#sv-forge-enabled').checked;
         settings.forgeProvider = settingsViewerBody.querySelector('#sv-forge-provider').value || 'auto';
         settings.forgeGhPath = (settingsViewerBody.querySelector('#sv-forge-gh-path').value || '').trim();
@@ -1815,6 +1817,9 @@ ${window.settingsInstructions.sectionHtml('project')}
         settings.notifications = { ...(existing.notifications || {}), ...settings.notifications };
         settings.shortcuts = { ...(existing.shortcuts || {}), ...settings.shortcuts };
         settings = { ...existing, ...settings };
+        // #892: switched on now, so the shared sidebar state starts again. The main window fills it from its active
+        // session's own state when this save reaches it (`sessionSidebarSharedChanged`).
+        if (settings.sessionSidebarShared === true && existing.sessionSidebarShared !== true) settings.sessionSidebarSharedState = null;
       }
 
       await window.api.setSetting(settingsKey, settings);
