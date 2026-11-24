@@ -12,7 +12,10 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const REMOTES = ['haydng', 'jbr', 'brianstanley', 'kreaddis', 'aaaron', 'ivandobsky', 'upstream'];
+// `kreaddis` is gone from this list: its GitHub repository was deleted (found 2026-11-24). Its last
+// state is pinned locally as `refs/archive/kreaddis/main` (the #143 i18n reference lives there), so
+// read it with `git show refs/archive/kreaddis/main:<path>`.
+const REMOTES = ['haydng', 'jbr', 'brianstanley', 'aaaron', 'ivandobsky', 'upstream'];
 const OURS = 'main'; // our own line
 const SEEN_FILE = path.join(__dirname, '..', '.git', 'upstream-seen.json');
 const APPLY = process.argv.includes('--seen');
@@ -53,13 +56,26 @@ for (const r of REMOTES) {
 
 const seen = loadSeen();
 const current = {};
-for (const r of REMOTES) current[r] = remoteHeads(r);
+// A remote that cannot be listed (deleted repository, network down) must not end the whole check,
+// and must not lose its marker either: it is reported, skipped in the delta, and its previous
+// state is carried into a `--seen` write unchanged, so nothing counts as reviewed that was not.
+const unreachable = [];
+for (const r of REMOTES) {
+  try { current[r] = remoteHeads(r); }
+  catch (e) {
+    unreachable.push(r);
+    const lines = String(e.stderr || e.message).split('\n').map(l => l.trim()).filter(Boolean);
+    const why = lines.find(l => l.startsWith('fatal:')) || lines[0] || 'unknown error';
+    console.error(`  ! ${r} unreachable, skipped: ${why}`);
+  }
+}
+const reachable = REMOTES.filter(r => !unreachable.includes(r));
 
 if (!seen) {
   // Erstlauf: Baseline setzen, nichts als "neu" spammen.
   fs.writeFileSync(SEEN_FILE, JSON.stringify(current, null, 2));
   console.log('\nBaseline initialisiert (.git/upstream-seen.json). Aktuelle Branches:');
-  for (const r of REMOTES) {
+  for (const r of reachable) {
     console.log(`\n[${r}] ${Object.keys(current[r]).length} Branch(es): ${Object.keys(current[r]).join(', ')}`);
     const ahead = commitsBetween(OURS, `${r}/main`);
     console.log(`  ${r}/main vs ${OURS}: ${ahead.length} commit(s) not in ${OURS}` + (ahead.length ? ` (e.g. ${ahead[0]})` : ''));
@@ -70,7 +86,7 @@ if (!seen) {
 
 // Delta-Report
 let anything = false;
-for (const r of REMOTES) {
+for (const r of reachable) {
   const prev = seen[r] || {};
   const now = current[r];
   const newBranches = [];
@@ -102,6 +118,7 @@ if (!anything) {
 }
 
 if (APPLY) {
+  for (const r of unreachable) if (seen[r]) current[r] = seen[r];
   fs.writeFileSync(SEEN_FILE, JSON.stringify(current, null, 2));
   console.log('\nMerker aktualisiert — aktueller Stand gilt jetzt als gesehen.');
 } else if (anything) {

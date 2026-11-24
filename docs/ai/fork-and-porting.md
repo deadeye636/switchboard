@@ -54,8 +54,10 @@ alone went 3199 → 1893 in #228), so the same applies there.
 
 ## Detecting upstream changes
 
-`npm run upstream:check` fetches every remote in `REMOTES` (`scripts/upstream-check.js` — seven of them
-today, not just the two this line used to name) and reports new/updated/removed branches and new
+`npm run upstream:check` fetches every remote in `REMOTES` (`scripts/upstream-check.js` — the list is
+the answer; `kreaddis` left the list when its repository was deleted, and its last state is pinned
+locally as `refs/archive/kreaddis/main`). A remote that cannot be listed is reported and skipped, and
+`upstream:seen` keeps its old marker. The check reports new/updated/removed branches and new
 commits since the last review (marker in `.git/upstream-seen.json`, not versioned). After
 reviewing/porting, `npm run upstream:seen` marks the current state as seen so the next check only
 shows fresh activity. It watches **all** upstream branches, not just `main`.
