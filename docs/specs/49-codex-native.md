@@ -45,8 +45,8 @@ Planner (reversible; each is argued where it is used):
 | P1 | History comes from app-server, not from the rollout: resume with `excludeTurns: true`, then page `thread/turns/list` and `thread/items/list`. One mapper turns a `ThreadItem` into a conversation entry, live and for history. | 0.171.0 marks full-history hydration deprecated. The rollout is a second grammar (`response_item`), and a second mapper is how a live session and its history start to differ. |
 | P2 | One `codex app-server` child per session, started with no daemon flags, and the backend never relies on or leaves a daemon. | The TUI's resume path uses a detached daemon (#759) that survives a quit; the native child is a plain pipe child the quit path already stops (`.claude/rules/main-process.md`, "Quitting WAITS"). |
 | P3 | The launch decision (resume, fork, session id, options) reaches the protocol instance through a neutral field of what `buildLaunch` answers, handed on by the spawn path. The core reads it as opaque. | `buildLaunch` has no place in its argv for a thread id: the protocol, not the command line, carries it. |
-| P4 | The busy edge is `turn/started` and the idle edge is `turn/completed` (which carries the status and the error), not `thread/status/changed`. **Pending the measurement in T1 (O3).** | A compaction's measured order puts `thread/status/changed` (idle) before `turn/completed`; the turn's outcome (`completed`, `interrupted`, `failed`) is only on the latter. |
-| P5 | The core's held queue (#702) holds a follow-up; a steer is `turn/steer`. | The core already holds prompts sent while a turn runs; app-server has no follow-up request. Whether `thread/queue/changed` is a server-side queue is O3. |
+| P4 | The busy edge is `turn/started` and the idle edge is `turn/completed` (which carries the status and the error), not `thread/status/changed`. **Measured (T1, O3): holds** for plain, interrupted, steered, failed and compaction turns; `thread/status/changed` (`active`) comes just before `turn/started` and (`idle`) just before `turn/completed`. | A compaction's measured order puts `thread/status/changed` (idle) before `turn/completed`; the turn's outcome (`completed`, `interrupted`, `failed`) is only on the latter. |
+| P5 | The core's held queue (#702) holds a follow-up; a steer is `turn/steer`. | The core already holds prompts sent while a turn runs; app-server has no follow-up request. **Measured (T1, O3): stands** — no `thread/queue/changed` was sent in any run, and a steer lands inside the running turn. |
 
 ## What the existing code forces (verified for this spec)
 
@@ -85,7 +85,7 @@ Planner (reversible; each is argued where it is used):
    (`src/app/terminal/spawn.js:1509`; `resolveArgvExecutable` answers `null` for an npm `.cmd` shim, `src/main.js:1476`).
    Codex installed through npm on Windows is exactly that shim (`codex.cmd` → a Node entry → the native `codex.exe` inside a
    platform package). claude-native refuses a shim for the same reason (`src/backends/claude-native/index.js:93`). This is
-   unsolved for Codex (O1).
+   unsolved for Codex (O1); T1 measured that the native binary and the Node entry both start `app-server` directly.
 10. **Idle maintenance is declined today** (`idleMaintenance: () => null`, `src/backends/codex/index.js:333`; capability row
     `src/backends/codex/index.js:381`). The hook and the `rpc` half's `maintenanceCommand` and `usageOf` are spec 45's.
 
@@ -104,7 +104,7 @@ parser and none of the live-record hooks.
 - **The other direction.** A thread started in the TUI has no marker and opens in the terminal; the user can still open it in
   the conversation view by choice. Resume over app-server needs no marker.
 - **A fork.** `thread/fork` does not inherit the marker, so the adapter sends it again. A fork made by the TUI's `codex fork`
-  is not ours; whether it inherits the marker was not measured (O7).
+  is not ours: it writes `thread_source: "user"` (measured, O7) and opens in the terminal.
 - **Switched off or missing.** `openerFor` hands a marked row to the driver only while it can launch; otherwise the row goes
   back to the terminal Codex, which reads the same rollout. The spawn path's launch overlay records the driver and
   `rowOwnerOf` turns it into the owner before the stamp (`src/backends/index.js:505`), so nothing outside the Codex folder
@@ -132,7 +132,7 @@ Wire facts measured on 0.171.0 (`docs/backend-formats.md`): no `jsonrpc` member,
 | Command approval | server request `item/commandExecution/requestApproval` → an `ask` op; the answer `{ decision: accept | acceptForSession | decline | cancel }` goes back under the server's request id |
 | File-change approval | `item/fileChange/requestApproval`, same decisions |
 | Permission request, MCP elicitation | `item/permissions/requestApproval`, `mcpServer/elicitation/request` → asks; exact card shape decided in T9 |
-| User question | `item/tool/requestUserInput` → a questions ask; `serverRequest/resolved` closes an ask answered elsewhere. May need `capabilities.experimentalApi` at `initialize` (O6) |
+| User question | `item/tool/requestUserInput` → a questions ask; `serverRequest/resolved` closes an ask answered elsewhere. Sent only on a plan-mode turn, which needs `capabilities.experimentalApi` at `initialize` (measured, O6) |
 | Unsupported server request | `account/chatgptAuthTokens/refresh`, `attestation/generate`, `item/tool/call`, legacy approvals: answered with a JSON-RPC error so Codex does not hang; the backend touches no login |
 | Compaction | `thread/compact/start` answers `{}`, then a turn (`turn/started`, a `contextCompaction` item, `turn/completed`) |
 | Models | `model/list` for the picker |
@@ -180,8 +180,8 @@ What the seam must not change is shown by the existing suites: `test/agent-rpc*.
 - **Server-side refusals.** A turn that fails with a model or version error is surfaced as the CLI's own message plus a short
   line naming the installed version, never swallowed into "the session did not answer".
 - **Trust.** Print mode in Claude skips the trust dialog, so claude-native declares `trustBeforeStart`
-  (`src/backends/claude-native/index.js:256`). Whether app-server loads a project's own Codex configuration in a folder nobody
-  trusted is unmeasured (O2); until measured the backend declares the gate, which fails closed.
+  (`src/backends/claude-native/index.js:256`). App-server silently ignores a project's own Codex configuration in a folder the
+  home's config does not mark trusted (measured, O2), so the backend declares the gate, which fails closed.
 - **One writer per thread (#759).** App-server refuses a resume of a thread another client holds (`already has an active
   writer`). The backend words that for the user ("This conversation is open in another app") and offers a retry; it never
   starts a daemon of its own. The hold is short after a TUI ends (measured).
@@ -247,21 +247,56 @@ Numbered and stable; none is decided by this spec.
   addition for bundled tools); run the Node entry of the shim with `node` on PATH (keeps the wrapper; needs Node); `cmd.exe /d /c`
   (one more process, argument quoting). Measure each against the process-tree stop and the wrapper's environment, then decide
   (T1, T5).
+  **Measured (T1, 2026-11-24), decision still T5:** read from the 0.171.0 source, the npm package's `bin/codex.js` resolves
+  `@openai/codex-<platform>/vendor/<target triple>/bin/codex.exe` and starts it with two added variables only,
+  `CODEX_MANAGED_PACKAGE_ROOT` and `CODEX_MANAGED_BY_<package manager>` (`NPM` for npm; update hints); it changes no `PATH`.
+  Measured: the native binary and the Node entry run with this Node both start `app-server` without a shell and answer
+  `initialize`, and both end when stdin closes; by hand, a plain kill of the Node wrapper and a process-tree kill each left no
+  `codex.exe` behind. `docs/backend-formats.md`.
 - **O2 — trust.** Does app-server honour a project's own configuration, hooks and MCP servers in an untrusted folder?
   Decides whether `trustBeforeStart` stays.
+  **Measured (T1):** no. A project `.codex/config.toml` was ignored in a folder the home's config did not mark trusted, without
+  any prompt or notice, and read once `[projects.'<dir>'] trust_level = "trusted"` was there. So the trust gate stays: without
+  it a project's own settings silently do not apply. Hooks and MCP servers were not tested separately.
 - **O3 — turn edges and queues.** The busy/idle edge for a normal turn, an interrupt and a steer; `thread/queue/changed`; whether
   `thread/status/changed` ever outlives `turn/completed`; the shape of an error turn. Decides P4 and P5.
+  **Measured (T1):** every turn — plain, interrupted, steered, failed, compaction — ends with `thread/status/changed` (`idle`)
+  immediately followed by `turn/completed`, which alone carries the outcome (`completed`, `interrupted`, `failed`) and the
+  error (`message`, `codexErrorInfo`, `additionalDetails`, `misalignment`); P4 holds. A failed turn passes through
+  `thread/status/changed` `systemError` and an `error` notification first. A steer is answered with `{ turnId }` and shows as a
+  second `userMessage` item inside the same turn; a steer naming another turn, or with no turn running, is refused (`expected
+  active turn id …`, `no active turn to steer`). An interrupt is answered `{}`; the agent message it cut off gets no
+  `item/completed`. No `thread/queue/changed` was sent in any run, so P5 (the core holds follow-ups) stands.
 - **O4 — which Codex options a native session takes.** `profile`, `search`, `oss`, `addDirs`, `configOverrides` against the
   `config` object and per-turn fields; MCP injection (`-c` overrides before `app-server`) and the discovery, review and task tool
   groups. First stage offers model, effort, approval and sandbox only; the rest are measured one by one.
+  **Measured (T1), one part:** `-c key=value` placed before `app-server` takes effect (`-c model=…` set the model a
+  `thread/start` without `model` reported).
 - **O6 — `experimentalApi`.** Whether the user-question request needs the capability at `initialize`, and what else it turns on.
+  **Measured (T1):** it needs more than the capability. `item/tool/requestUserInput` came only on a turn sent with the
+  experimental `collaborationMode: { mode: "plan", settings: { model, reasoning_effort } }`, and that field is refused without
+  the capability ("turn/start.collaborationMode requires experimentalApi capability"). Without plan mode the model did not ask,
+  with or without the capability. So user questions are a plan-mode feature on an experimental API; what else the capability
+  turns on was not listed. The request carries `questions` (`id`, `header`, `question`, `options`, `isOther`, `isSecret`),
+  `isBlocking`, `autoResolutionMs`, `itemId`, `threadId`, `turnId`; the thread status meanwhile is `active` with
+  `waitingOnUserInput`; the answer `{ answers: { <id>: { answers: [<label>] } } }` was accepted.
 - **O7 — marker after a TUI fork** of a native thread (unmeasured; the documented limitation is that it opens in the terminal).
+  **Measured (T1):** a TUI `codex fork` of a marked thread writes `thread_source: "user"`, with `forked_from_id` set and
+  `originator` and `source` copied. It is not a native thread and opens in the terminal, as documented.
 - **O8 — the retry and wording of the one-writer conflict.**
-- **O9 — plans.** How a Codex plan item and its updates are drawn, with no approval step.
+  **Measured (T1):** a `thread/resume` while another app-server process has the thread loaded is refused with code `-32600`,
+  "thread <id> already has an active writer", also after that process's turn had ended and it only kept the thread loaded
+  (`hold`). By hand: a TUI that had only resumed (no turn sent) did not block it; after TUI sessions through the managed daemon
+  a resume was refused once and passed a few minutes later, so when the daemon lets go was not pinned down (#759 measured the
+  TUI's own hold at up to 15 s). Wording and retry are still T11.
+- **O9 — plans.** How a Codex plan item and its updates are drawn, with no approval step. (T1 found that a plan mode exists,
+  as the experimental `collaborationMode: plan` on `turn/start`; what it emits besides user questions was not measured.)
 - **O10 — skills and `/` commands in the composer** (`skills/list`), later stage.
 - **O11 — the `!` shell line** (`thread/shellCommand` exists in 0.171.0), later stage.
 - **O12 — image input form.** A `localImage` path needs a per-turn temporary file (an ephemeral per-spawn file, CLAUDE.md
   reflex 11 exemption); `image` may take a URL form. Measure which the server accepts.
+  **Measured (T1):** both. A turn with `{ type: "localImage", path }` and one with `{ type: "image", url: "data:image/png;base64,…" }`
+  each completed on a 1x1 PNG. How each is stored in the rollout and returned by `thread/items/list` was not measured (T8/T12).
 
 (O5 was the owner's deferred item and is D1 above.)
 

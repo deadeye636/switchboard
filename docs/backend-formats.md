@@ -427,7 +427,8 @@ Measured on Codex CLI 0.160.1, in a Codex home of its own, without Switchboard.
 - **One writer per thread.** The TUI takes a thread through the daemon. While another client still holds it, the
   TUI shows its own screen — "This conversation is open in another app. Close it there and press R to continue
   here", with `r` retry, `f` fork and `esc` exit — instead of the `thread/resume failed: … already has an active
-  writer (code -32600)` error 0.160.0 printed.
+  writer (code -32600)` error 0.160.0 printed. Two app-server clients meet the same refusal: "Two clients on one thread
+  (T1)" in the #734 section below.
 - **The hold is short.** After a TUI that held the thread ended — hard-killed (`taskkill /T /F`) mid-turn or after
   it, stopped with the app by `npm run stop:dev`, or quit with Ctrl+C — the next resume met that screen in about
   one of five tries, and was free again at the next try, at most 15 s later. A block that lasts was not
@@ -498,9 +499,11 @@ Measured on cli 0.166.0 with `codex exec` (gpt-5.6-luna) and read back from exis
 ### Driving a thread over app-server (#734)
 Measured on 2026-11-24 in a Codex home of its own that held only the account's `auth.json`, with turns on gpt-6-luna unless
 a line says otherwise; an older version got the models its `model/list` offers, and gpt-5.6-luna. `scripts/measure-codex-app-server.js` reproduces the marker, the resume over app-server, the fork,
-the compaction, the refused models with `model/list` and the notices; `scripts/measure-codex-app-server-schema.js` the
-schema comparison. Three points came from running the CLI by hand in the same home and have no script: the resume by
-`codex exec resume` and by the TUI, the `--stdio` refusal, and the default model of a `thread/start` without `model`. The
+the compaction, the refused models with `model/list`, the notices and the default model (one action each), and from T1 of the
+build plan the turn edges, approvals, user questions, paging, project trust, `-c`, images, the launch without a shell and two
+clients on one thread; `scripts/measure-codex-app-server-schema.js` the schema comparison. Three points came from running the
+CLI by hand in the same home and have no script: the resume by `codex exec resume` and by the TUI, a TUI `codex fork`, and the
+`--stdio` refusal. The
 protocol is JSON-RPC over JSONL on the process's stdin and stdout; the request and notification names below are
 0.171.0's.
 
@@ -519,7 +522,8 @@ protocol is JSON-RPC over JSONL on the process's stdin and stdout; the request a
   it was. A thread started natively and continued in a terminal therefore still carries the marker.
 - **A fork does not inherit it.** `thread/fork` without `threadSource` wrote a new rollout whose header has no
   `thread_source` (`threadSource: null`), with `forkedFromId` set. `ThreadForkParams` takes `threadSource`, so a fork
-  has to send it again.
+  has to send it again. A TUI `codex fork` of a marked thread wrote `thread_source: "user"`, with `forked_from_id` set
+  and `originator` and `source` copied from the parent.
 - **Before 0.140.0 `threadSource` is an enum.** 0.129.0 to 0.139.0 accept only `user`, `subagent` and
   `memory_consolidation`, and 0.129.0 refused `"switchboard"` with "Invalid request: unknown variant". 0.128.0 has no
   `threadSource` at all.
@@ -547,6 +551,54 @@ protocol is JSON-RPC over JSONL on the process's stdin and stdout; the request a
 - **The cache report per turn.** `thread/tokenUsage/updated` carries `tokenUsage.last` and `tokenUsage.total`; the
   schema gives both `inputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`, `outputTokens` and
   `reasoningOutputTokens`. The measurement read `inputTokens` and `cachedInputTokens`. How long the cache holds: "How long Codex' cache holds (#734)" below.
+- **Turn edges (T1).** Every turn — plain, interrupted, steered, failed — ran `thread/status/changed` (`active`),
+  `turn/started`, the items, then `thread/status/changed` (`idle`) immediately followed by `turn/completed`. Only
+  `turn/completed` carries the outcome (`turn.status`: `completed`, `interrupted`, `failed`) and `turn.error` (`message`,
+  `codexErrorInfo`, `additionalDetails`, `misalignment`). A refused model gave `thread/status/changed` `systemError`, an
+  `error` notification and `turn/completed` `failed` with `codexErrorInfo: "modelNotFound"`. No `thread/queue/changed` was
+  sent in any run.
+- **Interrupt and steer (T1).** `turn/interrupt` answers `{}` and the turn completes `interrupted`; the agent message it cut
+  off gets `item/started` but no `item/completed`. `turn/steer` needs `expectedTurnId`; it answers `{ turnId }` and the
+  steer appears as a second `userMessage` item inside the running turn, followed by a new agent message. A steer naming
+  another turn is refused ("expected active turn id `…` but found `…`"), one with no turn running too ("no active turn to
+  steer").
+- **Approvals (T1).** With `approvalPolicy: "on-request"` and a read-only sandbox, a shell command arrives as
+  `item/started` (`commandExecution`) and then the server request `item/commandExecution/requestApproval` with
+  `availableDecisions`, `command`, `commandActions`, `cwd`, `environmentId`, `itemId`, `kind`, `proposedExecpolicyAmendment`,
+  `reason` (not always), `startedAtMs`, `threadId`, `turnId`. The answer is `{ decision }`: `accept` ran the command,
+  `decline` did not and the turn completed, `cancel` did not and the turn ended `interrupted`. `serverRequest/resolved` follows
+  each answer. The schema's other decisions (`acceptForSession`, `acceptWithExecpolicyAmendment`) were not tried. While a
+  request waits the thread status is `active` with an `activeFlags` entry (`waitingOnApproval` or `waitingOnUserInput` in the
+  schema; `waitingOnUserInput` observed).
+- **User questions (T1).** `item/tool/requestUserInput` came only on a turn sent with the experimental `collaborationMode:
+  { mode: "plan", settings: { model, reasoning_effort } }`, which needs `capabilities.experimentalApi: true` at `initialize`
+  ("turn/start.collaborationMode requires experimentalApi capability" otherwise). A plain turn asked nothing, with or without
+  the capability. Params: `questions` (`id`, `header`, `question`, `options` of `{ label, description }` per the schema, `isOther`,
+  `isSecret`), `isBlocking`, `autoResolutionMs`, `itemId`, `threadId`, `turnId`; the answer `{ answers: { <question id>:
+  { answers: [<label>] } } }` was taken. By hand: `codex app-server generate-json-schema --experimental` lists the
+  experimental fields.
+- **History paging (T1).** `thread/turns/list` (`threadId`, `limit`, `cursor`) answers `{ data, nextCursor, backwardsCursor }`,
+  newest turn first by default, each turn with `itemsView: "summary"`. `thread/items/list` answers the same keys, oldest item
+  first; each entry is `{ item, turnId, startedAtMs, completedAtMs }`. `nextCursor` is a string while there is more and `null`
+  on the last page. Over three turns the listed items had the same ids, types and order as the live `item/completed`
+  notifications.
+- **Two clients on one thread (T1).** A `thread/resume` while another app-server process has the thread loaded is refused,
+  code `-32600`, "thread <id> already has an active writer" — also after that process's turn had ended and it only kept the
+  thread loaded (`hold`). By hand: a TUI that had only resumed the thread, without a turn, did not block it; after TUI
+  sessions through the managed daemon (#759) one resume was refused and one a few minutes later passed, so when the daemon
+  lets go was not pinned down.
+- **Project configuration and trust (T1).** A project `.codex/config.toml` (`model = …`) was ignored, without a notice, in a
+  folder the home's `config.toml` did not mark trusted, and applied once `[projects.'<dir>'] trust_level = "trusted"` was
+  there. Hooks and MCP servers in an untrusted folder were not tested separately.
+- **Launch options (T1).** `-c key=value` placed before `app-server` takes effect (`-c model=…` changed the model a
+  `thread/start` without `model` reported).
+- **Images (T1).** `{ type: "localImage", path }` and `{ type: "image", url: "data:image/png;base64,…" }` were both accepted
+  in a turn. How each is stored and listed back was not measured.
+- **Starting it without the npm shim (T1).** Read from the 0.171.0 source: the npm package's `bin/codex.js` resolves
+  `@openai/codex-<platform>/vendor/<target triple>/bin/codex.exe` (falling back to its own `vendor/`) and runs it with
+  `CODEX_MANAGED_PACKAGE_ROOT` and `CODEX_MANAGED_BY_<package manager>` (`NPM` for npm) added; it does not touch `PATH`. Started directly without a shell, the native binary and the Node
+  entry (run by Node) both answered `initialize` and ended when stdin closed (`init --exe=<file>`). By hand: a plain kill of
+  the Node wrapper and a process-tree kill each left no `codex.exe` running.
 - **Schemas.** `codex app-server generate-json-schema --out <dir>` writes the protocol's JSON Schema without an account
   or a model turn. `scripts/measure-codex-app-server-schema.js` checks a list of versions against what the native
   backend needs; with 0.129.0 to 0.171.0 nothing on that list was missing, only the type of `ThreadSource` changed.
