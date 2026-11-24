@@ -176,6 +176,18 @@ and the note text is deliberately generic — git's stderr carries absolute path
 
 IPC: `open-diff-window` (send), `vcs-file-versions` and `vcs-reveal` (invoke), all in `src/app/vcs.js`.
 
+## List / Tree layout (#894)
+
+A List / Tree switch in the window's head. **List** is the flat list above and the default. **Tree** groups each status
+group's files by folder (one tree per group, the groups themselves unchanged). A folder row folds and unfolds what is
+under it, and a chain of folders that each hold only one folder is one row (`src/renderer/shell`). The session's Details
+window (spec 47 §7) has the same switch, and both share `src/renderer/lib/file-tree.js`: it builds the tree and hands it
+back as flat rows, so a file row and its diff pane stay siblings, which the diff toggle above relies on.
+
+- The choice is the `localStorage` key `changedFilesLayout`, one for both windows (`docs/settings-reference.md`).
+- Which folders are folded is held by the window alone and is not kept.
+- A fold, or a layout change, redraws the last status. An open diff closes with that redraw, as it does on a status push.
+
 ## Settings (global)
 
 | Key | Default | Effect |
@@ -199,7 +211,9 @@ Under **Settings → Projects & Sidebar → Version control**. Documented in `do
 ## Files
 
 `src/vcs/{index,git,parse-git-status}.js`; `src/app/vcs.js`; `src/renderer/shell/sidebar-vcs.js`,
-`sidebar.js`, `sidebar-events.js`; `src/renderer/views/grid-view.js`; `src/renderer/changed-files.{html,js}`;
+`sidebar.js`, `sidebar-events.js`; `src/renderer/views/grid-view.js`; `src/renderer/changed-files.{html,js}`,
+`src/renderer/lib/file-tree.js`;
 `src/renderer/diff-window.{html,js}`; `src/renderer/panels/settings-global-html.js`, `settings-panel.js`;
 `src/renderer/style.css`; `src/main.js`, `src/preload.js`, `src/app/windows.js`.
-Tests: `test/vcs-{parse-git-status,parity,scheduler,diff-untracked,file-versions}.test.js`.
+Tests: `test/vcs-{parse-git-status,parity,scheduler,diff-untracked,file-versions}.test.js`, `test/file-tree.test.js`,
+`test/changed-files-page.test.js`.

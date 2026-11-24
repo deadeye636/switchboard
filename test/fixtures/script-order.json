@@ -191,6 +191,7 @@
   "changed-files.html": [
     "presence-report.js",
     "diff-render.js",
+    "file-tree.js",
     "changed-files.js"
   ],
   "diff-window.html": [
@@ -200,6 +201,7 @@
   "session-changes.html": [
     "presence-report.js",
     "session-changes-rows.js",
+    "file-tree.js",
     "diff-render.js",
     "session-changes.js"
   ]

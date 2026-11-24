@@ -1,4 +1,5 @@
-// Renderer for the standalone changes window (#277). Self-contained — uses only window.api (preload).
+// Renderer for the standalone changes window (#277). Self-contained — uses only window.api (preload), diff-render.js and
+// lib/file-tree.js (the List / Tree layout of each status group, #894).
 // Loaded as an external script because the app enforces a `script-src 'self'` CSP that blocks inline.
 (function () {
   'use strict';
@@ -23,17 +24,49 @@
   ];
   const LETTER = { staged: 'M', unstaged: 'M', untracked: '?', conflicted: 'U' };
 
-  function fileRow(f) {
-    const path = f.origPath ? '<span class="ren">' + esc(f.origPath) + ' → </span>' + splitPath(f.path) : splitPath(f.path);
+  const store = (() => { try { return window.localStorage; } catch { return null; } })();
+  let layout = readFileListLayout(store);
+  const folded = new Set();     // `<group kind>|<folder path>` of every folded folder in Tree; this window only
+  let last = null;              // the status last drawn, so a layout or fold change redraws without a poll
+
+  // `at` is the row's place in Tree ({ name, depth }); without it the row is the List row with its whole path.
+  function fileRow(f, at) {
+    const name = at ? esc(at.name) : splitPath(f.path);
+    const path = f.origPath ? '<span class="ren">' + esc(f.origPath) + ' → </span>' + name : name;
     const letter = (f.x && f.x !== '.') ? f.x : (f.y && f.y !== '.') ? f.y : LETTER[f.kind] || '•';
-    return '<div class="file" data-path="' + esc(f.path) + '" data-kind="' + esc(f.kind) + '">'
+    return '<div class="file' + (at ? ' in-tree' : '') + '" data-path="' + esc(f.path) + '" data-kind="' + esc(f.kind) + '"'
+      + (at ? ' style="--depth:' + at.depth + '" title="' + esc(f.path) + '"' : '') + '>'
       + '<span class="st ' + f.kind + '">' + esc(letter) + '</span>'
       + '<span class="fpath">' + path + '</span>'
       + '<span class="actions"><button data-act="open">Open</button><button data-act="reveal">Reveal</button></span>'
       + '</div>';
   }
 
+  // A folder row of Tree: a click folds or unfolds what is under it.
+  function dirRow(group, row) {
+    return '<div class="tree-dir' + (row.collapsed ? ' collapsed' : '') + '" data-dir="' + esc(group + '|' + row.path) + '" style="--depth:' + row.depth + '"'
+      + ' role="button" tabindex="0" aria-expanded="' + (row.collapsed ? 'false' : 'true') + '" title="' + esc(row.path) + '">'
+      + '<span class="caret">' + (row.collapsed ? '▸' : '▾') + '</span><span class="fpath">' + esc(row.name) + '/</span>'
+      + '<span class="n">' + row.count + '</span></div>';
+  }
+
+  function groupRows(rows, kind) {
+    if (layout !== 'tree') return rows.map((f) => fileRow(f)).join('');
+    return fileTreeRows(rows, (f) => f.path, (path) => folded.has(kind + '|' + path))
+      .map((row) => (row.kind === 'dir' ? dirRow(kind, row) : fileRow(row.item, row))).join('');
+  }
+
+  function drawLayout() {
+    const host = el('layout');
+    if (!host.children.length) {
+      host.innerHTML = FILE_LIST_LAYOUTS.map(([value, text]) => '<button type="button" class="btn" data-layout="' + esc(value) + '" aria-pressed="false">' + esc(text) + '</button>').join('');
+    }
+    for (const b of host.querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.layout === layout ? 'true' : 'false');
+  }
+
   function render(s) {
+    last = s;
+    drawLayout();
     if (!s) {
       el('body').innerHTML = '<div class="empty">No status yet — this may not be a repository, or the first poll is pending.</div>';
       el('branch').textContent = ''; el('state').style.display = 'none'; el('foot').textContent = '';
@@ -52,7 +85,7 @@
       const rows = files.filter((f) => f.kind === g.kind);
       if (!rows.length) continue;
       html += '<div class="grp"><div class="grp-head"><span class="bar" style="background:' + g.color + '"></span>'
-        + g.title + ' <span class="n">' + rows.length + '</span></div>' + rows.map(fileRow).join('') + '</div>';
+        + g.title + ' <span class="n">' + rows.length + '</span></div>' + groupRows(rows, g.kind) + '</div>';
     }
     el('body').innerHTML = html || '<div class="empty">Working tree clean.</div>';
 
@@ -96,8 +129,35 @@
     }
     // A click inside the diff pane (selecting text, etc.) must not collapse the row.
     if (e.target.closest('.diff-pane')) return;
+    const dir = e.target.closest('[data-dir]');
+    if (dir) { toggleFolder(dir.dataset.dir); return; }
     const row = e.target.closest('.file');
     if (row) toggleDiff(row);
+  });
+
+  // A fold or a layout change redraws the last status. An open diff is closed by the redraw, as a poll's redraw does.
+  function toggleFolder(key) {
+    if (folded.has(key)) folded.delete(key); else folded.add(key);
+    if (last) render(last);
+  }
+
+  el('body').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const dir = e.target.closest('[data-dir]');
+    if (!dir) return;
+    e.preventDefault();
+    const key = dir.dataset.dir;
+    toggleFolder(key);
+    const again = [...document.querySelectorAll('[data-dir]')].find((d) => d.dataset.dir === key);
+    if (again) again.focus();          // the row was drawn anew: the caret stays on it
+  });
+
+  el('layout').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-layout]');
+    if (!b || b.dataset.layout === layout) return;
+    layout = b.dataset.layout === 'tree' ? 'tree' : 'list';
+    writeFileListLayout(store, layout);
+    if (last) render(last); else drawLayout();
   });
 
   // Click a row to expand/collapse its diff underneath (#285).

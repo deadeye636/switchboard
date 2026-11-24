@@ -23,6 +23,12 @@
     .updated { font-size:11px; color:var(--faint); font-family:var(--mono); }
     .btn { border:1px solid var(--border); background:var(--panel2); color:var(--text); border-radius:6px; font-family:var(--ui); font-size:12px; padding:5px 10px; cursor:pointer; }
     .btn:hover { border-color:var(--accent); color:var(--accent); }
+    .btn[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
+    /* The List / Tree switch (#894), the same segmented buttons as the session's Details window. */
+    .seg { display:inline-flex; }
+    .seg .btn { border-radius:0; }
+    .seg .btn:first-child { border-radius:6px 0 0 6px; }
+    .seg .btn:last-child { border-radius:0 6px 6px 0; margin-left:-1px; }
     .grp-head { display:flex; align-items:center; gap:9px; padding:9px 14px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:600; color:var(--muted); border-bottom:1px solid var(--border2); }
     .grp-head .bar { width:3px; height:12px; border-radius:2px; }
     .grp-head .n { font-family:var(--mono); color:var(--faint); letter-spacing:0; }
@@ -35,6 +41,14 @@
     .st.untracked { color:var(--faint); } .st.conflicted { color:var(--red); }
     .fpath { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .fpath .dir { color:var(--faint); } .fpath .ren { color:var(--faint); }
+    /* Tree layout (#894): a folder row, and every row indented by its depth. */
+    .file.in-tree { padding-left:calc(30px + var(--depth) * 16px); }
+    .tree-dir { display:flex; align-items:center; gap:6px; padding:4px 14px 4px calc(14px + var(--depth) * 16px); min-height:26px; box-sizing:border-box; font-family:var(--mono); font-size:12px; color:var(--muted); border-bottom:1px solid var(--border2); cursor:pointer; }
+    .tree-dir:hover { background:var(--panel2); }
+    .tree-dir:focus-visible { outline:1px solid var(--accent); outline-offset:-1px; }
+    .tree-dir .caret { width:10px; color:var(--faint); flex:none; }
+    .tree-dir .fpath { color:var(--muted); }
+    .tree-dir .n { margin-left:auto; font-size:11px; color:var(--faint); }
     .actions { margin-left:auto; display:none; gap:6px; }
     .file:hover .actions { display:flex; }
     .actions button { font-family:var(--ui); font-size:11px; color:var(--muted); border:1px solid var(--border); border-radius:5px; padding:1px 8px; cursor:pointer; background:var(--bg); }
@@ -64,6 +78,7 @@
     <span class="state" id="state" style="display:none"></span>
     <span class="spacer"></span>
     <span class="updated" id="updated"></span>
+    <span class="seg" id="layout" title="Show the files as a flat list or grouped by folder"></span>
     <button class="btn" id="refresh">Refresh</button>
   </div>
   <div id="body"><div class="empty">Loading…</div></div>
@@ -71,6 +86,7 @@
   <!-- Review in this window is presence too (#673). -->
   <script src="shell/presence-report.js"></script>
   <script src="diff-render.js"></script>
+  <script src="lib/file-tree.js"></script>
   <script src="changed-files.js"></script>
 </body>
 </html>

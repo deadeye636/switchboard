@@ -892,7 +892,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Version-control state on the cards (#277, #284, #285, #287)** — a session's working directory is
   usually a repo, and the app showed nothing about it. A git glyph on every project/worktree header and
   grid card opens a **changes window** per repo: files grouped by state (conflicts first), renames as
-  `old → new`, Open and Reveal, live-refreshed on the same poll. A file row expands a colored inline
+  `old → new`, Open and Reveal, live-refreshed on the same poll. A List / Tree switch draws each group as
+  a flat list or as a foldable folder tree; the session's Details window has the same switch (#894). A file row expands a colored inline
   diff; above ~200 lines it offers *Open in window*, a standalone CodeMirror side-by-side view with
   syntax highlighting. The branch/counts badge is opt-in (`vcsShowBadge`, default off) — the glyph alone
   is the default affordance. The poll is scoped to the cwds actually on screen, backs off per repo, and

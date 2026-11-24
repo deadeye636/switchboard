@@ -1,5 +1,6 @@
 // Renderer for a session's Details window (#870, spec 47 section 7). Self-contained: window.api (preload), the row helpers
-// of lib/session-changes-rows.js (ranges, views, the state notes) and diff-render.js (the diff colouring and its bar).
+// of lib/session-changes-rows.js (ranges, views, the state notes), lib/file-tree.js (the List / Tree layout of the file
+// rows, #894) and diff-render.js (the diff colouring and its bar).
 // An external script because the app enforces `script-src 'self'`.
 //
 // The page holds a SESSION ID and row ids main gave out, never a path or a SHA of its own. Everything somebody else wrote
@@ -39,7 +40,11 @@
     at: startAt,
     atStamp: 0,             // the read counter when `at` was set: only a read STARTED after it may land on it
     seq: 0,
+    layout: 'list',         // 'list' | 'tree' (#894), the choice both changed-file windows share
+    folded: new Set(),      // `<group>|<folder path>` of every folded folder in Tree; this window only
   };
+  const store = (() => { try { return window.localStorage; } catch { return null; } })();
+  state.layout = readFileListLayout(store);
 
   const splitPath = (p) => {
     const i = p.lastIndexOf('/');
@@ -48,7 +53,8 @@
 
   // --- the rows ---
 
-  function fileRowHtml(f) {
+  // `at` is the row's place in Tree ({ name, depth }); without it the row is the List row with its whole path.
+  function fileRowHtml(f, at) {
     const tags = [];
     if (f.outside) tags.push('<span class="tag">outside this checkout</span>');
     else if (f.isNew) tags.push('<span class="tag new">new</span>');
@@ -58,9 +64,25 @@
     else if (isNum(f.added)) lines = '<span class="add">+' + f.added + '</span><span class="del">−' + (f.deleted || 0) + '</span>';
     const edits = isNum(f.count) ? plural(f.count, 'edit') : f.unknown ? 'edits unknown' : '';
     const open = state.expanded.has(f.id);
-    return '<div class="file' + (open ? ' expanded' : '') + (state.selected === f.id ? ' selected' : '') + '" data-id="' + esc(f.id) + '" data-kind="file">'
-      + '<span class="fpath">' + splitPath(f.key) + '</span><span class="cnt">' + tags.join('') + lines
+    return '<div class="file' + (at ? ' in-tree' : '') + (open ? ' expanded' : '') + (state.selected === f.id ? ' selected' : '') + '" data-id="' + esc(f.id) + '" data-kind="file"'
+      + (at ? ' style="--depth:' + at.depth + '" title="' + esc(f.key) + '"' : '') + '>'
+      + '<span class="fpath">' + (at ? esc(at.name) : splitPath(f.key)) + '</span><span class="cnt">' + tags.join('') + lines
       + '<span class="edits">' + esc(edits) + '</span></span></div>' + (open ? paneHtml(f.id) : '');
+  }
+
+  // A folder row of Tree: a click folds or unfolds what is under it.
+  function dirRowHtml(group, row) {
+    return '<div class="tree-dir' + (row.collapsed ? ' collapsed' : '') + '" data-dir="' + esc(group + '|' + row.path) + '" style="--depth:' + row.depth + '"'
+      + ' role="button" tabindex="0" aria-expanded="' + (row.collapsed ? 'false' : 'true') + '" title="' + esc(row.path) + '">'
+      + '<span class="caret">' + (row.collapsed ? '▸' : '▾') + '</span><span class="fpath">' + esc(row.name) + '/</span>'
+      + '<span class="cnt"><span class="edits">' + esc(plural(row.count, 'file')) + '</span></span></div>';
+  }
+
+  // One group's file rows (a split block, or the one list), in the chosen layout.
+  function filesHtml(files, group) {
+    if (state.layout !== 'tree') return files.map((f) => fileRowHtml(f)).join('');
+    return fileTreeRows(files, (f) => f.key, (path) => state.folded.has(group + '|' + path))
+      .map((row) => (row.kind === 'dir' ? dirRowHtml(group, row) : fileRowHtml(row.item, row))).join('');
   }
 
   function commitRowHtml(c) {
@@ -84,8 +106,8 @@
     return parts.join(' · ');
   }
 
-  function sectionHtml(head, commits, files) {
-    return head + commits.map(commitRowHtml).join('') + files.map(fileRowHtml).join('')
+  function sectionHtml(head, commits, files, group) {
+    return head + commits.map(commitRowHtml).join('') + filesHtml(files, group)
       + (!commits.length && !files.length ? '<div class="empty">Nothing in this block.</div>' : '');
   }
 
@@ -126,13 +148,13 @@
           + (b.kind === 'pushed' ? '<span class="tag push">pushed</span>' : '');
         const range = (b.fromSha || '?') + ' → ' + (b.kind === 'open' ? 'working tree' : b.toSha || '?');
         html += sectionHtml('<div class="seg-head" data-block="' + esc(b.id) + '"><span class="t">' + esc(title.trim()) + '</span><span class="range">' + esc(range)
-          + '</span>' + tags + '<span class="tot">' + esc(totalsText(b.totals)) + '</span></div>', b.commits || [], b.files || []);
+          + '</span>' + tags + '<span class="tot">' + esc(totalsText(b.totals)) + '</span></div>', b.commits || [], b.files || [], 'block:' + b.id);
       }
     } else if ((v.files || []).length || (v.commits || []).length) {
       const toSha = v.range && v.range.toId ? tickSha(v, v.range.toId) : '';
       const range = base ? base + ' → ' + (v.range && v.range.toId ? toSha || 'selected entry' : 'working tree') : '';
       html += sectionHtml('<div class="seg-head"><span class="t">' + esc(rangeLabel(state.request)) + '</span><span class="range">' + esc(range)
-        + '</span><span class="tot">' + esc(totalsText(t)) + '</span></div>', v.commits || [], v.files || []);
+        + '</span><span class="tot">' + esc(totalsText(t)) + '</span></div>', v.commits || [], v.files || [], 'all');
     }
     // E7: what changed in the working tree without this session, and commits by others, are here and nowhere else; no diff.
     if (isNum(v.otherChanged) && v.otherChanged > 0) {
@@ -202,12 +224,15 @@
     if (!select.options.length) {
       select.innerHTML = CHANGES_RANGES.map(([value, text]) => '<option value="' + esc(value) + '">' + esc(text) + '</option>').join('');
       el('views').innerHTML = CHANGES_VIEWS.map(([value, text]) => '<button type="button" class="btn" data-view="' + esc(value) + '" aria-pressed="false">' + esc(text) + '</button>').join('');
+      el('layout').innerHTML = FILE_LIST_LAYOUTS.map(([value, text]) => '<button type="button" class="btn" data-layout="' + esc(value) + '" aria-pressed="false">' + esc(text) + '</button>').join('');
     }
     select.value = state.picking ? 'pick' : state.request.range;
     for (const b of el('views').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.view === state.request.view ? 'true' : 'false');
+    for (const b of el('layout').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.layout === state.layout ? 'true' : 'false');
     const showControls = !!(st && st.controls);
     select.hidden = !showControls;
     el('views').hidden = !showControls;
+    el('layout').hidden = !showControls;
     const clear = el('clear');
     clear.hidden = !(st && (st.clear || st.setReviewPoint));
     clear.textContent = st && st.setReviewPoint ? 'Set review point to now' : 'Clear';
@@ -273,6 +298,7 @@
       return;
     }
     if (typeof at.id !== 'string') return;
+    if (unfoldTo(at.id)) render();     // a row in a folded folder is not drawn
     const row = [...document.querySelectorAll('[data-id]')].find((r) => r.dataset.id === at.id);
     if (!row) return;          // not listed in this range: nothing to land on
     state.selected = at.id;
@@ -280,6 +306,28 @@
     render();           // `refresh` reads every open row's diff right after this
     const target = [...document.querySelectorAll('[data-id]')].find((r) => r.dataset.id === at.id);
     if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'center' });
+  }
+
+  // Unfolds the folders the file with this row id sits in, in the section it is drawn in (the same keys `filesHtml`
+  // folds by); a fold in another block stays. True when something was folded.
+  function unfoldTo(id) {
+    const v = state.view;
+    if (!v || state.layout !== 'tree' || !state.folded.size) return false;
+    const sections = v.view === 'split' && (v.blocks || []).length
+      ? v.blocks.map((b) => ['block:' + b.id, b.files || []])
+      : [['all', v.files || []]];
+    let changed = false;
+    for (const [group, files] of sections) {
+      const f = files.find((x) => x.id === id);
+      if (!f) continue;
+      for (const path of fileTreeAncestors(f.key)) if (state.folded.delete(group + '|' + path)) changed = true;
+    }
+    return changed;
+  }
+
+  function toggleFolder(key) {
+    if (state.folded.has(key)) state.folded.delete(key); else state.folded.add(key);
+    render();
   }
 
   // --- reading ---
@@ -363,8 +411,29 @@
       return;
     }
     if (e.target.closest('.diff-pane')) return;        // selecting text in a diff must not fold its row
+    const dir = e.target.closest('[data-dir]');
+    if (dir) { toggleFolder(dir.dataset.dir); return; }
     const row = e.target.closest('[data-id]');
     if (row) { state.selected = row.dataset.id; toggleRow(row.dataset.id); }
+  });
+
+  el('body').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const dir = e.target.closest('[data-dir]');
+    if (!dir) return;
+    e.preventDefault();
+    const key = dir.dataset.dir;
+    toggleFolder(key);
+    const again = [...document.querySelectorAll('[data-dir]')].find((d) => d.dataset.dir === key);
+    if (again) again.focus();          // the row was drawn anew: the caret stays on it
+  });
+
+  el('layout').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-layout]');
+    if (!b || b.dataset.layout === state.layout) return;
+    state.layout = b.dataset.layout === 'tree' ? 'tree' : 'list';
+    writeFileListLayout(store, state.layout);
+    render();
   });
 
   el('range').addEventListener('change', () => {

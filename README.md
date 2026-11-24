@@ -93,7 +93,7 @@ thing you can change without going looking for it, and five of them draw what yo
 like. Four ways out of it, plus Done on the last pane, and Settings → Maintenance brings it back.
 
 **Your repository, in the app.** A git glyph on every project header opens a changes window: files
-grouped by state, renames as `old → new`, click one and its diff expands inline. Polling never takes
+grouped by state, as a flat list or a folder tree, renames as `old → new`, click one and its diff expands inline. Polling never takes
 git's index lock, so it cannot fight the agent working in that repo.
 
 **Notes that stay attached to where they came from.** Tasks scoped to a project, a session or a

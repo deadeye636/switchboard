@@ -837,6 +837,7 @@ and because a second window can corrupt them.
 | `paneActiveLeaf`, `panePresets` | which pane had the focus; the saved panes layouts |
 | `conversationHeldHintShown` | the once-only hint on how to steer has been shown |
 | `markdownPreviewMode`, `workFilesPreviewMode` | how a Markdown file and the work files open: the preview mode last chosen |
+| `changedFilesLayout` | `list` or `tree`: how the changes window and a session's Details window draw their file rows (#894). One key for both windows; anything else reads as `list` |
 | `sessionSidebar` | per-session state of the session sidebar: open or closed, width, open groups (#817). A detached window writes its own session's row |
 | `usageStatusLastValue` | the last usage reading, so the status bar is not empty on boot |
 | `statsTable` | the Stats page's breakdown tab and each tab's sort (#877). Per viewer, never part of the remembered filter (`statsFilter`) and never sent to main; a bad value falls back to Projects sorted by tokens |

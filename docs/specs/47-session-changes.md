@@ -232,6 +232,13 @@ copy). There is no separate review list (V2): the timeline strip above the secti
 is highlighted, and two clicked ticks are "Pick entries". A Clear tick range is a past review, opened read-only. Every diff
 line is escaped; the diff text is read only when a row is opened.
 
+**List / Tree (#894).** The head carries the same List / Tree switch as the changes window (spec 15), drawn with
+`src/renderer/lib/file-tree.js`. In Tree each section's files (the one list, or one split block) form their own tree,
+and the commit rows stay above them as they are. Folded folders are held by the window alone and keyed by section and
+folder path. A window opened at a file inside a folded folder unfolds that folder first, so the landing still finds its
+row. The choice is the `changedFilesLayout` key in `localStorage`, shared with the changes window. The session sidebar's
+Changes group (§6) keeps its flat list: it is a capped list in a narrow column, with no room for an indent.
+
 ## Timeline, range and views (owner decisions of 2026-11-13)
 
 Mockup: docs/plans/870-session-changes/mockups/timeline.html (local). Recorded in #870.
@@ -464,7 +471,7 @@ Version control: `src/vcs/git.js`, `src/vcs/parse-git-changes.js`, `src/app/vcs.
 `fileVersions` `rev` mode).
 App: `src/app/session-changes.js`, `src/app/session-changes-model.js`, `src/preload.js`.
 Renderer: `src/renderer/session/session-sidebar.js`, `src/renderer/lib/session-changes-rows.js`,
-`src/renderer/lib/sidebar-groups.js`, `src/renderer/session-changes.html`, `src/renderer/session-changes.js`,
+`src/renderer/lib/sidebar-groups.js`, `src/renderer/lib/file-tree.js`, `src/renderer/session-changes.html`, `src/renderer/session-changes.js`,
 `src/renderer/diff-render.js`, `src/renderer/style.css`.
 Tests, by name: `test/change-events.test.js`, `test/git-command-events.test.js`, `test/changes-record.test.js`,
 `test/claude-change-events.test.js`, `test/codex-change-events.test.js`, `test/pi-change-events.test.js`,

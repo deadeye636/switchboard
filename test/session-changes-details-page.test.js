@@ -38,7 +38,7 @@ function viewModel(extra = {}) {
   };
 }
 
-function load({ at = {}, view = viewModel(), diff = { ok: true, kind: 'file', text: '@@ -1 +1 @@\n-a\n+b\n' } } = {}) {
+function load({ at = {}, view = viewModel(), diff = { ok: true, kind: 'file', text: '@@ -1 +1 @@\n-a\n+b\n' }, layout = null } = {}) {
   const dom = new JSDOM(fs.readFileSync(path.join(RENDERER, 'session-changes.html'), 'utf8'), {
     url: 'http://localhost/session-changes.html?session=S&label=proj&at=' + encodeURIComponent(JSON.stringify(at)),
     runScripts: 'outside-only',
@@ -59,7 +59,8 @@ function load({ at = {}, view = viewModel(), diff = { ok: true, kind: 'file', te
     onSessionChangesUpdated: (cb) => { listeners.updated = cb; return () => { listeners.updated = null; }; },
     onSessionChangesDetailsAt: (cb) => { listeners.at = cb; return () => {}; },
   };
-  for (const file of ['lib/session-changes-rows.js', 'diff-render.js', 'session-changes.js']) {
+  if (layout) window.localStorage.setItem('changedFilesLayout', layout);
+  for (const file of ['lib/session-changes-rows.js', 'lib/file-tree.js', 'diff-render.js', 'session-changes.js']) {
     window.eval(fs.readFileSync(path.join(RENDERER, file), 'utf8'));
   }
   return { window, document: window.document, calls, listeners };
@@ -338,4 +339,100 @@ test('Clear marks the review and reads again', async () => {
   await settle();
   assert.deepEqual(plain(calls.clear), [{ missing: false }]);
   assert.ok(calls.details.length > before);
+});
+
+// --- List / Tree (#894) ---
+
+function treeView() {
+  const file = (id, key) => ({ id, key, count: 1, unknown: false, isNew: false, outside: false, otherSessions: 0, added: 1, deleted: 0, binary: false });
+  return viewModel({
+    files: [file('f:a', 'src/renderer/shell/sidebar.js'), file('f:b', 'src/renderer/shell/sidebar-filters.js'), file('f:c', 'src/app/settings.js'), file('f:d', 'README.md')],
+    commits: [],
+  });
+}
+
+test('List is the default; Tree groups the files by folder and joins single-folder chains', async () => {
+  const { window, document } = load({ view: treeView() });
+  await settle();
+  assert.equal(document.querySelector('#layout [data-layout="list"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(document.querySelectorAll('#body .tree-dir').length, 0);
+  assert.equal(document.querySelector('.file[data-id="f:a"] .fpath').textContent, 'src/renderer/shell/sidebar.js');
+
+  document.querySelector('#layout [data-layout="tree"]').click();
+  await settle();
+  assert.equal(window.localStorage.getItem('changedFilesLayout'), 'tree', 'the choice is kept');
+  const order = [...document.querySelectorAll('#body .tree-dir, #body .file')].map((r) => (r.dataset.dir ? 'dir:' + r.dataset.dir.split('|')[1] : r.dataset.id));
+  assert.deepEqual(order, ['dir:src', 'dir:src/app', 'f:c', 'dir:src/renderer/shell', 'f:b', 'f:a', 'f:d']);
+  assert.equal(document.querySelector('.tree-dir[data-dir="all|src/renderer/shell"] .fpath').textContent, 'renderer/shell/');
+  assert.equal(document.querySelector('.file[data-id="f:a"] .fpath').textContent, 'sidebar.js');
+});
+
+test('a folder row folds and unfolds; a row diff still opens in Tree', async () => {
+  const { document, calls } = load({ view: treeView(), layout: 'tree' });
+  await settle();
+  document.querySelector('.tree-dir[data-dir="all|src/renderer/shell"]').click();
+  await settle();
+  assert.equal(document.querySelector('.file[data-id="f:a"]'), null, 'a folded folder hides its files');
+  assert.equal(document.querySelector('.tree-dir[data-dir="all|src/renderer/shell"]').getAttribute('aria-expanded'), 'false');
+  document.querySelector('.tree-dir[data-dir="all|src/renderer/shell"]').click();
+  await settle();
+  document.querySelector('.file[data-id="f:a"]').click();
+  await settle();
+  assert.deepEqual(plain(calls.diff), ['f:a']);
+  assert.equal(document.querySelector('.file[data-id="f:a"]').nextElementSibling.dataset.for, 'f:a', 'the diff pane follows its row');
+});
+
+test('opened at a file inside a folded folder, Tree unfolds it and lands there', async () => {
+  const { document, listeners } = load({ view: treeView(), layout: 'tree' });
+  await settle();
+  document.querySelector('.tree-dir[data-dir="all|src"]').click();
+  await settle();
+  assert.equal(document.querySelector('.file[data-id="f:a"]'), null);
+  listeners.at({ id: 'f:a' });
+  await settle();
+  const row = document.querySelector('.file[data-id="f:a"]');
+  assert.ok(row && row.classList.contains('selected') && row.classList.contains('expanded'));
+});
+
+test('in Split each block has its own tree; landing unfolds only the block of its file', async () => {
+  const file = (id, key) => ({ id, key, count: 1, unknown: false, isNew: false, outside: false, otherSessions: 0, added: 1, deleted: 0, binary: false });
+  const split = viewModel({
+    view: 'split', request: { range: 'whole', view: 'split', pickFrom: null, pickTo: null }, files: [], commits: [],
+    blocks: [
+      { id: 'b1', kind: 'pushed', push: { at: Date.now() }, fromSha: 'a', toSha: 'b', commits: [], files: [file('f:1', 'src/a/x.js')], totals: {} },
+      { id: 'b2', kind: 'open', fromSha: 'b', commits: [], files: [file('f:2', 'src/a/y.js')], totals: {} },
+    ],
+  });
+  const { document, listeners } = load({ view: split, layout: 'tree' });
+  await settle();
+  assert.deepEqual([...document.querySelectorAll('.tree-dir')].map((d) => d.dataset.dir), ['block:b1|src/a', 'block:b2|src/a']);
+  document.querySelector('.tree-dir[data-dir="block:b1|src/a"]').click();
+  await settle();
+  document.querySelector('.tree-dir[data-dir="block:b2|src/a"]').click();
+  await settle();
+  listeners.at({ id: 'f:2' });
+  await settle();
+  assert.ok(document.querySelector('.file[data-id="f:2"]'), 'the block of the file is unfolded');
+  assert.equal(document.querySelector('.file[data-id="f:1"]'), null, 'a fold in the other block stays');
+});
+
+test('a folder row folds from the keyboard and keeps the caret', async () => {
+  const { window, document } = load({ view: treeView(), layout: 'tree' });
+  await settle();
+  const dir = document.querySelector('.tree-dir[data-dir="all|src/renderer/shell"]');
+  dir.focus();
+  dir.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await settle();
+  const again = document.querySelector('.tree-dir[data-dir="all|src/renderer/shell"]');
+  assert.equal(again.getAttribute('aria-expanded'), 'false');
+  assert.equal(document.activeElement, again);
+});
+
+test('Tree escapes folder and file names', async () => {
+  const file = (id, key) => ({ id, key, count: 1, unknown: false, isNew: false, outside: false, otherSessions: 0, added: 1, deleted: 0, binary: false });
+  const { document } = load({ view: viewModel({ files: [file('f:x', 'd<img src=x onerror=1>/"q".js')], commits: [] }), layout: 'tree' });
+  await settle();
+  assert.equal(document.querySelectorAll('#body img').length, 0);
+  assert.equal(document.querySelector('.tree-dir .fpath').textContent, 'd<img src=x onerror=1>/');
+  assert.equal(document.querySelector('.file[data-id="f:x"] .fpath').textContent, '"q".js');
 });
