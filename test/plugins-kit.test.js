@@ -453,6 +453,37 @@ test('chip sets: a chip on in each set ANDs the two; within a set it stays OR', 
   assert.deepEqual(names(h).sort(), ['one', 'two']);
 });
 
+test('chip sets: a chip counts what the OTHER sets let through, and a chip at 0 stays, dimmed (#895)', () => {
+  const { host: h } = host();
+  const A = { key: 'a', label: 'Alpha' };
+  const B = { key: 'b', label: 'Beta' };
+  const M = { key: 'm', label: 'Memory' };
+  const S = { key: 's', label: 'Settings' };
+  const rows = [
+    { id: '1', name: 'one', g: [A], k: [M] },
+    { id: '2', name: 'two', g: [A], k: [M] },
+    { id: '3', name: 'three', g: [B], k: [S] },
+  ];
+  kit.mountView(h, twoSets({ filterKey: 'sets-count', sections: [{ title: '', rows }] }));
+  chipsIn(chipRowsOf(h)[0])[1].click();                       // Beta
+  const kinds = chipsIn(chipRowsOf(h)[1]);
+  assert.deepEqual(kinds.map(c => c.textContent), ['Memory 0', 'Settings 1'], 'the kind counts follow the CLI choice');
+  assert.ok(kinds[0].classList.contains('empty') && !kinds[1].classList.contains('empty'));
+  // Its own set's choice does not change a set's own counts: both CLI chips still say what they would show.
+  assert.deepEqual(chipsIn(chipRowsOf(h)[0]).map(c => c.textContent), ['Alpha 2', 'Beta 1']);
+  // An active chip at 0 can still be switched off.
+  kinds[0].click();
+  assert.equal(h.querySelector('.plugins-empty').textContent, 'Nothing matches the filter.');
+  assert.deepEqual(chipsIn(chipRowsOf(h)[0]).map(c => c.textContent), ['Alpha 2', 'Beta 0'], 'the CLI counts follow the kind choice too');
+  const memory = chipsIn(chipRowsOf(h)[1])[0];
+  assert.equal(memory.getAttribute('aria-pressed'), 'true');
+  memory.click();
+  assert.deepEqual(names(h), ['three']);
+  // With the CLI choice lifted, every count is over all rows again.
+  chipsIn(chipRowsOf(h)[0])[1].click();
+  assert.deepEqual(chipsIn(chipRowsOf(h)[1]).map(c => c.textContent), ['Memory 2', 'Settings 1']);
+});
+
 test('chip sets: each set keeps its own choice across a re-mount, and the first set keeps the old store key', () => {
   const { host: h } = host();
   kit.mountView(h, twoSets({ filterKey: 'sets-keep' }));

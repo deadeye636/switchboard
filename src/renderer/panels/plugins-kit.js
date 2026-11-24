@@ -229,18 +229,21 @@
       return Array.isArray(g) ? g.filter(x => x && x.key != null) : [];
     }
 
-    // The distinct groups of one set over every row, in first-seen order, with their counts. Fewer than two: no chips.
-    function groupList(set) {
+    // The distinct groups of one set over every row, in first-seen order. Fewer than two: no chips. Which groups exist is
+    // read over every row, so a chip never disappears. Without `counted` a count is over every row; with it, only the rows
+    // it lets through count — `drawList` passes the other sets' choice (#895), so the number is what a click on the chip
+    // shows, and a group can count 0.
+    function groupList(set, counted) {
       const seen = new Map();
       for (const row of allRows()) {
         const own = new Set();
+        const counts = !counted || counted(row);
         for (const g of groupsOf(set, row)) {
           const key = String(g.key);
           if (own.has(key)) continue;
           own.add(key);
-          const at = seen.get(key);
-          if (at) at.count += 1;
-          else seen.set(key, { key, label: String(g.label != null ? g.label : g.key), count: 1 });
+          if (!seen.has(key)) seen.set(key, { key, label: String(g.label != null ? g.label : g.key), count: 0 });
+          if (counts) seen.get(key).count += 1;
         }
       }
       return [...seen.values()];
@@ -254,7 +257,8 @@
       const sel = selection(set);
       for (const g of groups) {
         const on = sel.has(g.key);
-        const chip = el(doc, 'button', 'settings-action-btn sv-mcp-chip' + (on ? ' active' : ''), `${g.label} ${g.count}`);
+        // A chip at 0 stays, dimmed: the row keeps its shape, and an active one can still be switched off (#895).
+        const chip = el(doc, 'button', 'settings-action-btn sv-mcp-chip' + (on ? ' active' : '') + (g.count === 0 ? ' empty' : ''), `${g.label} ${g.count}`);
         chip.type = 'button';
         chip.dataset.group = g.key;
         chip.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -351,8 +355,10 @@
         return { set, groups, active };
       });
       const narrowing = sets.filter(s => s.active.size);
-      // Every set with a choice must agree (AND); within a set, any of its chips will do (OR).
-      const inGroup = (r) => narrowing.every(({ set, active }) => {
+      // Every set with a choice must agree (AND); within a set, any of its chips will do (OR). `except` leaves one set out:
+      // what its own chips count is what the OTHER sets let through (#895).
+      const inGroup = (r, except) => narrowing.every(({ set, active }) => {
+        if (set === except) return true;
         const g = groupsOf(set, r);
         return !g.length || g.some(x => active.has(String(x.key)));
       });
@@ -377,7 +383,9 @@
       }
       const narrowed = !!query || narrowing.length > 0;
       countEl.textContent = narrowed ? `${shown} of ${total}` : String(total);
-      chipBox.replaceChildren(...sets.map(({ set, groups }) => drawChips(set, groups)));
+      // Only another set's choice changes a count, so a view with one narrowing set keeps that set's own counts as read.
+      chipBox.replaceChildren(...sets.map(({ set, groups }) => drawChips(set,
+        narrowing.some(n => n.set !== set) ? groupList(set, (r) => inGroup(r, set)) : groups)));
       if (!shown) {
         body.appendChild(el(doc, 'div', 'plugins-empty settings-description',
           narrowed ? 'Nothing matches the filter.' : (current.emptyText || 'Nothing here yet.')));

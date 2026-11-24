@@ -12677,6 +12677,7 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 .sv-mcp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .sv-mcp-chip { font-size: 12px; line-height: 1.6; padding: 1px 8px; border-radius: 10px; border: 1px solid #4a4a5a; white-space: nowrap; }
 .sv-mcp-chip.active { border-color: #61afef; color: #61afef; }
+.sv-mcp-chip.empty { opacity: 0.45; }
 .sv-mcp-chip-unknown { border-style: dashed; color: var(--status-attention, #f0a050); }
 /* The Plugins manager's list-to-detail kit (#803, spec 40 D7, panels/plugins-kit.js): a page head, a filter with a
    count, labelled sections, and one-line rows grouped in one rounded container. A row is a `.settings-field` (so the

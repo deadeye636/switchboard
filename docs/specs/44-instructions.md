@@ -158,6 +158,12 @@ appends a page's own `cfg.chipSets`. Sets AND with each other, chips within a se
 (the first under the view's old store key, so a CLI choice made before stays). A row in a section this build does not
 know counts under "Other", the section it is drawn in.
 
+**A chip counts what the other sets let through** (#895, owner decision 2026-11-24). With a CLI chip on, a kind chip's
+number is the rows of that kind under that CLI, so it is what a click shows; before, it counted every row and could read
+"Memory 3" over "Nothing matches the filter." A set's own choice never changes its own counts. Which chips exist is still
+read over every row: a chip at 0 stays in its row, dimmed (`.sv-mcp-chip.empty`), so the row keeps its shape and an
+active chip can still be switched off. The rule is the kit's, so every view with more than one chip set has it.
+
 - Its own nav item (`instructions`, P1) in both windows, in the Extensions group just before the Plugins group (#833: after
   it, it stood alone under Marketplace and read as one of the group's items), with its own section; it is in `SETTINGS_SEED_CATS` (main) and in `settingsPlugins.SEED_CATS` (renderer), which a test compares both ways.
 - One kit view over `pluginsViews.mountItemView` (new optional `matchContent` in its cfg for the content filter), sections Instructions, Memory, Settings files, Output styles, Resources (a section only when it has rows), chips by CLI and, in a second row, chips by kind (one per section, with its count; owner decision 2026-11-07), the `declines` lines, the editor with the conflict UI for an editable row and the read-only viewer for any other. No New and no Delete (`probeCreate` answers false, no row is `deletable`). A save refused by format validation shows main's reason where the editor shows any refusal.
