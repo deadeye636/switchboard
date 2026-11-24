@@ -237,6 +237,29 @@ function announceBackground(state) {
 }
 
 /**
+ * The `rpc` this session runs with. A half that keeps no state per session is that object as declared. A half that
+ * does (#734: a runtime whose turns and requests carry ids the protocol hands out, so a stop has to name the turn that
+ * runs) declares `createInstance(spawn)`, and what it answers is laid over the half: its own members win, every other
+ * key still reads the half's. `spawn` is `{ cwd, env, options, appliedOptions, forkFrom, init, link }` — `init` is what
+ * the backend's `buildLaunch` put on the launch for it, handed over untouched (the core never reads it), and `link` is
+ * `{ write, request }`, the core's own, which answers "not running" until the session runs.
+ *
+ * The answer is a PLAIN object whose own members are copied once: a class instance would keep its methods on its
+ * prototype, where the copy does not reach, and the half's stateless members would run in their place without a word —
+ * so anything else is refused, as is an answer that is no object at all. A getter is read once at that copy; state
+ * lives in what the members close over. Capability keys the view is told about from the declared half (`imageInput`,
+ * `shellLines`, …) stay the half's: an instance that answered them differently would disagree with the view. A refusal
+ * throws, so spawn.js's catch releases what it allocated, as for a child that did not start.
+ */
+function instanceOf(rpc, spawn) {
+  if (!rpc || typeof rpc.createInstance !== 'function') return rpc;
+  const instance = rpc.createInstance(spawn);
+  const proto = instance && typeof instance === 'object' ? Object.getPrototypeOf(instance) : undefined;
+  if (proto !== Object.prototype && proto !== null) throw new Error('the backend could not set up its protocol for this session');
+  return Object.assign(Object.create(rpc), instance);
+}
+
+/**
  * Start one runtime-driven session.
  *
  * `rpc` is the backend's protocol half (its descriptor's `rpc`), `command`/`args` are the resolved launch,
@@ -244,8 +267,18 @@ function announceBackground(state) {
  * backend's transcript read, see `attachFromTranscript`). Answers the PTY-shaped process spawn.js stores as
  * `session.pty`. Throws if the child cannot be started, so spawn.js's own catch releases what it allocated.
  */
-function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, options, appliedOptions, backendId }) {
+function start({ tag, rpc: declared, command, args, cwd, env, label, timeouts, forkFrom, options, appliedOptions, backendId, init: launchInit }) {
   if (!ctx) throw new Error('agent-rpc is not initialised');
+  // The link is the instance's way back into this session (#734): the same `write` and `request` the core uses. Both are
+  // declared further down and read `state`, so until the session runs (`linked`, set once `state` exists) the link
+  // answers as for a stopped session — a call while the instance is built, or from a timer it set when the spawn then
+  // failed, gets "not running" instead of throwing on the main process.
+  let linked = false;
+  const link = {
+    write: (obj) => (linked ? write(obj) : false),
+    request: (build, opts) => (linked ? request(build, opts) : Promise.resolve({ success: false, error: 'not running' })),
+  };
+  const rpc = instanceOf(declared, { cwd, env, options, appliedOptions, forkFrom, init: launchInit, link });
   if (!rpc || typeof rpc.createDecoder !== 'function' || typeof rpc.responseOf !== 'function') {
     throw new Error('this backend declares no protocol');
   }
@@ -438,6 +471,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   }
   state.request = request;
   state.write = write;
+  linked = true;
 
   // A command the backend says the app answers itself (`appCommandOp`, #719): drawn as the user's line and
   // handled as the op the backend named, with nothing written to the runtime — so it is no turn, raises no

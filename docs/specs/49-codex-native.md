@@ -148,10 +148,13 @@ Everything here is added to `src/app/agent-rpc.js` and read there before any bac
 `test/runtime-backends.test.js` fails an `rpc` key the core does not read). Every addition is optional, and a half that
 declares none of it behaves byte for byte as before.
 
-- **A per-spawn instance.** The half may declare `createInstance(spawn)`; the core calls it once in `start()` and uses the
-  answer as the session's `rpc` (the same members as today). `spawn` is `{ cwd, env, options, appliedOptions, forkFrom,
-  init, link }`, with `link = { write, request }`: the core's own, so a line the instance writes still goes through
-  `noteSent` and the closed-stdin guard.
+- **A per-spawn instance.** The half may declare `createInstance(spawn)`; the core calls it once in `start()` and lays the
+  answer over the half: the instance's own members win, every other key reads the half (as built in T2, `instanceOf` in
+  `src/app/agent-rpc.js`). The answer must be a plain object — a class instance keeps its methods on its prototype, where
+  the copy does not reach, so it is refused — and capability keys the view reads off the declared half (`imageInput`,
+  `shellLines`) stay the half's. `spawn` is `{ cwd, env, options, appliedOptions, forkFrom, init, link }`, with
+  `link = { write, request }`: the core's own, so a line the instance writes still goes through `noteSent` and the
+  closed-stdin guard, and answers "not running" until the session runs.
 - **A bootstrap.** The instance may declare `bootstrap(link)`, a Promise. Until it settles, `request()` waits; the handshake's
   own requests use the link and bypass the gate. A refusal or a timeout ends the session with a notice in the backend's words
   (the child is stopped through the ordinary kill, so the exit handler and the tab's end-of-session path run unchanged). What it

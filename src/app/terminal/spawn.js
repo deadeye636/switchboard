@@ -1542,6 +1542,8 @@ async function openTerminalBody(sessionId, projectPath, isNew, sessionOptions) {
           appliedOptions: spawnOptionsFor(backend, projectPath, launchOptions),
           // Whose approvals the app remembers for this session (#731, `app/approval-memory.js`).
           backendId: backend.id,
+          // What `buildLaunch` left for the backend's per-session protocol (#734): passed through, never read here.
+          init: launch.init,
         });
       } else if (useArgvSpawn) {
         // ARGV mode: spawn the binary directly, no shell in between, so nothing re-interprets the

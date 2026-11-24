@@ -92,6 +92,8 @@ test('the member scan finds what it has to, so a green run is not a blind one', 
   assert.deepEqual([...membersRead('state.rpc.responseOf(msg); x = rpc.sendAcknowledged', 'rpc')].sort(),
     ['responseOf', 'sendAcknowledged']);
   assert.ok(membersRead(CORE, 'rpc').has('createDecoder'), 'agent-rpc.js reads the decoder factory off the rpc half');
+  // #734: a half that keeps state per session declares `createInstance`; the core reads it off the declared half.
+  assert.ok(membersRead(CORE, 'rpc').has('createInstance'), 'agent-rpc.js reads the per-session instance factory off the rpc half');
   assert.ok(membersRead(CORE, 'decoder').has('decode'), 'and decode off the decoder');
 });
 

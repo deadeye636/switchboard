@@ -29,7 +29,7 @@ const SESSION_CWD = path.join(__dirname, '..');
 // what spawn.js hands a fork's start, `options`/`appliedOptions` the launch options it hands every start, `approvalMemory` and
 // `backendId` where and under whose id #731 remembers approvals; `onSignal` runs at the moment a state report is
 // delivered, which is when the turn-hold asks its question.
-function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appliedOptions, onSignal, approvalMemory, backendId, onMaintenanceEdge, maintenanceTurnsOf, clipboardFails, notifyProjectsChanged } = {}) {
+function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appliedOptions, onSignal, approvalMemory, backendId, onMaintenanceEdge, maintenanceTurnsOf, clipboardFails, notifyProjectsChanged, init } = {}) {
   const activeSessions = new Map();
   const sent = [];
   const signals = [];
@@ -78,7 +78,7 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appl
     maintenanceTurnsOf,
   });
   const proc = agentRpc.start({
-    tag, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom, options, appliedOptions, backendId,
+    tag, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom, options, appliedOptions, backendId, init,
   });
   activeSessions.set('launch-id', { pty: proc, _terminalTag: tag, exited: false });
   return { activeSessions, sent, signals, rekeys, clipped, logged, warned, proc, tag };

@@ -566,6 +566,16 @@ answers instead of the core learning its format:
   which refuses it before it attaches. A half that declares nothing takes no images. Both runtime-driven
   backends declare it, with the one `IMAGE_INPUT` in `src/backends/rpc-shared.js` (#656): claude-native
   sends image content blocks, pi-native Pi's `images` field.
+- `createInstance(spawn)` — optional (#734, spec 49). A half that keeps state per session — a runtime that hands out
+  turn and request ids, so a stop has to name the turn that runs — answers an object per start, and the core lays it
+  over the half (`instanceOf` in `agent-rpc.js`): the instance's members win, every other key still reads the half.
+  That object is the session's `rpc`, so its `createDecoder` and its commands share whatever state it closes over.
+  `spawn` is `{ cwd, env, options, appliedOptions, forkFrom, init, link }`: `init` is what `buildLaunch` put on the
+  launch for it, passed through spawn.js untouched; `link` is `{ write, request }`, the core's own, which answers "not
+  running" until the session runs. The answer must be a PLAIN object (own members, copied once; a getter is read once):
+  a class instance keeps its methods where the copy does not reach, so it is refused, as is a non-object, before the
+  child runs. Capability keys the view reads off the declared half (`imageInput`, `shellLines`, …) stay the half's and
+  are not overridden by an instance. claude-native and pi-native declare none.
 - `gracefulStopMs` — a runtime that still writes on the way out: stdin closes first, the tree is killed
   after that long, and nothing more is written to it meanwhile. Pi declares none (#653 E14: a wait only
   where the CLI needs one). Its session manager writes each entry synchronously once the session has an
