@@ -80,6 +80,8 @@ missing entry there would make the third source silently vanish instead of faili
 One array, one file, **append only** — never insert, reorder or edit a shipped entry; retire one as
 a no-op `() => {}` in place. Not a bug: a corrupted user database.
 `test/db-migrations.test.js` pins every shipped entry by fingerprint (appending is free).
+A test that reaches its migration as `migrations[migrations.length - 1]` breaks the day the next one is
+appended: find the entry by its content (a table or column it names), never by position.
 
 Schema changes live here, **not in `db.js`**: the CREATE TABLEs and CREATE INDEXes in `schema.js`,
 the migrations in `migrations.js`.
