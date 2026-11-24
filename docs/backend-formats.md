@@ -495,6 +495,62 @@ Measured on cli 0.166.0 with `codex exec` (gpt-5.6-luna) and read back from exis
   child header's `thread_spawn` also has `agent_role`, and the header carries `forked_from_id` equal to the parent. The session cache drops all
   of these rollouts (`buildRow` returns null for a `source.subagent` header), so the flow reader finds them itself: a rollout's file name begins with its start time in LOCAL time and sits under a `<year>/<month>/<day>` folder, and in the first line `source` precedes the very large `base_instructions`, so the first 4 KB say whether a rollout is a spawned child.
 
+### Driving a thread over app-server (#734)
+Measured on 2026-11-24 in a Codex home of its own that held only the account's `auth.json`, with turns on gpt-6-luna unless
+a line says otherwise; an older version got the models its `model/list` offers, and gpt-5.6-luna. `scripts/measure-codex-app-server.js` reproduces the marker, the resume over app-server, the fork,
+the compaction, the refused models with `model/list` and the notices; `scripts/measure-codex-app-server-schema.js` the
+schema comparison. Three points came from running the CLI by hand in the same home and have no script: the resume by
+`codex exec resume` and by the TUI, the `--stdio` refusal, and the default model of a `thread/start` without `model`. The
+protocol is JSON-RPC over JSONL on the process's stdin and stdout; the request and notification names below are
+0.171.0's.
+
+- **The marker is `thread_source`, set by the client.** `thread/start` takes `threadSource`, a free string from 0.140.0
+  on. With `"switchboard"` the rollout's `session_meta` line carries `thread_source: "switchboard"`, and `thread/start`,
+  `thread/resume` and `thread/read` answer it as `threadSource` (`thread/read` from 0.152.0 on; 0.150.0 answers null
+  while the rollout has it). `src/backends/codex/parser.js` keeps a row whose `thread_source` it does not know; only
+  `guardian_review` and a `source.subagent` header are dropped.
+- **`source` is no marker.** It was `vscode` for every thread app-server started here, whatever the client's name, so it
+  cannot tell this app's threads from another app-server client's.
+- **`originator` names the creating client, not the current one.** It is `clientInfo.name` from `initialize` at the
+  time the thread was started. A later resume by a client of another name leaves it unchanged, in the answer and in the
+  file.
+- **A resume keeps the marker, whoever resumes.** A second app-server process, `codex exec resume` and the TUI's
+  `codex resume` all appended to the same rollout file, wrote no second `session_meta` line and left `thread_source` as
+  it was. A thread started natively and continued in a terminal therefore still carries the marker.
+- **A fork does not inherit it.** `thread/fork` without `threadSource` wrote a new rollout whose header has no
+  `thread_source` (`threadSource: null`), with `forkedFromId` set. `ThreadForkParams` takes `threadSource`, so a fork
+  has to send it again.
+- **Before 0.140.0 `threadSource` is an enum.** 0.129.0 to 0.139.0 accept only `user`, `subagent` and
+  `memory_consolidation`, and 0.129.0 refused `"switchboard"` with "Invalid request: unknown variant". 0.128.0 has no
+  `threadSource` at all.
+- **The server sets the practical floor, through the models, and it moves.** A turn completes only when the version
+  offers a model the server still serves to it. With a ChatGPT account the server refused the gpt-5.5, gpt-5.4 and
+  gpt-5.4-mini that 0.140.0's `model/list` offers ("The '<model>' model is not supported when using Codex with a ChatGPT
+  account", `model_not_found`), and refused gpt-5.6-luna to 0.140.0, 0.142.0 and 0.143.0 ("requires a newer version of
+  Codex"). 0.144.0 is the first version whose `model/list` offers the gpt-5.6 models, and its turn on gpt-5.6-luna
+  completed; so did 0.145.0, 0.147.0, 0.150.0 and 0.154.0. gpt-6-luna needs 0.155.0, the first version that lists it;
+  0.150.0, 0.152.0, 0.153.0 and 0.154.0 failed with it. The schema alone passes from 0.140.0 on, so a floor taken from the schema would be
+  too low, and the floor rises whenever the server retires the oldest models a version knows.
+- **No `--stdio`.** stdio is the default transport. 0.129.0 refuses the flag ("unexpected argument '--stdio'");
+  0.155.0 and later accept it.
+- **Paths.** `thread.path` is the rollout file. After `thread/resume` it came back with the `\\?\` extended-length
+  prefix on Windows, after `thread/start` without it; a comparison has to normalise this.
+- **Model per turn.** `thread/start` without `model` uses the CLI's default (gpt-6.2-sol on 0.171.0); `turn/start`
+  takes `model`, and the rollout's turn context records it.
+- **A compaction is a turn.** `thread/compact/start` answers `{}` at once. Then `thread/status/changed` (active),
+  `turn/started`, `item/started` with an item of type `contextCompaction`, `item/completed` for that item,
+  `thread/status/changed` (idle) and `turn/completed`; 3 to 4 s on a short thread. The rollout gains one
+  `type: "compacted"` line. No `thread/compacted` notification was seen.
+- **The whole history on resume is deprecated.** 0.171.0 sends a `deprecationNotice` on `thread/resume`: "Full-history
+  hydration is deprecated for paginated threads; use `excludeTurns: true`, then page with `thread/turns/list` and
+  `thread/items/list`."
+- **The cache report per turn.** `thread/tokenUsage/updated` carries `tokenUsage.last` and `tokenUsage.total`; the
+  schema gives both `inputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`, `outputTokens` and
+  `reasoningOutputTokens`. The measurement read `inputTokens` and `cachedInputTokens`. How long the cache holds: "How long Codex' cache holds (#734)" below.
+- **Schemas.** `codex app-server generate-json-schema --out <dir>` writes the protocol's JSON Schema without an account
+  or a model turn. `scripts/measure-codex-app-server-schema.js` checks a list of versions against what the native
+  backend needs; with 0.129.0 to 0.171.0 nothing on that list was missing, only the type of `ThreadSource` changed.
+
 ## Hermes — SQLite
 
 ```
@@ -1415,6 +1471,35 @@ session's turn with the same prompt (session A, gap 60) had written exactly 4,20
 over six minutes earlier, which is past the bound above. Where that read came from is unresolved.
 
 Pi's source also reads `PI_CACHE_RETENTION=long` for a longer cache lifetime, which was not tested.
+
+## How long Codex' cache holds (#734)
+
+Measured on 2026-11-24 with `scripts/measure-codex-cache-bound.js`: Codex CLI 0.171.0 over app-server, gpt-6-luna with
+effort `low`, one thread per gap in one process, one sample per gap. Each thread's first turn carried about 20,000 input
+tokens, the CLI's own instructions plus a filler text of its own; the second turn followed after the gap. "Own part" is
+what the first turn did not read from the cache (input − cached). A hit is a second turn whose cached figure grew over the
+first turn's by more than half of the own part.
+
+| Gap before the second turn | Verdict | First turn: input / cached | Own part | Second turn: cached |
+|---|---|---|---|---|
+| 34 s (trial run) | hit | 20,239 / 0 | 20,239 | 20,096 |
+| 244 s | hit | 20,236 / 0 | 20,236 | 20,096 |
+| 303 s | hit | 20,221 / 13,952 | 6,269 | 20,096 |
+| 423 s | hit | 21,219 / 11,904 | 9,315 | 21,120 |
+| 603 s | hit | 21,210 / 11,904 | 9,306 | 21,120 |
+| 903 s | hit | 21,185 / 11,904 | 9,281 | 20,992 |
+| 1,803 s | hit | 21,195 / 0 | 21,195 | 20,992 |
+| 3,603 s | miss | 21,191 / 7,168 | 14,023 | 0 |
+
+**The bound lies between 30 and 60 minutes.** Where in that range was not measured, and each gap was sampled once. This is
+OpenAI's cache behind Codex; Pi's five minutes above were measured on Anthropic's Haiku 4.5, so the two figures belong to
+different providers rather than to the two CLIs.
+
+**Threads can share part of the prefix.** The first thread's first turn read nothing from the cache; the later threads'
+first turns read between nothing and about 14,000 tokens, sent by the threads before them a few seconds earlier. The filler made each thread's
+own part distinguishable from that shared part, and every hit read it nearly in full.
+
+**A miss is unambiguous here:** the turn after an hour read 0 tokens, the shared prefix included.
 
 ---
 
